@@ -1,5 +1,4 @@
 import hashlib
-import subprocess
 import json
 import concurrent.futures
 import struct
@@ -7,8 +6,11 @@ import threading
 import datetime
 import os
 import logging
-from config import PERFORMANCE_CALCULATOR_PATH
 
+                                                            
+import rosu_pp_py as rosu
+
+from config import DB_FILE
 logger = logging.getLogger(__name__)
 
 OSR_CACHE_PATH = os.path.join(os.path.dirname(__file__), "..", "cache", "osr_cache.json")
@@ -18,7 +20,7 @@ OSR_CACHE = {}
 OSR_CACHE_LOCK = threading.Lock()
 
 def osr_load():
-                                     
+           
     if os.path.exists(OSR_CACHE_PATH):
         try:
             with open(OSR_CACHE_PATH, "r", encoding="utf-8") as f:
@@ -26,17 +28,17 @@ def osr_load():
                 logger.debug("OSR-кэш (%s): %s", OSR_CACHE_PATH, content[:200])
                 f.seek(0)
                 return json.load(f)
-        except Exception as e:
+        except Exception:
             logger.exception("Ошибка чтения OSR-кэша: %s", OSR_CACHE_PATH)
     return {}
 
 def osr_save(cache):
-                                   
+           
     with open(OSR_CACHE_PATH, "w", encoding="utf-8") as f:
         json.dump(cache, f, indent=4)
 
 def md5_load():
-                                               
+           
     if os.path.exists(MD5_CACHE_PATH):
         try:
             with open(MD5_CACHE_PATH, "r", encoding="utf-8") as f:
@@ -47,12 +49,12 @@ def md5_load():
     return {}
 
 def md5_save(cache):
-                            
+           
     with open(MD5_CACHE_PATH, "w", encoding="utf-8") as f:
         json.dump(cache, f, indent=4)
 
 def get_md5(path):
-                              
+           
     h = hashlib.md5()
     with open(path, 'rb') as f:
         for chunk in iter(lambda: f.read(4096), b""):
@@ -60,7 +62,7 @@ def get_md5(path):
     return h.hexdigest()
 
 def find_md5(full_path, cache):
-                                         
+           
     try:
         mtime = os.path.getmtime(full_path)
     except Exception:
@@ -73,11 +75,11 @@ def find_md5(full_path, cache):
     cache[full_path] = {"mtime": mtime, "md5": md5_hash}
     return md5_hash
 
-                                    
+                                         
 OSR_CACHE = osr_load()
 
 def find_osu(songs_folder, progress_callback=None):
-                                                               
+           
     files = []
     for root, dirs, filenames in os.walk(songs_folder):
         for file in filenames:
@@ -105,7 +107,7 @@ def find_osu(songs_folder, progress_callback=None):
     return md5_map
 
 def read_string(data, offset):
-                                       
+           
     if data[offset] == 0x00:
         return "", offset+1
     elif data[offset] == 0x0b:
@@ -131,12 +133,46 @@ MODS_MAPPING_ITER = [
 ]
 DISALLOWED_MODS = {"RX", "AT", "AP", "SCOREV2"}
 
+def parse_beatmap_id(osu_path):
+           
+    beatmap_id = None
+    try:
+        with open(osu_path, "r", encoding="utf-8", errors="ignore") as f:
+            in_metadata = False
+            for line in f:
+                line = line.strip()
+                                             
+                if line.startswith("[Metadata]"):
+                    in_metadata = True
+                    continue
+                                                                         
+                if in_metadata and line.startswith("[") and line.endswith("]"):
+                    break
+
+                if in_metadata and line.lower().startswith("beatmapid:"):
+                                               
+                    parts = line.split(":", 1)
+                    if len(parts) == 2:
+                        val = parts[1].strip()
+                        if val.isdigit():
+                            beatmap_id = int(val)
+                    break                                 
+    except Exception:
+        pass
+
+    return beatmap_id
+
+
 def parse_mods(mods_int):
-                                          
+           
     mods = []
     if mods_int & 512:
+                                                      
+                                           
+                                                 
         mods.append("NC")
     if mods_int & 16384:
+                                                  
         mods.append("PF")
     for bit, name in MODS_MAPPING_ITER:
         if mods_int & bit:
@@ -144,32 +180,34 @@ def parse_mods(mods_int):
     return tuple(sorted(set(mods), key=lambda x: x))
 
 def sort_mods(mod_list):
-                                         
+           
     priority = {"EZ": 1, "HD": 2, "DT": 3, "NC": 3, "HT": 3,
                 "HR": 4, "FL": 5, "NF": 6, "SO": 7}
-    out = [m for m in mod_list if m != "CL"]
+    out = [m for m in mod_list if m != "CL"]                                                       
     out.sort(key=lambda m: (priority.get(m, 9999), m))
     return out
 
 def parse_osr(osr_path):
-                                                         
+           
     with open(osr_path, "rb") as f:
         data = f.read()
     offset = 0
     mode = data[offset]
     offset += 1
-    offset += 4          
+
+    offset += 4                           
     beatmap_md5, offset = read_string(data, offset)
     player, offset = read_string(data, offset)
-    _, offset = read_string(data, offset)              
+    _, offset = read_string(data, offset)                                                       
+
     c300 = struct.unpack_from("<H", data, offset)[0]
     offset += 2
     c100 = struct.unpack_from("<H", data, offset)[0]
     offset += 2
     c50 = struct.unpack_from("<H", data, offset)[0]
     offset += 2
-    offset += 2        
-    offset += 2        
+    offset += 2         
+    offset += 2          
     cMiss = struct.unpack_from("<H", data, offset)[0]
     offset += 2
     total = struct.unpack_from("<I", data, offset)[0]
@@ -184,13 +222,14 @@ def parse_osr(osr_path):
     mods = parse_mods(mods_int)
     if any(m in DISALLOWED_MODS for m in mods):
         return None
-              
-    _, offset = read_string(data, offset)
+
+    _, offset = read_string(data, offset)                              
     win_ts = struct.unpack_from("<q", data, offset)[0]
     offset += 8
     ts_ms = win_ts / 10000 - 62135596800000
     ts = int(ts_ms // 1000)
     tstr = datetime.datetime.utcfromtimestamp(ts).strftime("%d-%m-%Y %H-%M-%S")
+
     return {
         "game_mode": mode,
         "beatmap_md5": beatmap_md5,
@@ -208,16 +247,66 @@ def parse_osr(osr_path):
     }
 
 def calc_acc(c300, c100, c50, cmiss):
-                                      
+           
     hits = c300 + c100 + c50 + cmiss
     if hits == 0:
         return 100.0
-    return round((300*c300 + 100*c100 + 50*c50) / (300*hits) * 100, 2)
+    return round((300 * c300 + 100 * c100 + 50 * c50) / (300 * hits) * 100, 2)
 
-external_process_semaphore = threading.Semaphore(1)
+def calculate_pp_rosu(osu_path, replay):
+    try:
+        beatmap = rosu.Beatmap(path=osu_path)
+        acc = calc_acc(
+            replay["count300"],
+            replay["count100"],
+            replay["count50"],
+            replay["countMiss"]
+        )
+
+        sorted_mods = sort_mods(replay["mods_list"])
+        mods_string = "".join(sorted_mods)
+
+        perf = rosu.Performance(
+            accuracy=acc,
+            combo=replay["max_combo"],
+            misses=replay["countMiss"],
+            mods=mods_string
+        )
+        attrs = perf.calculate(beatmap)
+        if not attrs:
+            return None
+
+                                                     
+        bm_id = parse_beatmap_id(osu_path)                              
+
+        result = {
+            "pp": round(float(attrs.pp)),
+                                                                          
+            "beatmap_id": bm_id if bm_id is not None else None,
+            "Beatmap": None,                                                 
+                                                                                       
+            "total_score": replay["total_score"],
+            "mods": tuple(sorted_mods),
+            "count100": replay["count100"],
+            "count50": replay["count50"],
+            "countMiss": replay["countMiss"],
+            "count300": replay["count300"],
+            "osu_file_path": osu_path,
+            "Accuracy": acc,
+        }
+        return result
+
+    except Exception as e:
+        logger.exception("Ошибка при расчёте PP через rosu-pp для %s", osu_path)
+        return None
+
+
+    except Exception as e:
+        logger.exception("Ошибка при расчёте PP через rosu-pp для %s", osu_path)
+        return None
 
 def proc_osr(osr_path, md5_map, cutoff, username):
-                                                       
+           
     rep = parse_osr(osr_path)
     if not rep:
         logger.warning("Не удалось обработать osr: %s", osr_path)
@@ -236,7 +325,7 @@ def proc_osr(osr_path, md5_map, cutoff, username):
             return OSR_CACHE[osr_path].get("result")
 
     osu_path = md5_map[rep["beatmap_md5"]]
-    res = calculate_pp_local(osu_path, rep)
+    res = calculate_pp_rosu(osu_path, rep)
     if res:
         res["player_name"] = rep["player_name"]
         res["score_time"] = rep["score_time"]
@@ -244,64 +333,8 @@ def proc_osr(osr_path, md5_map, cutoff, username):
             OSR_CACHE[osr_path] = {"mtime": mtime, "result": res}
     return res
 
-def calculate_pp_local(osu_path, replay):
-                                              
-    acc = calc_acc(replay["count300"], replay["count100"], replay["count50"], replay["countMiss"])
-    acc_str = f"{acc:.2f}".replace('.', ',')
-    mods = list(replay["mods_list"])
-    if "CL" not in mods:
-        mods.append("CL")
-    cmd = [
-        PERFORMANCE_CALCULATOR_PATH,
-        "simulate", "osu", osu_path,
-        "-c", str(replay["max_combo"]),
-        "-a", acc_str,
-        "-X", str(replay["countMiss"]),
-        "-j"
-    ]
-    for m in mods:
-        cmd += ["-m", m]
-
-    try:
-        with external_process_semaphore:
-            r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", check=True)
-        out = r.stdout.strip()
-        if not out:
-            logger.warning("Пустой вывод PP для %s. Команда: %s", osu_path, ' '.join(cmd))
-            return None
-    except subprocess.CalledProcessError as e:
-        logger.error("Ошибка PP-калькулятора для %s. Код: %s. Вывод: %s.", osu_path, e.returncode, e.output)
-        return None
-    except Exception as e:
-        logger.exception("Непредвиденная ошибка PP-калькулятора для %s", osu_path)
-        return None
-
-    try:
-        data = json.loads(out)
-        score_info = data.get("score", {})
-        pp_val = data.get("performance_attributes", {}).get("pp")
-        if pp_val is None:
-            logger.error("PP не найден для %s. Данные: %s", osu_path, data)
-            return None
-        return {
-            "pp": round(float(pp_val)),
-            "beatmap_id": score_info.get("beatmap_id"),
-            "Beatmap": score_info.get("beatmap"),
-            "total_score": replay["total_score"],
-            "mods": tuple(sorted(set(mods))),
-            "count100": replay["count100"],
-            "count50": replay["count50"],
-            "countMiss": replay["countMiss"],
-            "count300": replay["count300"],
-            "osu_file_path": osu_path,
-            "Accuracy": acc
-        }
-    except Exception as e:
-        logger.exception("Ошибка JSON PP-калькулятора для %s. Вывод: %s", osu_path, out)
-        return None
-
 def count_objs(osu_path):
-                                                               
+           
     total = 0
     with open(osu_path, "r", encoding="utf-8") as f:
         in_hit = False
@@ -315,12 +348,13 @@ def count_objs(osu_path):
     return total
 
 def grade_osu(osu_path, c300, c50, cmiss):
-                                                
+           
     t = count_objs(osu_path)
     if t == 0:
         return "D"
     p300 = (c300 / t) * 100
     p50 = (c50 / t) * 100
+
     if p300 == 100:
         return "SS"
     elif p300 > 90 and p50 <= 1 and cmiss == 0:
