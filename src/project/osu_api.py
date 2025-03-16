@@ -5,6 +5,7 @@ import threading
 import time
 import logging
 from config import CLIENT_ID, CLIENT_SECRET
+from requests.adapters import HTTPAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -12,18 +13,25 @@ api_lock = threading.Lock()
 last_call = 0
 session = requests.Session()
 
+adapter = HTTPAdapter(pool_connections=20, pool_maxsize=20)
+session.mount("https://", adapter)
+session.mount("http://", adapter)
+
+TOKEN_CACHE = None
+
 def wait_osu():
-                                                  
     global last_call
     with api_lock:
         now = time.time()
         diff = now - last_call
-        if diff<1:
-            time.sleep(1 - diff)
+        if diff < 1/20:
+            time.sleep((1/20) - diff)
         last_call = time.time()
 
 def token_osu():
-                                       
+    global TOKEN_CACHE
+    if TOKEN_CACHE is not None:
+        return TOKEN_CACHE
     wait_osu()
     url = "https://osu.ppy.sh/oauth/token"
     logger.info("POST: %s", url)
@@ -35,7 +43,8 @@ def token_osu():
     }
     resp = session.post(url, data=data)
     resp.raise_for_status()
-    return resp.json().get("access_token")
+    TOKEN_CACHE = resp.json().get("access_token")
+    return TOKEN_CACHE
 
 def user_osu(profile_url, token):
                               
@@ -91,3 +100,25 @@ def map_osu(beatmap_id, token):
         "creator": bset.get("creator", ""),
         "hit_objects": hobj
     }
+
+def lookup_osu(checksum):
+           
+    wait_osu()
+    url = "https://osu.ppy.sh/api/v2/beatmaps/lookup"
+    headers = {
+        "Authorization": f"Bearer {token_osu()}",
+        "Accept": "application/json",
+        "Content-Type": "application/json"
+    }
+    params = {"checksum": checksum}
+    response = session.get(url, headers=headers, params=params)
+    try:
+        response.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+                                                                        
+        if response.status_code == 404:
+            logger.warning("Карта с checksum %s не найдена.", checksum)
+            return None
+        raise e
+    data = response.json()
+    return data.get("id")

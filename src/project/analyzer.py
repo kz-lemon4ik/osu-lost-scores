@@ -6,12 +6,12 @@ import time
 import datetime
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-                                            
+from file_parser import parse_osr, grade_osu
+
 from database import db_init, db_get, db_save
                                                          
 from osu_api import token_osu, user_osu, top_osu, map_osu
-                               
-                              
+
                                 
                                 
                                                                          
@@ -51,7 +51,6 @@ def find_lost_scores(scores):
     return lost_results
 
 def parse_top(raw, token):
-           
     def format_date(iso_str):
         if not iso_str:
             return ""
@@ -77,46 +76,22 @@ def parse_top(raw, token):
             c300 = stats.get("count_300", 0)
             acc = calc_acc(c300, c100, c50, cmiss)
 
+                                                   
             beatmap = score.get("beatmap", {})
-            if not isinstance(beatmap, dict):
-                continue
+            beatmapset = score.get("beatmapset", {})
             bid = beatmap.get("id")
             if bid is None:
                 continue
 
-            db_info = db_get(bid)
-            if not db_info:
-                info_api = map_osu(bid, token)
-                if info_api:
-                    db_save(
-                        bid,
-                        info_api["status"],
-                        info_api["artist"],
-                        info_api["title"],
-                        info_api["version"],
-                        info_api["creator"],
-                        info_api.get("hit_objects", 0)
-                    )
-                    db_info = info_api
-                else:
-                    db_info = {
-                        "status": "unknown",
-                        "artist": beatmap.get("artist", ""),
-                        "title": beatmap.get("title", ""),
-                        "version": beatmap.get("version", ""),
-                        "creator": beatmap.get("creator", ""),
-                        "hit_objects": 0
-                    }
-                    db_save(
-                        bid,
-                        db_info["status"],
-                        db_info["artist"],
-                        db_info["title"],
-                        db_info["version"],
-                        db_info["creator"],
-                        0
-                    )
-            full_name = f"{db_info['artist']} - {db_info['title']} ({db_info['creator']}) [{db_info['version']}]"
+                                                                   
+            artist = beatmapset.get("artist", "")
+            title = beatmapset.get("title", "")
+            creator = beatmapset.get("creator", "")
+            version = beatmap.get("version", "")
+            full_name = f"{artist} - {title} ({creator}) [{version}]"
+
+            status = beatmap.get("status", "unknown")                                                
+            rank = score.get("rank", "")
             parsed.append({
                 "Score ID": s_id,
                 "PP": pp_val,
@@ -127,15 +102,17 @@ def parse_top(raw, token):
                 "100": c100,
                 "50": c50,
                 "Misses": cmiss,
-                "Status": db_info["status"],
+                "Status": status,
                 "Accuracy": acc,
                 "Score Date": created,
-                "total_score": total
+                "total_score": total,
+                "Rank": rank
             })
         except Exception as e:
             logger.exception("Ошибка топ-результата: %s", e)
             continue
     return parsed
+
 
 def calc_weight(data):
            
@@ -161,7 +138,6 @@ def save_csv(filename, data, extra=None, fields=None):
                 writer.writerow({k: row.get(k, "") for k in cols})
 
 def scan_replays(game_dir, profile_url, gui_log, progress_callback):
-           
     db_init()
     token = token_osu()
     user_json = user_osu(profile_url, token)
@@ -193,6 +169,10 @@ def scan_replays(game_dir, profile_url, gui_log, progress_callback):
     count = 0
     last_replay_update = {"time": 0}
 
+                                           
+    no_beatmap_id = []                                                                                       
+    no_osu_file = []                                                                                                
+
     with ThreadPoolExecutor(max_workers=16) as executor:
         futures = {
             executor.submit(
@@ -202,13 +182,54 @@ def scan_replays(game_dir, profile_url, gui_log, progress_callback):
         for fut in as_completed(futures):
             count += 1
             progress_callback(count, total_rep)
+            osr_filename = futures[fut]                    
             res = fut.result()
             if res is not None:
                 score_list.append(res)
+            else:
+                                                                                             
+                try:
+                    rep = parse_osr(os.path.join(replays, osr_filename))
+                    if rep:
+                                                                                                        
+                        if rep["beatmap_md5"] not in md5_map:
+                            no_osu_file.append({
+                                "PP": "",                                      
+                                "Beatmap ID": None,
+                                "Beatmap": "",
+                                "Mods": "",
+                                "100": "",
+                                "50": "",
+                                "Misses": "",
+                                "Accuracy": "",
+                                "Score": "",
+                                "Date": rep.get("score_time", "")
+                            })
+                        else:
+                                                                                                             
+                                                         
+                            no_beatmap_id.append({
+                                "PP": "",                             
+                                "Beatmap ID": None,
+                                "Beatmap": "",
+                                "Mods": "",
+                                "100": "",
+                                "50": "",
+                                "Misses": "",
+                                "Accuracy": "",
+                                "Score": "",
+                                "Date": rep.get("score_time", "")
+                            })
+                    else:
+                        logger.warning("Невозможно распарсить реплей: %s", osr_filename)
+                except Exception as e:
+                    logger.exception("Ошибка при обработке проблемного реплея %s: %s", osr_filename, e)
+
             now = time.time()
             if now - last_replay_update["time"] >= 1 or count == total_rep:
                 last_replay_update["time"] = now
                 gui_log(f"Обработано {count}/{total_rep} реплеев", update_last=True)
+
 
     from file_parser import OSR_CACHE, osr_save
     osr_save(OSR_CACHE)
@@ -217,12 +238,13 @@ def scan_replays(game_dir, profile_url, gui_log, progress_callback):
     gui_log(f"Сканирование реплеев завершено за {elapsed:.2f} сек. Найдено {len(score_list)} результатов.", update_last=False)
     gui_log("Обрабатываю потерянные скоры...", update_last=False)
     lost = find_lost_scores(score_list)
-    logger.info("Найдено %d потерянных скоров", len(lost))
+    lost = [r for r in lost if calendar.timegm(time.strptime(r["score_time"], "%d-%m-%Y %H-%M-%S")) < cutoff]
+    logger.info("Найдено %d потерянных скоров (до cutoff)", len(lost))
 
-                                 
     for rec in lost:
         db_ = db_get(rec["beatmap_id"])
         if not db_:
+            from osu_api import map_osu                                         
             info_api = map_osu(rec["beatmap_id"], token)
             if info_api:
                 db_save(
@@ -238,10 +260,10 @@ def scan_replays(game_dir, profile_url, gui_log, progress_callback):
             else:
                 db_ = {
                     "status": "unknown",
-                    "artist": "",
-                    "title": "",
-                    "version": "",
-                    "creator": "",
+                    "artist": rec.get("artist", ""),
+                    "title": rec.get("title", ""),
+                    "version": rec.get("version", ""),
+                    "creator": rec.get("creator", ""),
                     "hit_objects": 0
                 }
                 db_save(
@@ -255,32 +277,53 @@ def scan_replays(game_dir, profile_url, gui_log, progress_callback):
                 )
         rec["Status"] = db_.get("status", "unknown")
 
-            
     lost = [r for r in lost if r.get("Status") in ["ranked", "approved"]]
     logger.info("Потерянных скоров после фильтрации: %d", len(lost))
+
+    for rec in lost:
+        db_info = db_get(rec["beatmap_id"])
+        if not db_info or not db_info.get("hit_objects", 0):
+                                                               
+                                                                   
+                                                      
+                                                       
+            pass
+                                      
+                                                     
 
     if lost:
         out_file = os.path.join(os.path.dirname(__file__), "..", "csv", "lost_scores.csv")
         fields = ["PP", "Beatmap ID", "Beatmap", "Mods", "100", "50", "Misses",
-                  "Accuracy", "Score", "Date"]
+                  "Accuracy", "Score", "Date", "Rank"]
         while True:
             try:
                 with open(out_file, "w", newline="", encoding="utf-8") as csvf:
                     writer = csv.DictWriter(csvf, fieldnames=fields)
                     writer.writeheader()
                     for rec in lost:
-                        mods_sorted = sort_mods(rec["mods"])
+                                                                                         
+                                                                                                          
+                                                                                    
+                        c100 = rec.get("count100", 0)
+                        c50 = rec.get("count50", 0)
+                        cMiss = rec.get("countMiss", 0)
+                                                                                              
+                        c300 = rec.get("count300", 0)
+
+                        rank_ = grade_osu(rec["beatmap_id"], c300, c100, c50, cMiss)
+
                         writer.writerow({
                             "PP": rec["pp"],
                             "Beatmap ID": rec["beatmap_id"],
-                            "Beatmap": rec["Beatmap"],
-                            "Mods": ", ".join(mods_sorted) if mods_sorted else "NM",
-                            "100": rec.get("count100", ""),
-                            "50": rec.get("count50", ""),
-                            "Misses": rec.get("countMiss", ""),
+                            "Beatmap": f"{rec.get('artist', '')} - {rec.get('title', '')} ({rec.get('creator', '')}) [{rec.get('version', '')}]",
+                            "Mods": ", ".join(sort_mods(rec["mods"])) if rec["mods"] else "NM",
+                            "100": c100,
+                            "50": c50,
+                            "Misses": cMiss,
                             "Accuracy": rec["Accuracy"],
                             "Score": rec.get("total_score", ""),
-                            "Date": rec.get("score_time", "")
+                            "Date": rec.get("score_time", ""),
+                            "Rank": rank_
                         })
                 gui_log(f"Файл lost_scores.csv сохранен.", update_last=True)
                 break
@@ -333,7 +376,7 @@ def make_top(game_dir, profile_url, gui_log):
     gui_log("Сохраняю CSV (parsed_top.csv)...", update_last=False)
     table_fields = [
         "PP", "Beatmap ID", "Beatmap", "Mods", "100", "50", "Misses",
-        "Accuracy", "Score", "Date", "weight_%", "weight_PP", "Score ID"
+        "Accuracy", "Score", "Date", "weight_%", "weight_PP", "Score ID", "Rank"
     ]
     rows_list = []
     for row in top_data:
@@ -350,7 +393,8 @@ def make_top(game_dir, profile_url, gui_log):
             "Date": row.get("Score Date", ""),
             "weight_%": row.get("weight_%", ""),
             "weight_PP": row.get("weight_PP", ""),
-            "Score ID": row["Score ID"]
+            "Score ID": row["Score ID"],
+            "Rank": row["Rank"]
         }
         rows_list.append(new_row)
 
@@ -376,13 +420,25 @@ def make_top(game_dir, profile_url, gui_log):
         lost_scores = [r for r in reader]
 
     top_dict = {}
+                                                               
     for entry in top_data:
-        bid = entry["Beatmap ID"]
-        entry["Score ID"] = entry.get("Score ID", "")
-        top_dict[bid] = entry
+        try:
+            bid = int(entry["Beatmap ID"])
+        except Exception:
+            continue
+                                                                                         
+        if bid in top_dict:
+            if entry["PP"] > top_dict[bid]["PP"]:
+                top_dict[bid] = entry
+        else:
+            top_dict[bid] = entry
 
+                                        
     for lost in lost_scores:
-        bid = lost["Beatmap ID"]
+        try:
+            bid = int(lost["Beatmap ID"])
+        except Exception:
+            continue
         lost_entry = {
             "PP": int(round(float(lost["PP"]))),
             "Beatmap ID": bid,
@@ -393,13 +449,20 @@ def make_top(game_dir, profile_url, gui_log):
             "50": lost["50"],
             "Misses": lost["Misses"],
             "Accuracy": lost["Accuracy"],
-            "Score": lost["Score"],
+            "Score": lost.get("Score", ""),
             "Date": lost.get("score_time", "") or lost.get("Date", ""),
             "weight_%": "",
             "weight_PP": "",
-            "Score ID": "LOST"
+            "Score ID": "LOST",
+            "Rank": lost["Rank"]
         }
-        top_dict[bid] = lost_entry
+                                                                                         
+        if bid in top_dict:
+            if lost_entry["PP"] > top_dict[bid]["PP"]:
+                top_dict[bid] = lost_entry
+        else:
+            top_dict[bid] = lost_entry
+
 
     combined = list(top_dict.values())
     combined.sort(key=lambda x: x["PP"], reverse=True)
@@ -441,7 +504,7 @@ def make_top(game_dir, profile_url, gui_log):
     top_with_lost_file = os.path.join(os.path.dirname(__file__), "..", "csv", "top_with_lost.csv")
     table_fields2 = [
         "PP", "Beatmap ID", "Status", "Beatmap", "Mods", "100", "50", "Misses",
-        "Accuracy", "Score", "Date", "weight_%", "weight_PP", "Score ID"
+        "Accuracy", "Score", "Date", "Rank", "weight_%", "weight_PP", "Score ID"
     ]
     prep_rows = []
     for row in top_with_lost:
@@ -459,7 +522,8 @@ def make_top(game_dir, profile_url, gui_log):
             "Date": row.get("Score Date", row.get("Date", "")),
             "weight_%": row.get("weight_%", ""),
             "weight_PP": row.get("weight_PP", ""),
-            "Score ID": row["Score ID"]
+            "Score ID": row["Score ID"],
+            "Rank": row["Rank"]
         }
         prep_rows.append(new_r)
 

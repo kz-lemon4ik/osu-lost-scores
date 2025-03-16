@@ -10,7 +10,6 @@ from generate_image import (
     get_user_osu,
     get_map_osu,
     dl_img,
-    grade_tot,
     short_mods as short_mods_orig,
     short_txt,
     since_date
@@ -156,7 +155,7 @@ def html_make(user_id, user_name, mode="lost"):
             tot = db_["hit_objects"]
             c300 = tot - (c100+c50+cMiss)
             if c300<0: c300=0
-            grade = grade_tot(tot, c300, c50, cMiss)
+                                                     
 
         full_n = short_txt(f"{raw_title} by {raw_artist}", 50)
         date_str = row.get("Date","")

@@ -23,5 +23,6 @@ src/cache/
 src/assets/images/avatar
 src/assets/images/cover
 src/csv/
+src/maps
 
 scripts/strip_comments.py

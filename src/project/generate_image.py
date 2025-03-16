@@ -118,25 +118,6 @@ def short_txt(text, max_len=50):
                                                 
     return text if len(text) <= max_len else text[:max_len - 3] + "..."
 
-def grade_tot(total, c300, c50, cMiss):
-                                        
-    if total <= 0:
-        return "D"
-    perc300 = (c300 / total)*100
-    perc50 = (c50 / total)*100
-    if perc300 == 100:
-        return "SS"
-    elif perc300>90 and perc50<=1 and cMiss==0:
-        return "S"
-    elif (perc300>80 and cMiss==0) or (perc300>90):
-        return "A"
-    elif (perc300>70 and cMiss==0) or (perc300>80):
-        return "B"
-    elif perc300>60:
-        return "C"
-    else:
-        return "D"
-
 def since_date(date_str):
                                                 
     try:
@@ -380,17 +361,7 @@ def make_img(user_id, user_name, mode="lost"):
         dr_.rounded_rectangle((0,0,card_w,card_h), radius=15, fill=255)
         base.paste(bg_img,(card_x,card_y), corner_mask)
 
-               
-        grade="?"
-        db_info=None
-        if beatmap_id.isdigit():
-            db_info=db_get(beatmap_id)
-            if db_info and db_info.get("hit_objects",0)>0:
-                tot=db_info["hit_objects"]
-                c300=tot-(c100+c50+cMiss)
-                if c300<0:
-                    c300=0
-                grade=grade_tot(tot,c300,c50,cMiss)
+        grade = row.get("Rank", "?")
 
         d_=ImageDraw.Draw(base)
         GRADE_TARGET_WIDTH=45
