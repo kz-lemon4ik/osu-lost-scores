@@ -26,3 +26,9 @@ src/csv/
 src/maps
 
 scripts/strip_comments.py
+
+src/project/log.txt
+src/project/temp.py
+src/project/temp2.py
+src/project/temp3.py
+src/project/temp4.py

@@ -137,11 +137,18 @@ def save_csv(filename, data, extra=None, fields=None):
             for row in extra:
                 writer.writerow({k: row.get(k, "") for k in cols})
 
-def scan_replays(game_dir, profile_url, gui_log, progress_callback):
+def scan_replays(game_dir, user_identifier, lookup_key, gui_log, progress_callback):                            
     db_init()
     token = token_osu()
-    user_json = user_osu(profile_url, token)
+    user_json = user_osu(user_identifier, lookup_key, token)                         
+    if not user_json:                                                               
+        gui_log(f"Ошибка: Не удалось получить данные пользователя '{user_identifier}' (тип: {lookup_key}).", False)
+        raise ValueError(f"Пользователь не найден: {user_identifier}")                                 
     username = user_json["username"]
+    user_id = user_json["id"]
+
+    profile_link = f"https://osu.ppy.sh/users/{user_id}"
+    gui_log(f"Найден пользователь: {username} ({profile_link})", False)
 
     songs = os.path.join(game_dir, "Songs")
     replays = os.path.join(game_dir, "Data", "r")
@@ -295,6 +302,10 @@ def scan_replays(game_dir, profile_url, gui_log, progress_callback):
         out_file = os.path.join(os.path.dirname(__file__), "..", "csv", "lost_scores.csv")
         fields = ["PP", "Beatmap ID", "Beatmap", "Mods", "100", "50", "Misses",
                   "Accuracy", "Score", "Date", "Rank"]
+
+        csv_dir = os.path.dirname(out_file)
+        os.makedirs(csv_dir, exist_ok=True)
+
         while True:
             try:
                 with open(out_file, "w", newline="", encoding="utf-8") as csvf:
@@ -336,8 +347,7 @@ def scan_replays(game_dir, profile_url, gui_log, progress_callback):
     else:
         logger.info("Пусто: потерянные скоры не записаны.")
 
-def make_top(game_dir, profile_url, gui_log):
-           
+def make_top(game_dir, user_identifier, lookup_key, gui_log):                            
     lost_path = os.path.join(os.path.dirname(__file__), "..", "csv", "lost_scores.csv")
     if not os.path.exists(lost_path):
         gui_log("Файл lost_scores.csv не найден. Прерываю создание потенциального топа.", update_last=False)
@@ -348,32 +358,43 @@ def make_top(game_dir, profile_url, gui_log):
 
     db_init()
     token = token_osu()
-    user_json = user_osu(profile_url, token)
+    user_json = user_osu(user_identifier, lookup_key, token)                         
+    if not user_json:                    
+        gui_log(f"Ошибка: Не удалось получить данные пользователя '{user_identifier}' (тип: {lookup_key}).", False)
+        raise ValueError(f"Пользователь не найден: {user_identifier}")
     username = user_json["username"]
     user_id = user_json["id"]
     gui_log(f"Получена информация о пользователе: {username}", update_last=False)
 
     stats = user_json.get("statistics", {})
     overall_pp = stats.get("pp", 0)
+                                       
+    overall_acc_from_api = float(stats.get("hit_accuracy", 0.0))
 
+                                
     gui_log("Запрашиваю топ-результаты...", update_last=False)
     raw_top = top_osu(token, user_id)
     top_data = parse_top(raw_top, token)
     top_data = calc_weight(top_data)
+
+                   
     total_weight_pp = sum(item["weight_PP"] for item in top_data)
     diff = overall_pp - total_weight_pp
 
-    parsed_file = os.path.join(os.path.dirname(__file__), "..", "csv", "parsed_top.csv")
-    tot_weight = 0
-    acc_sum = 0
-    ranked_top = sorted(top_data, key=lambda x: x["PP"], reverse=True)
-    for i, entry in enumerate(ranked_top):
-        mult = 0.95 ** i
-        tot_weight += mult
-        acc_sum += float(entry["Accuracy"]) * mult
-    overall_acc = acc_sum / tot_weight if tot_weight else 0
+                                                                
+                    
+                 
+                                                                        
+                                            
+                          
+                            
+                                                    
+                                                             
 
+                                                                     
+    parsed_file = os.path.join(os.path.dirname(__file__), "..", "csv", "parsed_top.csv")
     gui_log("Сохраняю CSV (parsed_top.csv)...", update_last=False)
+
     table_fields = [
         "PP", "Beatmap ID", "Beatmap", "Mods", "100", "50", "Misses",
         "Accuracy", "Score", "Date", "weight_%", "weight_PP", "Score ID", "Rank"
@@ -404,36 +425,38 @@ def make_top(game_dir, profile_url, gui_log):
         for row in rows_list:
             writer.writerow(row)
         f.write("\n")
+
+                                                                                   
         summary_data = [
             ("Sum weight_PP", round(total_weight_pp)),
             ("Overall PP", round(overall_pp)),
             ("Difference", round(diff)),
-            ("Overall Accuracy", f"{round(overall_acc, 2)}%")
+                                                              
+            ("Overall Accuracy", f"{round(overall_acc_from_api, 2)}%")
         ]
+
         csv_writer = csv.writer(f)
         for label, val in summary_data:
             csv_writer.writerow([label, val])
 
+                                                                                         
     gui_log("Объединяю с потерянными...", update_last=False)
     with open(lost_path, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         lost_scores = [r for r in reader]
 
     top_dict = {}
-                                                               
     for entry in top_data:
         try:
             bid = int(entry["Beatmap ID"])
         except Exception:
             continue
-                                                                                         
         if bid in top_dict:
             if entry["PP"] > top_dict[bid]["PP"]:
                 top_dict[bid] = entry
         else:
             top_dict[bid] = entry
 
-                                        
     for lost in lost_scores:
         try:
             bid = int(lost["Beatmap ID"])
@@ -456,13 +479,11 @@ def make_top(game_dir, profile_url, gui_log):
             "Score ID": "LOST",
             "Rank": lost["Rank"]
         }
-                                                                                         
         if bid in top_dict:
             if lost_entry["PP"] > top_dict[bid]["PP"]:
                 top_dict[bid] = lost_entry
         else:
             top_dict[bid] = lost_entry
-
 
     combined = list(top_dict.values())
     combined.sort(key=lambda x: x["PP"], reverse=True)
@@ -481,7 +502,7 @@ def make_top(game_dir, profile_url, gui_log):
         tot_weight_lost += mult
         acc_sum_lost += float(entry["Accuracy"]) * mult
     overall_acc_lost = acc_sum_lost / tot_weight_lost if tot_weight_lost else 0
-    delta_acc = overall_acc_lost - overall_acc
+    delta_acc = overall_acc_lost - overall_acc_from_api                                                
 
     summary_rows = [
         {"PP": "Total weight_PP", "Beatmap ID": "", "Status": "", "Beatmap": "", "Mods": "", "Score": "", "100": "",

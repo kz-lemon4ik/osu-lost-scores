@@ -46,20 +46,26 @@ def token_osu():
     TOKEN_CACHE = resp.json().get("access_token")
     return TOKEN_CACHE
 
-def user_osu(profile_url, token):
-                              
+                                                              
+def user_osu(identifier, lookup_key, token):
     wait_osu()
-    match = re.search(r"osu\.ppy\.sh/users/(\d+)", profile_url)
-    if match:
-        uid = match.group(1)
-    else:
-        parts = profile_url.rstrip('/').split('/')
-        uid = parts[-1]
-    url = f"https://osu.ppy.sh/api/v2/users/{uid}"
-    logger.info("GET user: %s", url)
+                       
+    url = f"https://osu.ppy.sh/api/v2/users/{identifier}"
+                               
+    params = {
+        'key': lookup_key                                              
+    }
+    logger.info("GET user: %s with params %s", url, params)
     headers = {"Authorization": f"Bearer {token}"}
-    resp = session.get(url, headers=headers)
-    resp.raise_for_status()
+                                 
+    resp = session.get(url, headers=headers, params=params)                       
+                                            
+    if resp.status_code == 404:
+         logger.error(f"Пользователь '{identifier}' (тип поиска: {lookup_key}) не найден.")
+                                                                                   
+                                                                      
+         return None                          
+    resp.raise_for_status()                         
     return resp.json()
 
 def top_osu(token, user_id, limit=100):
