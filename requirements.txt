@@ -1,4 +1,4 @@
 requests
-Pillow
+PySide6
 python-dotenv
 rosu-pp-py
