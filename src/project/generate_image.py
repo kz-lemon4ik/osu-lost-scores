@@ -58,6 +58,38 @@ RED_COLOR = (255, 128, 128)
 USERNAME_COLOR = (255, 204, 33)
 
 
+def create_placeholder_image(filename, username, message):
+                                                   
+    width, height = 920, 400
+    img = Image.new("RGBA", (width, height), COLOR_BG)
+    draw = ImageDraw.Draw(img)
+
+               
+    draw.text((width // 2, 50), f"osu! Lost Scores Analyzer",
+              font=TITLE_FONT, fill=ACCENT_COLOR, anchor="mm")
+
+                      
+    draw.text((width // 2, 100), f"Player: {username}",
+              font=SUBTITLE_FONT, fill=USERNAME_COLOR, anchor="mm")
+
+               
+    draw.text((width // 2, height // 2), message,
+              font=SUBTITLE_FONT, fill=COLOR_WHITE, anchor="mm")
+
+                              
+    draw.text((width // 2, height - 50), "Попробуйте повторить анализ или проверьте наличие файлов",
+              font=SMALL_FONT, fill=DATE_COLOR, anchor="mm")
+
+                           
+    out_path = os.path.join(os.path.dirname(__file__), "..", "results", filename)
+
+                                            
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+
+    img.save(out_path)
+    print(f"Изображение-заглушка сохранено в {out_path}")
+
+
 def get_token_osu():
     url = "https://osu.ppy.sh/oauth/token"
     data = {
@@ -202,17 +234,26 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
     except FileNotFoundError:
         logger.error(f"CSV файл не найден: {csv_path}")
         print(f"Ошибка: CSV файл не найден: {csv_path}")
+        create_placeholder_image(os.path.basename(out_path), user_name, f"CSV файл не найден: {os.path.basename(csv_path)}")
         return
     except Exception as csv_err:
         logger.error(f"Ошибка чтения CSV файла {csv_path}: {csv_err}")
         print(f"Ошибка: Не удалось прочитать CSV файл: {csv_path}")
+        create_placeholder_image(os.path.basename(out_path), user_name, f"Ошибка чтения CSV файла: {str(csv_err)}")
+        return
+
+                                                      
+    if not all_rows:
+        logger.info(f"Нет данных в CSV файле {csv_path} для создания изображения")
+        create_placeholder_image(os.path.basename(out_path), user_name, f"Нет данных для отображения в режиме {mode}")
         return
 
                                                                 
-    total_rows_count = len(all_rows) - 5 if show_weights else len(all_rows)
+    total_rows_count = max(0, len(all_rows) - 5) if show_weights else max(0, len(all_rows))
 
                                                                                
     rows = all_rows[:max_scores]
+
 
                                       
     cur_pp_val = 0

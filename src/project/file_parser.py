@@ -464,15 +464,20 @@ def proc_osr(osr_path, md5_map, cutoff, username):
                 except Exception as e:
                     logger.error("Ошибка при запросе beatmap_id по md5 (%s): %s", md5, e)
 
-        if "player_name" in rep and "score_time" in rep:
-            res["player_name"] = rep["player_name"]
-            res["score_time"] = rep["score_time"]
+                                                      
+        if isinstance(rep, dict):
+            if "player_name" in rep:
+                res["player_name"] = rep["player_name"]
+            if "score_time" in rep:
+                res["score_time"] = rep["score_time"]
+
             with OSR_CACHE_LOCK:
                 OSR_CACHE[osr_path] = {"mtime": mtime, "result": res}
-            return res
         else:
+            logger.warning(f"Неверный формат реплея для {osr_path}: {type(rep)}")
             return None
     return res
+
 
 def download_osu_file(beatmap_id):
     filename = f"beatmap_{beatmap_id}.osu"

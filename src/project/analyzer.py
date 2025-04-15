@@ -20,33 +20,56 @@ logger = logging.getLogger(__name__)
 
 def find_lost_scores(scores):
     if not scores:
+        logger.warning("Пустой список скоров в find_lost_scores")
         return []
 
     groups = {}
     for rec in scores:
-                                             
-        if not all(key in rec for key in ["beatmap_id", "mods", "pp", "total_score"]):
-            continue
-
         try:
+                                                       
+            if not all(key in rec for key in ["beatmap_id", "mods", "pp", "total_score"]):
+                logger.warning(f"Скор не содержит все необходимые ключи: {rec.keys()}")
+                continue
+
             key = (rec["beatmap_id"], tuple(rec["mods"]))
             groups.setdefault(key, []).append(rec)
         except Exception as e:
-            logger.warning("Ошибка при группировке скора: %s", e)
+            logger.warning(f"Ошибка при группировке скора: {e}")
             continue
 
     possible_lost = {}
     for key, recs in groups.items():
-        if len(recs) < 2:
-            continue
         try:
-            best_pp = max(recs, key=lambda s: s.get("pp", 0))
-            best_total = max(recs, key=lambda s: s.get("total_score", 0))
-            if best_pp["total_score"] < best_total["total_score"] and best_pp["pp"] > best_total["pp"]:
+            if len(recs) < 2:
+                continue
+
+            if not all(isinstance(s.get("pp", 0), (int, float)) for s in recs):
+                logger.warning(f"Недопустимое значение PP в скорах: {[s.get('pp') for s in recs]}")
+                continue
+
+            if not all(isinstance(s.get("total_score", 0), (int, float)) for s in recs):
+                logger.warning(f"Недопустимое значение total_score в скорах")
+                continue
+
+            best_pp = max(recs, key=lambda s: float(s.get("pp", 0)))
+            best_total = max(recs, key=lambda s: int(s.get("total_score", 0)))
+
+            if not all(k in best_pp for k in ["total_score", "pp", "beatmap_id"]):
+                logger.warning(f"best_pp не содержит необходимые ключи")
+                continue
+
+            if not all(k in best_total for k in ["total_score", "pp"]):
+                logger.warning(f"best_total не содержит необходимые ключи")
+                continue
+
+            pp_better = float(best_pp["pp"]) > float(best_total["pp"])
+            score_worse = int(best_pp["total_score"]) < int(best_total["total_score"])
+
+            if score_worse and pp_better:
                 bid = best_pp["beatmap_id"]
                 possible_lost.setdefault(bid, []).append(best_pp)
         except Exception as e:
-            logger.warning("Ошибка при обработке группы скоров: %s", e)
+            logger.warning(f"Ошибка при обработке группы скоров: {e}")
             continue
 
     lost_results = []
@@ -58,18 +81,28 @@ def find_lost_scores(scores):
 
     for bid, candidates in possible_lost.items():
         try:
-            candidate = max(candidates, key=lambda s: s.get("pp", 0))
+            if not candidates:
+                continue
+
+            candidate = max(candidates, key=lambda s: float(s.get("pp", 0)))
             all_scores = map_scores.get(bid, [])
+
             if not all_scores:
                 continue
-            best_score = max(all_scores, key=lambda s: s.get("pp", 0))
-            if candidate["pp"] >= best_score["pp"]:
+
+            best_score = max(all_scores, key=lambda s: float(s.get("pp", 0)))
+
+            if float(candidate.get("pp", 0)) >= float(best_score.get("pp", 0)):
                 lost_results.append(candidate)
         except Exception as e:
-            logger.warning("Ошибка при обработке потенциально потерянного скора: %s", e)
+            logger.warning(f"Ошибка при обработке потенциально потерянного скора: {e}")
             continue
 
-    lost_results.sort(key=lambda s: s.get("pp", 0), reverse=True)
+    try:
+        lost_results.sort(key=lambda s: float(s.get("pp", 0)), reverse=True)
+    except Exception as e:
+        logger.warning(f"Ошибка при сортировке результатов: {e}")
+
     return lost_results
 
 
