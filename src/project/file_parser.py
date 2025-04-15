@@ -449,6 +449,9 @@ def proc_osr(osr_path, md5_map, cutoff, username):
 
         elif beatmap_id is None:
             md5 = rep.get("beatmap_md5")
+            if md5 is None:
+                return None
+
             if md5 in MD5_BEATMAPID_CACHE:
                 res["beatmap_id"] = MD5_BEATMAPID_CACHE[md5]
             else:
@@ -460,10 +463,15 @@ def proc_osr(osr_path, md5_map, cutoff, username):
                         res["beatmap_id"] = new_id
                 except Exception as e:
                     logger.error("Ошибка при запросе beatmap_id по md5 (%s): %s", md5, e)
-        res["player_name"] = rep["player_name"]
-        res["score_time"] = rep["score_time"]
-        with OSR_CACHE_LOCK:
-            OSR_CACHE[osr_path] = {"mtime": mtime, "result": res}
+
+        if "player_name" in rep and "score_time" in rep:
+            res["player_name"] = rep["player_name"]
+            res["score_time"] = rep["score_time"]
+            with OSR_CACHE_LOCK:
+                OSR_CACHE[osr_path] = {"mtime": mtime, "result": res}
+            return res
+        else:
+            return None
     return res
 
 def download_osu_file(beatmap_id):

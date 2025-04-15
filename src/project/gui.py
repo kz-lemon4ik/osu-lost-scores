@@ -177,6 +177,44 @@ class MainWindow(QWidget):
         print(f"Макс. потоков в пуле: {self.threadpool.maxThreadCount()}")
         self._try_auto_detect_osu_path()
 
+    def ensure_csv_files_exist(self):
+                                                                 
+        csv_dir = os.path.join(os.path.dirname(__file__), "..", "csv")
+        os.makedirs(csv_dir, exist_ok=True)
+
+                                                             
+                         
+        lost_scores_path = os.path.join(csv_dir, "lost_scores.csv")
+        if not os.path.exists(lost_scores_path):
+            try:
+                with open(lost_scores_path, "w", encoding="utf-8") as f:
+                    f.write("PP,Beatmap ID,Beatmap,Mods,100,50,Misses,Accuracy,Score,Date,Rank\n")
+                self.append_log("Создан пустой файл lost_scores.csv", False)
+            except Exception as e:
+                self.append_log(f"Ошибка при создании lost_scores.csv: {e}", False)
+
+                        
+        parsed_top_path = os.path.join(csv_dir, "parsed_top.csv")
+        if not os.path.exists(parsed_top_path):
+            try:
+                with open(parsed_top_path, "w", encoding="utf-8") as f:
+                    f.write(
+                        "PP,Beatmap ID,Beatmap,Mods,100,50,Misses,Accuracy,Score,Date,weight_%,weight_PP,Score ID,Rank\n")
+                self.append_log("Создан пустой файл parsed_top.csv", False)
+            except Exception as e:
+                self.append_log(f"Ошибка при создании parsed_top.csv: {e}", False)
+
+                           
+        top_with_lost_path = os.path.join(csv_dir, "top_with_lost.csv")
+        if not os.path.exists(top_with_lost_path):
+            try:
+                with open(top_with_lost_path, "w", encoding="utf-8") as f:
+                    f.write(
+                        "PP,Beatmap ID,Status,Beatmap,Mods,100,50,Misses,Accuracy,Score,Date,Rank,weight_%,weight_PP,Score ID\n")
+                self.append_log("Создан пустой файл top_with_lost.csv", False)
+            except Exception as e:
+                self.append_log(f"Ошибка при создании top_with_lost.csv: {e}", False)
+
     def load_config(self):
                                                
         self.config = {}
@@ -759,6 +797,9 @@ class MainWindow(QWidget):
             self.img_completed.set()                          
             return
 
+                                      
+        self.ensure_csv_files_exist()
+
                                                                                    
         try:
             scores_count = int(scores_count) if scores_count else 10
@@ -1007,22 +1048,38 @@ class MainWindow(QWidget):
                 return
 
                                                                                  
-        osu_path_found = None
+        potential_paths = []
+
+                                             
         if platform.system() == "Windows":
             local_app_data = os.getenv('LOCALAPPDATA')
             if local_app_data:
-                potential_path = os.path.join(local_app_data, 'osu!')
-                if os.path.isdir(potential_path):
-                    osu_path_found = potential_path
+                potential_paths.append(os.path.join(local_app_data, 'osu!'))
 
-        if osu_path_found:
-            self.game_entry.setText(osu_path_found.replace("/", os.sep))
-            self.append_log(f"Папка osu! найдена автоматически: {osu_path_found}", False)
-                                      
-            self.config['osu_path'] = osu_path_found
-            self.save_config()
-        else:
-            self.append_log("Папка osu! не найдена автоматически. Укажите путь вручную.", False)
+                                           
+            for drive in ['C:', 'D:', 'E:', 'F:']:
+                try:
+                    if os.path.exists(f"{drive}\\Users"):
+                        for username in os.listdir(f"{drive}\\Users"):
+                            user_appdata = f"{drive}\\Users\\{username}\\AppData\\Local\\osu!"
+                            if os.path.isdir(user_appdata):
+                                potential_paths.append(user_appdata)
+                except Exception:
+                                                                   
+                    pass
+
+                                       
+        for path in potential_paths:
+            if os.path.isdir(path):
+                self.game_entry.setText(path.replace("/", os.sep))
+                self.append_log(f"Папка osu! найдена автоматически: {path}", False)
+                                          
+                self.config['osu_path'] = path
+                self.save_config()
+                return
+
+        self.append_log("Папка osu! не найдена автоматически. Укажите путь вручную.", False)
+
 
 def create_gui():
     app = QApplication(sys.argv)

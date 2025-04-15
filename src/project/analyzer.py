@@ -19,32 +19,57 @@ logger = logging.getLogger(__name__)
 
 
 def find_lost_scores(scores):
+    if not scores:
+        return []
+
     groups = {}
     for rec in scores:
-        key = (rec["beatmap_id"], tuple(rec["mods"]))
-        groups.setdefault(key, []).append(rec)
+                                             
+        if not all(key in rec for key in ["beatmap_id", "mods", "pp", "total_score"]):
+            continue
+
+        try:
+            key = (rec["beatmap_id"], tuple(rec["mods"]))
+            groups.setdefault(key, []).append(rec)
+        except Exception as e:
+            logger.warning("Ошибка при группировке скора: %s", e)
+            continue
+
     possible_lost = {}
     for key, recs in groups.items():
         if len(recs) < 2:
             continue
-        best_pp = max(recs, key=lambda s: s["pp"])
-        best_total = max(recs, key=lambda s: s["total_score"])
-        if best_pp["total_score"] < best_total["total_score"] and best_pp["pp"] > best_total["pp"]:
-            bid = best_pp["beatmap_id"]
-            possible_lost.setdefault(bid, []).append(best_pp)
+        try:
+            best_pp = max(recs, key=lambda s: s.get("pp", 0))
+            best_total = max(recs, key=lambda s: s.get("total_score", 0))
+            if best_pp["total_score"] < best_total["total_score"] and best_pp["pp"] > best_total["pp"]:
+                bid = best_pp["beatmap_id"]
+                possible_lost.setdefault(bid, []).append(best_pp)
+        except Exception as e:
+            logger.warning("Ошибка при обработке группы скоров: %s", e)
+            continue
 
     lost_results = []
     map_scores = {}
     for rec in scores:
+        if "beatmap_id" not in rec:
+            continue
         map_scores.setdefault(rec["beatmap_id"], []).append(rec)
-    for bid, candidates in possible_lost.items():
-        candidate = max(candidates, key=lambda s: s["pp"])
-        all_scores = map_scores.get(bid, [])
-        best_score = max(all_scores, key=lambda s: s["pp"])
-        if candidate["pp"] >= best_score["pp"]:
-            lost_results.append(candidate)
 
-    lost_results.sort(key=lambda s: s["pp"], reverse=True)
+    for bid, candidates in possible_lost.items():
+        try:
+            candidate = max(candidates, key=lambda s: s.get("pp", 0))
+            all_scores = map_scores.get(bid, [])
+            if not all_scores:
+                continue
+            best_score = max(all_scores, key=lambda s: s.get("pp", 0))
+            if candidate["pp"] >= best_score["pp"]:
+                lost_results.append(candidate)
+        except Exception as e:
+            logger.warning("Ошибка при обработке потенциально потерянного скора: %s", e)
+            continue
+
+    lost_results.sort(key=lambda s: s.get("pp", 0), reverse=True)
     return lost_results
 
 
