@@ -23,14 +23,49 @@ def find_lost_scores(scores):
         logger.warning("Пустой список скоров в find_lost_scores")
         return []
 
-    groups = {}
+                                      
+    valid_scores = []
     for rec in scores:
         try:
-                                                       
-            if not all(key in rec for key in ["beatmap_id", "mods", "pp", "total_score"]):
+                              
+            if not isinstance(rec, dict):
+                logger.warning(f"Скор не является словарем: {type(rec)}")
+                continue
+
+                                                
+            if "beatmap_id" not in rec or rec["beatmap_id"] is None:
+                logger.warning(f"Скор не содержит beatmap_id или он равен None")
+                continue
+
+            if not all(key in rec for key in ["mods", "pp", "total_score"]):
                 logger.warning(f"Скор не содержит все необходимые ключи: {rec.keys()}")
                 continue
 
+                                                                                   
+            try:
+                rec["pp_float"] = float(rec["pp"])
+            except (ValueError, TypeError):
+                logger.warning(f"Не удалось преобразовать PP в число: {rec.get('pp')}")
+                rec["pp_float"] = 0.0
+
+            try:
+                rec["total_int"] = int(rec["total_score"])
+            except (ValueError, TypeError):
+                logger.warning(f"Не удалось преобразовать total_score в число: {rec.get('total_score')}")
+                rec["total_int"] = 0
+
+            valid_scores.append(rec)
+        except Exception as e:
+            logger.warning(f"Ошибка при проверке скора: {e}")
+            continue
+
+    if not valid_scores:
+        logger.warning("Нет валидных скоров для анализа")
+        return []
+
+    groups = {}
+    for rec in valid_scores:
+        try:
             key = (rec["beatmap_id"], tuple(rec["mods"]))
             groups.setdefault(key, []).append(rec)
         except Exception as e:
@@ -43,16 +78,8 @@ def find_lost_scores(scores):
             if len(recs) < 2:
                 continue
 
-            if not all(isinstance(s.get("pp", 0), (int, float)) for s in recs):
-                logger.warning(f"Недопустимое значение PP в скорах: {[s.get('pp') for s in recs]}")
-                continue
-
-            if not all(isinstance(s.get("total_score", 0), (int, float)) for s in recs):
-                logger.warning(f"Недопустимое значение total_score в скорах")
-                continue
-
-            best_pp = max(recs, key=lambda s: float(s.get("pp", 0)))
-            best_total = max(recs, key=lambda s: int(s.get("total_score", 0)))
+            best_pp = max(recs, key=lambda s: s["pp_float"])
+            best_total = max(recs, key=lambda s: s["total_int"])
 
             if not all(k in best_pp for k in ["total_score", "pp", "beatmap_id"]):
                 logger.warning(f"best_pp не содержит необходимые ключи")
@@ -62,8 +89,8 @@ def find_lost_scores(scores):
                 logger.warning(f"best_total не содержит необходимые ключи")
                 continue
 
-            pp_better = float(best_pp["pp"]) > float(best_total["pp"])
-            score_worse = int(best_pp["total_score"]) < int(best_total["total_score"])
+            pp_better = best_pp["pp_float"] > best_total["pp_float"]
+            score_worse = best_pp["total_int"] < best_total["total_int"]
 
             if score_worse and pp_better:
                 bid = best_pp["beatmap_id"]
@@ -74,9 +101,7 @@ def find_lost_scores(scores):
 
     lost_results = []
     map_scores = {}
-    for rec in scores:
-        if "beatmap_id" not in rec:
-            continue
+    for rec in valid_scores:
         map_scores.setdefault(rec["beatmap_id"], []).append(rec)
 
     for bid, candidates in possible_lost.items():
@@ -84,27 +109,26 @@ def find_lost_scores(scores):
             if not candidates:
                 continue
 
-            candidate = max(candidates, key=lambda s: float(s.get("pp", 0)))
+            candidate = max(candidates, key=lambda s: s["pp_float"])
             all_scores = map_scores.get(bid, [])
 
             if not all_scores:
                 continue
 
-            best_score = max(all_scores, key=lambda s: float(s.get("pp", 0)))
+            best_score = max(all_scores, key=lambda s: s["pp_float"])
 
-            if float(candidate.get("pp", 0)) >= float(best_score.get("pp", 0)):
+            if candidate["pp_float"] >= best_score["pp_float"]:
                 lost_results.append(candidate)
         except Exception as e:
             logger.warning(f"Ошибка при обработке потенциально потерянного скора: {e}")
             continue
 
     try:
-        lost_results.sort(key=lambda s: float(s.get("pp", 0)), reverse=True)
+        lost_results.sort(key=lambda s: s["pp_float"], reverse=True)
     except Exception as e:
         logger.warning(f"Ошибка при сортировке результатов: {e}")
 
     return lost_results
-
 
 def parse_top(raw, token):
     def format_date(iso_str):
@@ -198,20 +222,70 @@ def scan_replays(game_dir, user_identifier, lookup_key, progress_callback=None, 
     if gui_log:
         gui_log("Инициализация...", update_last=True)
 
-    db_init()
-    token = token_osu()
-    user_json = user_osu(user_identifier, lookup_key, token)
-    if not user_json:
-        gui_log(f"Ошибка: Не удалось получить данные пользователя '{user_identifier}' (тип: {lookup_key}).", False)
-        raise ValueError(f"Пользователь не найден: {user_identifier}")
-    username = user_json["username"]
-    user_id = user_json["id"]
-
-    profile_link = f"https://osu.ppy.sh/users/{user_id}"
-    gui_log(f"Найден пользователь: {username} ({profile_link})", False)
+                                           
+    if not os.path.isdir(game_dir):
+        error_msg = f"Директория игры не существует: {game_dir}"
+        logger.error(error_msg)
+        if gui_log:
+            gui_log(error_msg, False)
+        raise ValueError(error_msg)
 
     songs = os.path.join(game_dir, "Songs")
     replays = os.path.join(game_dir, "Data", "r")
+
+    if not os.path.isdir(songs):
+        error_msg = f"Директория Songs не найдена: {songs}"
+        logger.error(error_msg)
+        if gui_log:
+            gui_log(error_msg, False)
+        raise ValueError(error_msg)
+
+    if not os.path.isdir(replays):
+        error_msg = f"Директория реплеев не найдена: {replays}"
+        logger.error(error_msg)
+        if gui_log:
+            gui_log(error_msg, False)
+        raise ValueError(error_msg)
+
+    try:
+        db_init()
+    except Exception as e:
+        error_msg = f"Ошибка инициализации БД: {e}"
+        logger.error(error_msg)
+        if gui_log:
+            gui_log(error_msg, False)
+        raise
+
+    try:
+        token = token_osu()
+        if not token:
+            error_msg = "Не удалось получить токен API"
+            logger.error(error_msg)
+            if gui_log:
+                gui_log(error_msg, False)
+            raise ValueError(error_msg)
+
+        user_json = user_osu(user_identifier, lookup_key, token)
+        if not user_json:
+            error_msg = f"Ошибка: Не удалось получить данные пользователя '{user_identifier}' (тип: {lookup_key})."
+            logger.error(error_msg)
+            if gui_log:
+                gui_log(error_msg, False)
+            raise ValueError(f"Пользователь не найден: {user_identifier}")
+
+        username = user_json["username"]
+        user_id = user_json["id"]
+
+        profile_link = f"https://osu.ppy.sh/users/{user_id}"
+        logger.info(f"Найден пользователь: {username} (ID: {user_id})")
+        if gui_log:
+            gui_log(f"Найден пользователь: {username} ({profile_link})", False)
+    except Exception as e:
+        error_msg = f"Ошибка при получении данных пользователя: {e}"
+        logger.error(error_msg)
+        if gui_log:
+            gui_log(error_msg, False)
+        raise
 
     gui_log("Сканирую .osu файлы в Songs: 0%", update_last=True)
     last_songs_update = {"time": 0}

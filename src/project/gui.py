@@ -28,6 +28,8 @@ except ImportError:
 import generate_image as img_mod
 from analyzer import scan_replays, make_top
 
+logger = logging.getLogger(__name__)
+
 BASE_SRC_PATH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ICON_PATH = os.path.join(BASE_SRC_PATH, "assets", "icons")
 FONT_PATH = os.path.join(BASE_SRC_PATH, "assets", "fonts")
@@ -162,6 +164,9 @@ class MainWindow(QWidget):
         self.scan_completed = threading.Event()
         self.top_completed = threading.Event()
         self.img_completed = threading.Event()
+
+                                      
+        self.has_error = False
 
                                                           
         self.overall_progress = 0
@@ -635,7 +640,17 @@ class MainWindow(QWidget):
         self.progress_bar.setValue(0)
         self.current_task = "Ошибка выполнения задачи"
         self.status_label.setText(self.current_task)
-        self.scan_completed.set()                                          
+
+                                   
+        self.has_error = True
+
+                                    
+        self.scan_completed.set()
+        self.top_completed.set()
+        self.img_completed.set()
+
+                             
+        self.enable_all_button()
 
     def browse_directory(self):
         folder = QFileDialog.getExistingDirectory(self, "Select osu! Game Directory", "")
@@ -655,6 +670,26 @@ class MainWindow(QWidget):
             QMessageBox.warning(self, "Ошибка", "Укажите папку osu! и ввод профиля (URL/ID/Ник).")
             return
 
+                                                
+        if not os.path.isdir(game_dir):
+            QMessageBox.warning(self, "Ошибка", f"Указанная директория не существует: {game_dir}")
+            return
+
+                                            
+        songs_dir = os.path.join(game_dir, "Songs")
+        replays_dir = os.path.join(game_dir, "Data", "r")
+
+        if not os.path.isdir(songs_dir):
+            QMessageBox.warning(self, "Ошибка", f"Директория Songs не найдена: {songs_dir}")
+            return
+
+        if not os.path.isdir(replays_dir):
+            QMessageBox.warning(self, "Ошибка", f"Директория реплеев не найдена: {replays_dir}")
+            return
+
+                                
+        self.has_error = False
+
                                               
         self.btn_all.setDisabled(True)
         self.browse_button.setDisabled(True)
@@ -672,6 +707,7 @@ class MainWindow(QWidget):
                                         
         self.current_task = "Запуск сканирования..."
         self.status_label.setText(self.current_task)
+        self.append_log("Запускаем анализ...", False)
 
                                                                    
         threading.Thread(target=self._run_sequence, daemon=True).start()
@@ -684,28 +720,91 @@ class MainWindow(QWidget):
                 self.btn_scan, "click",
                 QtCore.Qt.ConnectionType.QueuedConnection
             )
-            self.scan_completed.wait()
+
+                                            
+            max_wait_time = 3600                                                  
+            wait_start = time.time()
+
+            while not self.scan_completed.is_set():
+                                   
+                if time.time() - wait_start > max_wait_time:
+                    logger.error("Превышено время ожидания сканирования реплеев")
+                    QtCore.QMetaObject.invokeMethod(
+                        self, "task_error",
+                        QtCore.Qt.ConnectionType.QueuedConnection,
+                        QtCore.Q_ARG(str, "Превышено время ожидания сканирования")
+                    )
+                    return
+
+                                                           
+                time.sleep(0.1)
+
+                                                                                   
+            if self.has_error:
+                logger.error("Сканирование завершилось с ошибкой, прерываем последовательность")
+                return
 
                                                        
             QtCore.QMetaObject.invokeMethod(
                 self.btn_top, "click",
                 QtCore.Qt.ConnectionType.QueuedConnection
             )
-            self.top_completed.wait()
+
+                               
+            wait_start = time.time()
+
+            while not self.top_completed.is_set():
+                if time.time() - wait_start > max_wait_time:
+                    logger.error("Превышено время ожидания создания потенциального топа")
+                    QtCore.QMetaObject.invokeMethod(
+                        self, "task_error",
+                        QtCore.Qt.ConnectionType.QueuedConnection,
+                        QtCore.Q_ARG(str, "Превышено время ожидания создания топа")
+                    )
+                    return
+                time.sleep(0.1)
+
+                                      
+            if self.has_error:
+                logger.error("Создание топа завершилось с ошибкой, прерываем последовательность")
+                return
 
                                                       
             QtCore.QMetaObject.invokeMethod(
                 self.btn_img, "click",
                 QtCore.Qt.ConnectionType.QueuedConnection
             )
-            self.img_completed.wait()
-                                                                             
-            QtCore.QMetaObject.invokeMethod(
-                self, "all_completed_successfully",
-                QtCore.Qt.ConnectionType.QueuedConnection
-            )
+
+                               
+            wait_start = time.time()
+
+            while not self.img_completed.is_set():
+                if time.time() - wait_start > max_wait_time:
+                    logger.error("Превышено время ожидания создания изображений")
+                    QtCore.QMetaObject.invokeMethod(
+                        self, "task_error",
+                        QtCore.Qt.ConnectionType.QueuedConnection,
+                        QtCore.Q_ARG(str, "Превышено время ожидания создания изображений")
+                    )
+                    return
+                time.sleep(0.1)
+
+                                                              
+            if not self.has_error:
+                                                                                 
+                QtCore.QMetaObject.invokeMethod(
+                    self, "all_completed_successfully",
+                    QtCore.Qt.ConnectionType.QueuedConnection
+                )
         except Exception as e:
             logger.error(f"Ошибка последовательного запуска: {e}")
+            QtCore.QMetaObject.invokeMethod(
+                self, "task_error",
+                QtCore.Qt.ConnectionType.QueuedConnection,
+                QtCore.Q_ARG(str, f"Ошибка последовательного запуска: {e}")
+            )
+        finally:
+                                                
             QtCore.QMetaObject.invokeMethod(
                 self, "enable_all_button",
                 QtCore.Qt.ConnectionType.QueuedConnection
