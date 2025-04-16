@@ -3,12 +3,12 @@ chcp 65001 >nul
 setlocal enabledelayedexpansion
 
 echo ===== osu! Lost Scores Analyzer =====
-echo Проверка необходимых компонентов...
+echo Checking required components...
 
 python --version >nul 2>&1
 if %errorlevel% neq 0 (
-    echo Python не установлен. Пожалуйста, установите Python 3.8 или выше.
-    echo Откройте https://www.python.org/downloads/ для загрузки.
+    echo Python is not installed. Please install Python 3.8 or higher.
+    echo Visit https://www.python.org/downloads/ to download.
     pause
     exit /b 1
 )
@@ -20,22 +20,22 @@ for /f "tokens=1,2 delims=." %%a in ("!pyver!") do (
 )
 
 if !major! lss 3 (
-    echo Требуется Python 3.8 или выше. У вас установлен Python !pyver!.
+    echo Python 3.8 or higher is required. You have Python !pyver!.
     pause
     exit /b 1
 )
 
 if !major! equ 3 if !minor! lss 8 (
-    echo Требуется Python 3.8 или выше. У вас установлен Python !pyver!.
+    echo Python 3.8 or higher is required. You have Python !pyver!.
     pause
     exit /b 1
 )
 
 if not exist ".venv\Scripts\activate.bat" (
-    echo Создание виртуального окружения...
+    echo Creating virtual environment...
     python -m venv .venv
     if %errorlevel% neq 0 (
-        echo Ошибка при создании виртуального окружения.
+        echo Error creating virtual environment.
         pause
         exit /b 1
     )
@@ -44,17 +44,17 @@ if not exist ".venv\Scripts\activate.bat" (
 call .venv\Scripts\activate.bat
 
 if exist "requirements.txt" (
-    echo Установка зависимостей...
+    echo Installing dependencies...
     pip install -r requirements.txt -q
     if %errorlevel% neq 0 (
-        echo Ошибка при установке зависимостей.
+        echo Error installing dependencies.
         pause
         exit /b 1
     ) else (
-        echo Все зависимости установлены успешно.
+        echo All dependencies installed successfully.
     )
 ) else (
-    echo Файл requirements.txt не найден. Невозможно установить зависимости.
+    echo requirements.txt file not found. Cannot install dependencies.
     pause
     exit /b 1
 )
@@ -67,11 +67,11 @@ mkdir src\config 2>nul
 
 if exist "src\.env" (
     del /f "src\.env"
-    echo Удален ошибочный .env файл в src\.env
+    echo Deleted incorrect .env file in src\.env
 )
 if exist "src\project\.env" (
     del /f "src\project\.env"
-    echo Удален ошибочный .env файл в src\project\.env
+    echo Deleted incorrect .env file in src\project\.env
 )
 
 set ENV_FILE=.env
@@ -80,17 +80,17 @@ if not exist "%ENV_FILE%" (
     echo CLIENT_SECRET=default_client_secret>> "%ENV_FILE%"
     echo DB_FILE=../cache/beatmap_info.db>> "%ENV_FILE%"
     echo CUTOFF_DATE=1719619200>> "%ENV_FILE%"
-    echo Создан .env файл в корневой директории
+    echo Created .env file in root directory
 )
 
 set "DOTENV_PATH=%CD%\.env"
-echo DOTENV_PATH установлен в: %DOTENV_PATH%
+echo DOTENV_PATH set to: %DOTENV_PATH%
 
-echo Запуск osu! Lost Scores Analyzer...
+echo Launching osu! Lost Scores Analyzer...
 
 if not exist "src\config\api_keys.json" (
-    set /p OSU_CLIENT_ID=Введите Client ID osu!:
-    set /p OSU_CLIENT_SECRET=Введите Client Secret osu!:
+    set /p OSU_CLIENT_ID="Enter osu! Client ID: "
+    set /p OSU_CLIENT_SECRET="Enter osu! Client Secret: "
 )
 
 cd src\project
@@ -104,9 +104,9 @@ cd ..\..
 call .venv\Scripts\deactivate.bat
 
 if %EXIT_CODE% neq 0 (
-    echo Программа завершилась с ошибкой (код %EXIT_CODE%).
+    echo Program ended with an error (code %EXIT_CODE%).
 ) else (
-    echo Программа успешно завершена.
+    echo Program completed successfully.
 )
 
 pause
