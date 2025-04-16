@@ -160,26 +160,39 @@ class MainWindow(QWidget):
         self.setGeometry(100, 100, 650, 500)
         self.setFixedSize(650, 500)
 
-                                             
+                                        
         self.scan_completed = threading.Event()
         self.top_completed = threading.Event()
         self.img_completed = threading.Event()
-
-                                      
         self.has_error = False
-
-                                                          
         self.overall_progress = 0
-                                      
         self.current_task = "Готово к запуску"
 
+                                   
         self.load_fonts()
         self.load_icons()
         self.load_background()
-        self.load_config()
+
+                                 
         self.initUI()
+
+                                      
+        self.config = {}
+        self.load_config()
+
+                                       
+        if 'osu_path' in self.config and self.config['osu_path']:
+            self.game_entry.setText(self.config['osu_path'])
+        if 'username' in self.config and self.config['username']:
+            self.profile_entry.setText(self.config['username'])
+        if 'scores_count' in self.config and self.config['scores_count']:
+            self.scores_count_entry.setText(str(self.config['scores_count']))
+
+                                    
         self.threadpool = QThreadPool()
-        print(f"Макс. потоков в пуле: {self.threadpool.maxThreadCount()}")
+        logger.info(f"Макс. потоков в пуле: {self.threadpool.maxThreadCount()}")
+
+                                             
         self._try_auto_detect_osu_path()
 
     def ensure_csv_files_exist(self):
@@ -227,16 +240,27 @@ class MainWindow(QWidget):
             if os.path.exists(CONFIG_PATH):
                 with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
                     self.config = json.load(f)
-                print(f"Конфигурация загружена из {CONFIG_PATH}")
+                logger.info(f"Конфигурация загружена из {CONFIG_PATH}")
+
+                                                                             
+                                                                          
         except Exception as e:
-            print(f"Ошибка загрузки конфигурации: {e}")
+            logger.error(f"Ошибка загрузки конфигурации: {e}")
             self.config = {}
 
     def save_config(self):
                                              
         try:
-                                                      
+                                 
             self.config['osu_path'] = self.game_entry.text().strip()
+            self.config['username'] = self.profile_entry.text().strip()
+
+            scores_count = self.scores_count_entry.text().strip()
+            if scores_count:
+                try:
+                    self.config['scores_count'] = int(scores_count)
+                except ValueError:
+                    self.config['scores_count'] = 10
 
             with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
                 json.dump(self.config, f, indent=4)
@@ -244,6 +268,11 @@ class MainWindow(QWidget):
             print(f"Конфигурация сохранена в {CONFIG_PATH}")
         except Exception as e:
             print(f"Ошибка сохранения конфигурации: {e}")
+
+    def closeEvent(self, event):
+                                      
+        self.save_config()
+        event.accept()
 
     def load_fonts(self):
 
@@ -272,12 +301,8 @@ class MainWindow(QWidget):
         self.log_font.setItalic(True)
 
     def load_icons(self):
-
         self.icons = {}
         icon_files_qt = {
-            "scan": {"normal": "scan_normal.png", "hover": "scan_hover.png"},
-            "trophy": {"normal": "trophy_normal.png", "hover": "trophy_hover.png"},
-            "image": {"normal": "image_icon_normal.png", "hover": "image_icon_hover.png"},
             "folder": {"normal": "folder_normal.png", "hover": "folder_hover.png"}
         }
         for name, states in icon_files_qt.items():
@@ -287,11 +312,8 @@ class MainWindow(QWidget):
                 if os.path.exists(path):
                     self.icons[name][state] = QIcon(path)
                 else:
-                    print(f"Файл иконки не найден: {path}")
-                    if state == 'hover' and 'normal' in self.icons.get(name, {}):
-                        self.icons[name][state] = self.icons[name]['normal']
-                    else:
-                        self.icons[name][state] = QIcon()
+                    logger.warning(f"Файл иконки не найден: {path}")
+                    self.icons[name][state] = QIcon()
 
     def load_background(self):
 
@@ -815,6 +837,7 @@ class MainWindow(QWidget):
                                                                   
         self.append_log("Все операции успешно завершены!", False)
         QMessageBox.information(self, "Готово", "Анализ завершен! Вы можете найти результаты в папке 'results'.")
+        self.save_config()                                                     
         self.enable_all_button()
 
     @Slot()
@@ -1179,12 +1202,16 @@ class MainWindow(QWidget):
 
         self.append_log("Папка osu! не найдена автоматически. Укажите путь вручную.", False)
 
+    def closeEvent(self, event):
+                                      
+        self.save_config()
+        event.accept()
 
 def create_gui():
-    app = QApplication(sys.argv)
+    app = QApplication.instance()
     window = MainWindow()
     window.show()
-    sys.exit(app.exec())
+    return window                                          
 
 if __name__ == "__main__":
     create_gui()

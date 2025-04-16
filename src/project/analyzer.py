@@ -309,7 +309,7 @@ def scan_replays(game_dir, user_identifier, lookup_key, progress_callback=None, 
 
     gui_log("Сканирование .osu файлов в Songs: 100%", update_last=True)
     gui_log(f"Найдено {len(md5_map)} osu файлов в Songs.", update_last=False)
-    cutoff = calendar.timegm(time.strptime(CUTOFF_DATE, "%d %b %Y"))
+    cutoff = CUTOFF_DATE
 
     rep_files = [f for f in os.listdir(replays) if f.endswith(".osr")]
     total_rep = len(rep_files)

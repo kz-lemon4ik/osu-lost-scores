@@ -27,7 +27,7 @@ src/maps
 
 scripts/strip_comments.py
 
-src/project/log.txt
+log.txt
 src/project/temp.py
 src/project/temp2.py
 src/project/temp3.py

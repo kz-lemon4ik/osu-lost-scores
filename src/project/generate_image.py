@@ -92,15 +92,33 @@ def create_placeholder_image(filename, username, message):
 
 def get_token_osu():
     url = "https://osu.ppy.sh/oauth/token"
+
+                                            
+    client_id = os.environ.get("CLIENT_ID")
+    client_secret = os.environ.get("CLIENT_SECRET")
+
+    logger.info(f"Используемые ключи: ID={client_id[:4]}...")
+
     data = {
-        "client_id": CLIENT_ID,
-        "client_secret": CLIENT_SECRET,
+        "client_id": client_id,
+        "client_secret": client_secret,
         "grant_type": "client_credentials",
         "scope": "public"
     }
-    r = requests.post(url, data=data)
-    r.raise_for_status()
-    return r.json().get("access_token")
+
+    try:
+        r = requests.post(url, data=data)
+        r.raise_for_status()
+        token = r.json().get("access_token")
+        if token:
+            logger.info("Успешно получен токен API для генерации изображений")
+            return token
+        else:
+            logger.error("Токен не получен в ответе API при генерации изображений")
+            return None
+    except Exception as e:
+        logger.error(f"Ошибка при получении токена для генерации изображений: {e}")
+        return None
 
 
 def get_user_osu(identifier, lookup_key, token):
