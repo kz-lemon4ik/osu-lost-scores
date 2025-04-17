@@ -13,7 +13,8 @@ from PySide6.QtCore import Qt, Signal, QRunnable, QThreadPool, QObject, Slot, QP
 from PySide6.QtGui import QPixmap, QPainter, QFontDatabase, QAction, QIcon, QFont, QColor
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QProgressBar, QTextEdit, QFileDialog, QMessageBox, QMenu, QFrame
+    QPushButton, QProgressBar, QTextEdit, QFileDialog, QMessageBox, QMenu, QFrame,
+    QDialog, QCheckBox
 )
 
 try:
@@ -97,14 +98,17 @@ class HoverButton(QPushButton):
 
     def enterEvent(self, event):
         if self.objectName() != "BrowseButton":
-            self.setStyleSheet(BUTTON_HOVER_STYLE)
+            current_style = self.styleSheet()
+            hover_style = f"QPushButton {{ background-color: {FG_COLOR}; border: 2px solid {ACCENT_COLOR}; border-radius: 5px; }}"
+            if "hover" not in current_style.lower():
+                self.setStyleSheet(current_style + hover_style)
         if self.hover_icon and not self.hover_icon.isNull():
             self.setIcon(self.hover_icon)
         super().enterEvent(event)
 
     def leaveEvent(self, event):
         if self.objectName() != "BrowseButton":
-            self.setStyleSheet(BUTTON_NORMAL_STYLE)
+            pass                                     
         if self.normal_icon and not self.normal_icon.isNull():
             self.setIcon(self.normal_icon)
         super().leaveEvent(event)
@@ -152,6 +156,118 @@ class AnimatedProgressBar(QProgressBar):
                             
         self.animation.start()
 
+
+class ApiDialog(QDialog):
+    def __init__(self, parent=None, client_id="", client_secret=""):
+        super().__init__(parent)
+        self.setWindowTitle("API Keys Configuration")
+        self.setFixedSize(440, 300)                                         
+        self.setStyleSheet(f"""
+            QDialog {{ background-color: {BG_COLOR}; color: {TEXT_COLOR}; }}
+            QLabel {{ color: {TEXT_COLOR}; }}
+            QLineEdit {{
+                background-color: {FG_COLOR};
+                color: {TEXT_COLOR};
+                border: 2px solid {NORMAL_BORDER_COLOR};
+                border-radius: 5px;
+                padding: 5px;
+            }}
+            QLineEdit:hover {{
+                border: 2px solid {ACCENT_COLOR};
+            }}
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+        info_label = QLabel("Enter your osu! API credentials:")
+        info_label.setFont(QFont("Exo 2", 12))                     
+        layout.addWidget(info_label)
+
+                   
+        id_layout = QVBoxLayout()
+        id_layout.setSpacing(10)                                           
+        id_label = QLabel("Client ID:")
+        id_label.setFont(QFont("Exo 2", 12))                     
+        self.id_input = QLineEdit(client_id)
+        self.id_input.setFont(QFont("Exo 2", 12))                     
+        self.id_input.setMinimumHeight(35)                           
+        id_layout.addWidget(id_label)
+        id_layout.addWidget(self.id_input)
+        layout.addLayout(id_layout)
+
+                                                      
+        layout.addSpacing(10)
+
+                       
+        secret_layout = QVBoxLayout()
+        secret_layout.setSpacing(10)                                           
+        secret_label = QLabel("Client Secret:")
+        secret_label.setFont(QFont("Exo 2", 12))                     
+        self.secret_input = QLineEdit(client_secret)
+        self.secret_input.setFont(QFont("Exo 2", 12))                     
+        self.secret_input.setMinimumHeight(35)                           
+        secret_layout.addWidget(secret_label)
+        secret_layout.addWidget(self.secret_input)
+        layout.addLayout(secret_layout)
+
+                                                       
+        layout.addSpacing(15)
+
+                              
+        help_label = QLabel(
+            '<a href="https://osu.ppy.sh/home/account/edit#oauth" style="color:#ee4bbd;">How to get API keys?</a>')
+        help_label.setFont(QFont("Exo 2", 11))                     
+        help_label.setOpenExternalLinks(True)
+        layout.addWidget(help_label)
+
+                 
+        button_layout = QHBoxLayout()
+        button_layout.setSpacing(15)                                     
+
+        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.setFont(QFont("Exo 2", 12))                     
+        self.cancel_btn.setMinimumHeight(40)                             
+        self.cancel_btn.clicked.connect(self.reject)
+
+        self.save_btn = QPushButton("Save")
+        self.save_btn.setFont(QFont("Exo 2", 12, QFont.Weight.Bold))                     
+        self.save_btn.setMinimumHeight(40)                             
+        self.save_btn.clicked.connect(self.accept)
+
+                                                       
+        self.save_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {FG_COLOR};
+                color: {TEXT_COLOR};
+                border: 2px solid {NORMAL_BORDER_COLOR};
+                border-radius: 5px;
+                padding: 5px;
+                text-align: center;
+            }}
+            QPushButton:hover {{
+                border: 2px solid {ACCENT_COLOR};
+            }}
+        """)
+
+        self.cancel_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {FG_COLOR};
+                color: {TEXT_COLOR};
+                border: 2px solid {NORMAL_BORDER_COLOR};
+                border-radius: 5px;
+                padding: 5px;
+                text-align: center;
+            }}
+            QPushButton:hover {{
+                border: 2px solid {ACCENT_COLOR};
+            }}
+        """)
+
+        button_layout.addWidget(self.cancel_btn)
+        button_layout.addWidget(self.save_btn)
+        layout.addLayout(button_layout)
 
 class MainWindow(QWidget):
     def __init__(self):
@@ -242,11 +358,17 @@ class MainWindow(QWidget):
                     self.config = json.load(f)
                 logger.info(f"Конфигурация загружена из {CONFIG_PATH}")
 
-                                                                             
-                                                                          
+
+
         except Exception as e:
             logger.error(f"Ошибка загрузки конфигурации: {e}")
             self.config = {}
+
+                                      
+        if 'include_unranked' in self.config:
+            self.include_unranked_checkbox.setChecked(self.config['include_unranked'])
+        if 'clean_scan' in self.config:
+            self.clean_scan_checkbox.setChecked(self.config['clean_scan'])
 
     def save_config(self):
                                              
@@ -261,6 +383,10 @@ class MainWindow(QWidget):
                     self.config['scores_count'] = int(scores_count)
                 except ValueError:
                     self.config['scores_count'] = 10
+
+                                           
+            self.config['include_unranked'] = self.include_unranked_checkbox.isChecked()
+            self.config['clean_scan'] = self.clean_scan_checkbox.isChecked()
 
             with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
                 json.dump(self.config, f, indent=4)
@@ -344,8 +470,8 @@ class MainWindow(QWidget):
         painter.end()
 
     def initUI(self):
-                                
-        window_height = 650                           
+
+        window_height = 750
         self.setGeometry(100, 100, 650, window_height)
         self.setFixedSize(650, window_height)
 
@@ -429,7 +555,72 @@ class MainWindow(QWidget):
         scores_label.setFont(self.label_font)
 
         self.scores_count_entry = QLineEdit(self)
-        self.scores_count_entry.setGeometry(50, 305, 550, 40)
+        self.scores_count_entry.setGeometry(50, 305, 350, 40)
+        self.api_button = HoverButton("API Keys", None, None, self)
+        self.api_button.setGeometry(410, 305, 190, 40)
+        self.api_button.setFont(self.button_font)
+        self.api_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {FG_COLOR};
+                color: {TEXT_COLOR};
+                border: 2px solid {ACCENT_COLOR};
+                border-radius: 5px;
+                text-align: center;
+            }}
+            QPushButton:hover {{
+                border: 2px solid {ACCENT_COLOR};
+                background-color: {FG_COLOR};
+            }}
+        """)
+        self.api_button.clicked.connect(self.open_api_dialog)
+        checkbox_y = 365
+
+        self.include_unranked_checkbox = QCheckBox("Include unranked/loved beatmaps", self)
+        self.include_unranked_checkbox.setGeometry(50, checkbox_y, 550, 25)
+        self.include_unranked_checkbox.setFont(self.label_font)
+        self.include_unranked_checkbox.setStyleSheet(f"""
+            QCheckBox {{
+                color: {TEXT_COLOR};
+            }}
+            QCheckBox::indicator {{
+                width: 16px;
+                height: 16px;
+                background-color: {FG_COLOR};
+                border: 2px solid {NORMAL_BORDER_COLOR};
+                border-radius: 3px;
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: {ACCENT_COLOR};
+                border: 2px solid {ACCENT_COLOR};
+            }}
+            QCheckBox::indicator:hover {{
+                border: 2px solid {ACCENT_COLOR};
+            }}
+        """)
+
+        self.clean_scan_checkbox = QCheckBox("Perform clean scan (reset cache)", self)
+        self.clean_scan_checkbox.setGeometry(50, checkbox_y + 35, 550, 25)
+        self.clean_scan_checkbox.setFont(self.label_font)
+        self.clean_scan_checkbox.setStyleSheet(f"""
+            QCheckBox {{
+                color: {TEXT_COLOR};
+            }}
+            QCheckBox::indicator {{
+                width: 16px;
+                height: 16px;
+                background-color: {FG_COLOR};
+                border: 2px solid {NORMAL_BORDER_COLOR};
+                border-radius: 3px;
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: {ACCENT_COLOR};
+                border: 2px solid {ACCENT_COLOR};
+            }}
+            QCheckBox::indicator:hover {{
+                border: 2px solid {ACCENT_COLOR};
+            }}
+        """)
+
         self.scores_count_entry.setFont(self.entry_font)
         self.scores_count_entry.setPlaceholderText("For example, 10")
         self.scores_count_entry.setStyleSheet(f"""
@@ -463,11 +654,13 @@ class MainWindow(QWidget):
 
                                                                         
         btn_all_width = 550
-        btn_y = 370
+        btn_y = 435
         self.btn_all = HoverButton("Start Scan", None, None, self)
-        self.btn_all.setGeometry(50, btn_y, btn_all_width, 50)
+        self.btn_all.setGeometry(50, btn_y, 550, 50)
         self.btn_all.setFont(self.button_font)
-                                       
+
+                               
+                               
         self.btn_all.setStyleSheet(f"""
             QPushButton {{
                 background-color: {FG_COLOR};
@@ -478,14 +671,27 @@ class MainWindow(QWidget):
             }}
             QPushButton:hover {{
                 border: 2px solid {ACCENT_COLOR};
+            }}
+        """)
+
+                             
+        self.api_button.setStyleSheet(f"""
+            QPushButton {{
                 background-color: {FG_COLOR};
+                color: {TEXT_COLOR};
+                border: 2px solid {NORMAL_BORDER_COLOR};
+                border-radius: 5px;
+                text-align: center;
+            }}
+            QPushButton:hover {{
+                border: 2px solid {ACCENT_COLOR};
             }}
         """)
         self.btn_all.clicked.connect(self.start_all_processes)
 
                                   
         self.progress_bar = AnimatedProgressBar(self)
-        self.progress_bar.setGeometry(50, 440, 550, 20)
+        self.progress_bar.setGeometry(50, btn_y + 65, 550, 20)
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
         self.progress_bar.setStyleSheet(f"""
@@ -504,7 +710,7 @@ class MainWindow(QWidget):
         """)
 
         self.status_label = QLabel(self.current_task, self)
-        self.status_label.setGeometry(50, 465, 550, 25)
+        self.status_label.setGeometry(50, btn_y + 90, 550, 25)
         self.status_label.setObjectName("StatusLabel")
         status_font = QFont("Exo 2", 11)
         status_font.setItalic(True)
@@ -514,11 +720,11 @@ class MainWindow(QWidget):
 
              
         log_label = QLabel("Log", self)
-        log_label.setGeometry(50, 500, 550, 25)
+        log_label.setGeometry(50, btn_y + 130, 550, 25)
         log_label.setFont(self.label_font)
 
         log_container = QFrame(self)
-        log_container.setGeometry(50, 530, 550, 100)                                      
+        log_container.setGeometry(50, btn_y + 160, 550, 120)
         log_container.setObjectName("LogContainer")
         log_container.setFrameShape(QFrame.Shape.NoFrame)
         log_container.setAutoFillBackground(True)
@@ -709,17 +915,48 @@ class MainWindow(QWidget):
             QMessageBox.warning(self, "Ошибка", f"Директория реплеев не найдена: {replays_dir}")
             return
 
-                                
         self.has_error = False
 
+                                                           
+        if self.clean_scan_checkbox.isChecked():
+            self.append_log("Выполняем чистое сканирование (удаление кэша)...", False)
+            try:
+                import shutil
+                project_root = os.path.join(os.path.dirname(__file__), "..")
+
+                                          
+                folders_to_clean = [
+                    os.path.join(project_root, "cache"),
+                    os.path.join(project_root, "maps"),
+                    os.path.join(project_root, "results"),
+                    os.path.join(project_root, "csv"),
+                    os.path.join(project_root, "assets", "images")
+                ]
+
+                for folder in folders_to_clean:
+                    if os.path.exists(folder):
+                        self.append_log(f"Удаление папки: {folder}", False)
+                        shutil.rmtree(folder)
                                               
+                        os.makedirs(folder, exist_ok=True)
+                        self.append_log(f"Папка пересоздана: {folder}", False)
+
+                                                               
+                self.ensure_csv_files_exist()
+                self.append_log("Очистка кэша выполнена успешно", False)
+            except Exception as e:
+                self.append_log(f"Ошибка при очистке кэша: {e}", False)
+
+                               
         self.btn_all.setDisabled(True)
         self.browse_button.setDisabled(True)
+        self.api_button.setDisabled(True)
         self.game_entry.setReadOnly(True)
         self.profile_entry.setReadOnly(True)
         self.scores_count_entry.setReadOnly(True)
+        self.include_unranked_checkbox.setEnabled(False)
+        self.clean_scan_checkbox.setEnabled(False)
 
-                                       
         self.scan_completed.clear()
         self.top_completed.clear()
         self.img_completed.clear()
@@ -842,30 +1079,34 @@ class MainWindow(QWidget):
 
     @Slot()
     def enable_all_button(self):
-                                           
+                                
         self.btn_all.setDisabled(False)
         self.browse_button.setDisabled(False)
+        self.api_button.setDisabled(False)
         self.game_entry.setReadOnly(False)
         self.profile_entry.setReadOnly(False)
         self.scores_count_entry.setReadOnly(False)
+        self.include_unranked_checkbox.setEnabled(True)
+        self.clean_scan_checkbox.setEnabled(True)
 
     def start_scan(self):
         game_dir = self.game_entry.text().strip()
         user_input = self.profile_entry.text().strip()
         if not game_dir or not user_input:
             QMessageBox.warning(self, "Ошибка", "Укажите папку osu! и ввод профиля (URL/ID/Ник).")
-            self.scan_completed.set()                          
+            self.scan_completed.set()
             return
 
         identifier, lookup_key = self._parse_user_input(user_input)
         if identifier is None:
-            self.scan_completed.set()                          
+            self.scan_completed.set()
             return
 
         self.append_log("Запуск сканирования реплеев...", False)
         self.progress_bar.setValue(0)
 
-        worker = Worker(scan_replays, game_dir, identifier, lookup_key)
+        include_unranked = self.include_unranked_checkbox.isChecked()
+        worker = Worker(scan_replays, game_dir, identifier, lookup_key, include_unranked=include_unranked)
         worker.signals.progress.connect(self.update_progress_bar)
         worker.signals.log.connect(self.append_log)
         worker.signals.finished.connect(self.task_finished)
@@ -1152,12 +1393,14 @@ class MainWindow(QWidget):
             menu.exec(widget.mapToGlobal(position))
 
     def disable_buttons(self, disabled=True):
-                                               
         self.btn_all.setDisabled(disabled)
         self.browse_button.setDisabled(disabled)
+        self.api_button.setDisabled(disabled)
         self.game_entry.setReadOnly(disabled)
         self.profile_entry.setReadOnly(disabled)
         self.scores_count_entry.setReadOnly(disabled)
+        self.include_unranked_checkbox.setEnabled(not disabled)
+        self.clean_scan_checkbox.setEnabled(not disabled)
 
     def _try_auto_detect_osu_path(self):
                                                                                    
@@ -1201,6 +1444,34 @@ class MainWindow(QWidget):
                 return
 
         self.append_log("Папка osu! не найдена автоматически. Укажите путь вручную.", False)
+
+    def open_api_dialog(self):
+        from osu_api import load_api_keys, save_api_keys, update_env_file
+
+                                           
+        current_client_id, current_client_secret = load_api_keys()
+
+                                                  
+        dialog = ApiDialog(self, current_client_id or "", current_client_secret or "")
+        result = dialog.exec()
+
+        if result == QDialog.DialogCode.Accepted:
+            client_id = dialog.id_input.text().strip()
+            client_secret = dialog.secret_input.text().strip()
+
+            if not client_id or not client_secret:
+                QMessageBox.warning(self, "Missing Keys", "Both Client ID and Client Secret are required.")
+                return
+
+                             
+            if save_api_keys(client_id, client_secret):
+                                     
+                if update_env_file(client_id, client_secret):
+                    QMessageBox.information(self, "Success", "API keys saved successfully!")
+                else:
+                    QMessageBox.warning(self, "Warning", "API keys saved, but failed to update .env file.")
+            else:
+                QMessageBox.critical(self, "Error", "Failed to save API keys.")
 
     def closeEvent(self, event):
                                       

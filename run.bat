@@ -88,14 +88,9 @@ echo DOTENV_PATH set to: %DOTENV_PATH%
 
 echo Launching osu! Lost Scores Analyzer...
 
-if not exist "src\config\api_keys.json" (
-    set /p OSU_CLIENT_ID="Enter osu! Client ID: "
-    set /p OSU_CLIENT_SECRET="Enter osu! Client Secret: "
-)
+echo API keys can be configured within the application
 
 cd src\project
-set "OSU_CLIENT_ID=%OSU_CLIENT_ID%"
-set "OSU_CLIENT_SECRET=%OSU_CLIENT_SECRET%"
 set "DOTENV_PATH=%DOTENV_PATH%"
 python main.py
 set EXIT_CODE=%errorlevel%

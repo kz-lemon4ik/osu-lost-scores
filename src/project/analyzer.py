@@ -215,7 +215,7 @@ def save_csv(filename, data, extra=None, fields=None):
                 writer.writerow({k: row.get(k, "") for k in cols})
 
 
-def scan_replays(game_dir, user_identifier, lookup_key, progress_callback=None, gui_log=None):
+def scan_replays(game_dir, user_identifier, lookup_key, progress_callback=None, gui_log=None, include_unranked=False):
                       
     if progress_callback:
         progress_callback(0, 100)                      
@@ -396,67 +396,127 @@ def scan_replays(game_dir, user_identifier, lookup_key, progress_callback=None, 
     if gui_log:
         gui_log("Обрабатываю потерянные скоры...", update_last=False)
     if progress_callback:
-        progress_callback(80, 100)                 
+        progress_callback(80, 100)
 
     lost = find_lost_scores(score_list)
     lost = [r for r in lost if calendar.timegm(time.strptime(r["score_time"], "%d-%m-%Y %H-%M-%S")) < cutoff]
     logger.info("Найдено %d потерянных скоров (до cutoff)", len(lost))
 
-    for i, rec in enumerate(lost):
-        db_ = db_get(rec["beatmap_id"])
-        if not db_:
-            from osu_api import map_osu
-            info_api = map_osu(rec["beatmap_id"], token)
-                                                   
-            if gui_log:
-                gui_log(f"Получение информации о карте {rec['beatmap_id']} ({i + 1}/{len(lost)})", update_last=True)
-            if progress_callback:
-                progress_callback(80 + int((i / len(lost)) * 15), 100)           
+                                              
+    logger.info(f"Include unranked/loved beatmaps: {include_unranked}")
 
-            if info_api:
+                                                             
+    if include_unranked:
+        logger.info(f"ВКЛЮЧЕНЫ unranked/loved карты. Получаем информацию локально. Всего скоров: {len(lost)}")
+
+                                            
+        for i, rec in enumerate(lost):
+            beatmap_id = rec["beatmap_id"]
+
+                                                          
+            osu_file_path = rec.get("osu_file_path")
+            if osu_file_path and os.path.exists(osu_file_path):
+                                                                     
+                from file_parser import count_objs, parse_osu_metadata
+                hit_objects = count_objs(osu_file_path, beatmap_id)
+                metadata = parse_osu_metadata(osu_file_path)
+
+                                                                        
                 db_save(
-                    rec["beatmap_id"],
-                    info_api["status"],
-                    info_api["artist"],
-                    info_api["title"],
-                    info_api["version"],
-                    info_api["creator"],
-                    info_api.get("hit_objects", 0)
+                    beatmap_id,
+                    "unknown",                                   
+                    metadata.get("artist", rec.get("artist", "")),
+                    metadata.get("title", rec.get("title", "")),
+                    metadata.get("version", rec.get("version", "")),
+                    metadata.get("creator", rec.get("creator", "")),
+                    hit_objects
                 )
-                db_ = info_api
             else:
-                db_ = {
-                    "status": "unknown",
-                    "artist": rec.get("artist", ""),
-                    "title": rec.get("title", ""),
-                    "version": rec.get("version", ""),
-                    "creator": rec.get("creator", ""),
-                    "hit_objects": 0
-                }
-                db_save(
-                    rec["beatmap_id"],
-                    db_["status"],
-                    db_["artist"],
-                    db_["title"],
-                    db_["version"],
-                    db_["creator"],
-                    0
-                )
-        rec["Status"] = db_.get("status", "unknown")
+                logger.warning(f"Не найден локальный .osu файл для скора с beatmap_id {beatmap_id}")
 
-    lost = [r for r in lost if r.get("Status") in ["ranked", "approved"]]
-    logger.info("Потерянных скоров после фильтрации: %d", len(lost))
+                                                                               
+            rec["Status"] = "unknown"
+
+            if gui_log:
+                gui_log(f"Обработка карты {beatmap_id} ({i + 1}/{len(lost)})", update_last=True)
+            if progress_callback:
+                progress_callback(80 + int((i / len(lost)) * 15), 100)
+
+                                          
+        logger.info(f"ВКЛЮЧЕНЫ unranked/loved карты. Всего скоров: {len(lost)}")
+
+    else:
+                                                                          
+        logger.info(f"Проверяем статус для {len(lost)} карт...")
+
+                                                   
+        for i, rec in enumerate(lost):
+            db_ = db_get(rec["beatmap_id"])
+
+                                                             
+                                    
+                                                                
+            need_api_update = False
+            if not db_:
+                need_api_update = True
+            elif not include_unranked and db_.get("status") == "unknown":
+                need_api_update = True
+
+            if need_api_update:
+                from osu_api import map_osu
+                info_api = map_osu(rec["beatmap_id"], token)
+                if gui_log:
+                    gui_log(f"Получение информации о карте {rec['beatmap_id']} ({i + 1}/{len(lost)})", update_last=True)
+                if progress_callback:
+                    progress_callback(80 + int((i / len(lost)) * 15), 100)
+
+                if info_api:
+                    db_save(
+                        rec["beatmap_id"],
+                        info_api["status"],
+                        info_api["artist"],
+                        info_api["title"],
+                        info_api["version"],
+                        info_api["creator"],
+                        info_api.get("hit_objects", 0)
+                    )
+                    db_ = info_api
+                else:
+                    db_ = {
+                        "status": "unknown",
+                        "artist": rec.get("artist", ""),
+                        "title": rec.get("title", ""),
+                        "version": rec.get("version", ""),
+                        "creator": rec.get("creator", ""),
+                        "hit_objects": 0
+                    }
+                    db_save(
+                        rec["beatmap_id"],
+                        db_["status"],
+                        db_["artist"],
+                        db_["title"],
+                        db_["version"],
+                        db_["creator"],
+                        0
+                    )
+
+            rec["Status"] = db_.get("status", "unknown")
+
+                                                
+        original_count = len(lost)
+        lost = [r for r in lost if r.get("Status") in ["ranked", "approved"]]
+        filtered_count = len(lost)
+        logger.info(f"Отфильтровано {original_count - filtered_count} скоров, осталось: {filtered_count}")
 
     for rec in lost:
         db_info = db_get(rec["beatmap_id"])
         if not db_info or not db_info.get("hit_objects", 0):
             pass
 
-                        
     if gui_log:
         gui_log("Сохранение результатов...", update_last=True)
     if progress_callback:
-        progress_callback(95, 100)                 
+        progress_callback(95, 100)
 
     if lost:
         out_file = os.path.join(os.path.dirname(__file__), "..", "csv", "lost_scores.csv")
@@ -547,13 +607,13 @@ def make_top(game_dir, user_identifier, lookup_key, gui_log=None, progress_callb
     overall_pp = stats.get("pp", 0)
     overall_acc_from_api = float(stats.get("hit_accuracy", 0.0))
 
-                                 
+
     if gui_log:
         gui_log("Запрашиваю топ-результаты...", update_last=False)
     if progress_callback:
         progress_callback(50, 100)
 
-    raw_top = top_osu(token, user_id)
+    raw_top = top_osu(token, user_id, limit=200)
     top_data = parse_top(raw_top, token)
     top_data = calc_weight(top_data)
 
@@ -662,7 +722,7 @@ def make_top(game_dir, user_identifier, lookup_key, gui_log=None, progress_callb
 
     combined = list(top_dict.values())
     combined.sort(key=lambda x: x["PP"], reverse=True)
-    top_with_lost = combined[:100]
+    top_with_lost = combined[:200]
     top_with_lost = calc_weight(top_with_lost)
 
     total_weight_pp_new = sum(item["weight_PP"] for item in top_with_lost)

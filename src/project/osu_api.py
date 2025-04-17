@@ -131,22 +131,49 @@ def user_osu(identifier, lookup_key, token):
 
 
 @retry_request
-def top_osu(token, user_id, limit=100):
-    wait_osu()
-    url = f"https://osu.ppy.sh/api/v2/users/{user_id}/scores/best?limit={limit}&include=beatmap"
-    logger.info("GET top: %s", url)
-    headers = {"Authorization": f"Bearer {token}"}
+def top_osu(token, user_id, limit=200):
+                                                                                                         
+    all_scores = []
+    page_size = 100                                                 
 
-    try:
-        resp = session.get(url, headers=headers)
-        resp.raise_for_status()
-        return resp.json()
-    except requests.exceptions.HTTPError as e:
-        logger.error(f"HTTP ошибка при запросе топ-скоров пользователя {user_id}: {e}")
-        raise
-    except Exception as e:
-        logger.error(f"Неожиданная ошибка при запросе топ-скоров пользователя {user_id}: {e}")
-        raise
+                                 
+    for offset in range(0, limit, page_size):
+        url = f"https://osu.ppy.sh/api/v2/users/{user_id}/scores/best"
+        logger.info(f"GET top: {url} (offset={offset}, limit={min(page_size, limit - offset)})")
+        headers = {"Authorization": f"Bearer {token}"}
+        params = {
+            "limit": min(page_size, limit - offset),
+            "offset": offset,
+            "include": "beatmap"
+        }
+
+        wait_osu()                                                         
+        try:
+            resp = session.get(url, headers=headers, params=params)
+            resp.raise_for_status()
+            page_scores = resp.json()
+
+                                                                   
+            if not page_scores:
+                logger.info(f"No more scores found after offset {offset}")
+                break
+
+            all_scores.extend(page_scores)
+            logger.debug(f"Retrieved {len(page_scores)} scores (offset {offset})")
+
+                                                                                 
+            if len(page_scores) < min(page_size, limit - offset):
+                logger.debug(f"Last page reached at offset {offset}")
+                break
+
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"HTTP ошибка при запросе топ-скоров пользователя {user_id}: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Неожиданная ошибка при запросе топ-скоров пользователя {user_id}: {e}")
+            raise
+
+    return all_scores
 
 
 @retry_request

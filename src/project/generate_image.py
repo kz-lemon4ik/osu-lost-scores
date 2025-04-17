@@ -152,12 +152,22 @@ def get_map_osu(bid, token):
 
 
 def dl_img(url, path):
+                                                                       
     if os.path.exists(path):
         return
-    resp = requests.get(url)
-    resp.raise_for_status()
-    with open(path, "wb") as f:
-        f.write(resp.content)
+
+                                    
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+
+    try:
+        resp = requests.get(url)
+        resp.raise_for_status()
+        with open(path, "wb") as f:
+            f.write(resp.content)
+        return True
+    except Exception as e:
+        logger.warning(f"Не удалось скачать изображение {url}: {e}")
+        return False
 
 
 def short_mods(mods_str):

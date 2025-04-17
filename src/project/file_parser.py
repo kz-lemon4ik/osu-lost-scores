@@ -554,10 +554,10 @@ def update_osu_md5_cache(new_osu_path, md5_hash):
             logger.error(f"Ошибка обновления osu_md5_cache: {e}")
 
 def count_objs(osu_path, beatmap_id):
-
+                                                                           
     total = 0
     try:
-        with open(osu_path, "r", encoding="utf-8") as f:
+        with open(osu_path, "r", encoding="utf-8", errors="ignore") as f:
             in_hit = False
             for line in f:
                 line = line.strip()
@@ -570,9 +570,10 @@ def count_objs(osu_path, beatmap_id):
         logger.error("Ошибка при чтении .osu файла %s: %s", osu_path, e)
         return 0
 
+                                       
     db_info = db_get(beatmap_id)
     if db_info:
-
+                                                                     
         if not db_info["hit_objects"]:
             db_save(
                 beatmap_id,
@@ -584,14 +585,16 @@ def count_objs(osu_path, beatmap_id):
                 total
             )
     else:
-
+                                                                
+                                                    
+        metadata = parse_osu_metadata(osu_path)
         db_save(
             beatmap_id,
             "unknown",
-            "",
-            "",
-            "",
-            "",
+            metadata.get("artist", ""),
+            metadata.get("title", ""),
+            metadata.get("version", ""),
+            metadata.get("creator", ""),
             total
         )
 
@@ -599,23 +602,35 @@ def count_objs(osu_path, beatmap_id):
 
 
 def grade_osu(beatmap_id, c300, c100, c50, cMiss):
-
     from database import db_get
     db_info = db_get(beatmap_id)
-    if not db_info:
-        return "?"
 
-    total = db_info.get("hit_objects", 0)
+    total = 0
+    if db_info:
+        total = db_info.get("hit_objects", 0)
+
+                                                                          
     if not total:
+                                                       
+        osu_file = None
+        for md5, path in MD5_MAP.items():
+            if path and os.path.exists(path):
+                bid = parse_beatmap_id(path)
+                if bid == beatmap_id:
+                    osu_file = path
+                    break
 
+        if osu_file:
+            total = count_objs(osu_file, beatmap_id)
+            logger.info(f"Локально подсчитано {total} объектов для beatmap_id {beatmap_id}")
 
+                                                                  
+        if not total:
+            logger.warning(f"Не удалось определить количество объектов для beatmap_id {beatmap_id}")
+            return "?"
 
-        return "?"
-
+                                                  
     c300_corrected = c300
-
-
-
     p300 = (c300_corrected / total) * 100 if total else 0
     p50 = (c50 / total) * 100 if total else 0
 
