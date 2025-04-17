@@ -44,41 +44,20 @@ from PySide6.QtWidgets import QApplication
 from gui import create_gui
 
 
-                                                            
-                         
 def setup_api():
     try:
         from osu_api import setup_api_keys, restore_env_defaults
 
-                                     
-        if os.path.exists(env_path):
-            logging.info(f".env файл найден: {env_path}")
-            with open(env_path, "r") as f:
-                content = f.read()
-                logging.info(f"Содержимое .env: {content.replace(os.linesep, ' ')}")
-        else:
-            logging.error(f".env файл не найден: {env_path}")
-
-                                               
-        logging.info(
-            f"Текущие переменные окружения: CLIENT_ID={os.environ.get('CLIENT_ID', 'не задано')[:4] if os.environ.get('CLIENT_ID') else 'не задано'}...")
-
-                                                                                        
-        atexit.register(restore_env_defaults)
-
-                               
+                                           
         if not setup_api_keys():
-            logging.error("Не удалось настроить API ключи. Программа завершена.")
-            return False
-
-                                  
-        logging.info(
-            f"После настройки: CLIENT_ID={os.environ.get('CLIENT_ID', 'не задано')[:4] if os.environ.get('CLIENT_ID') else 'не задано'}...")
+                                                                     
+            logging.warning("API ключи не настроены. Будет предложено ввести их через интерфейс.")
+            return True                                
 
         return True
     except Exception as e:
         logging.exception(f"Ошибка при настройке API: {e}")
-        return False
+        return True                                                
 
 
 def main():

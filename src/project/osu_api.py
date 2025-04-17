@@ -404,39 +404,16 @@ def restore_env_defaults():
 
 
 def setup_api_keys():
-                                                     
-                                         
-    global os
-
     client_id, client_secret = load_api_keys()
 
     if not client_id or not client_secret:
-                                                         
-        env_client_id = os.environ.get("OSU_CLIENT_ID")
-        env_client_secret = os.environ.get("OSU_CLIENT_SECRET")
-
-        if env_client_id and env_client_secret:
-            client_id = env_client_id
-            client_secret = env_client_secret
-            logger.info("Используются API ключи из переменных окружения")
-            logger.info(f"CLIENT_ID: {client_id[:4]}...")
-            save_api_keys(client_id, client_secret)
-        else:
-            logger.error("API ключи не найдены и не переданы через переменные окружения")
-            print("Ошибка: API ключи osu! не найдены.")
-            print("Запустите программу с параметрами OSU_CLIENT_ID и OSU_CLIENT_SECRET.")
-            print("Пример: OSU_CLIENT_ID=123 OSU_CLIENT_SECRET=abc python main.py")
-            return False
+                                                                            
+                               
+        logger.warning("API ключи не найдены. Требуется их ввод через интерфейс.")
+        return False
     else:
         logger.info(f"Используются сохраненные API ключи: {client_id[:4]}...")
 
-                                                
+                         
     result = update_env_file(client_id, client_secret)
-
-                                                       
-    if result:
-        logger.info(f"Проверка обновления окружения: CLIENT_ID={os.environ.get('CLIENT_ID')[:4]}...")
-    else:
-        logger.error("Не удалось обновить .env файл")
-
     return result

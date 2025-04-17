@@ -311,6 +311,22 @@ class MainWindow(QWidget):
                                              
         self._try_auto_detect_osu_path()
 
+        from osu_api import load_api_keys
+        client_id, client_secret = load_api_keys()
+
+                                                               
+        if not client_id or not client_secret:
+                                                                                      
+            QtCore.QTimer.singleShot(500, self.show_first_run_api_dialog)
+
+    def show_first_run_api_dialog(self):
+                                                                   
+        QMessageBox.information(self, "API Keys Required",
+                                "Welcome to osu! Lost Scores Analyzer!\n\n"
+                                "To use this application, you need to provide osu! API keys.\n"
+                                "Please enter your API keys in the next dialog.")
+        self.open_api_dialog()
+
     def ensure_csv_files_exist(self):
                                                                  
         csv_dir = os.path.join(os.path.dirname(__file__), "..", "csv")
