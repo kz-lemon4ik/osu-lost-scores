@@ -5,6 +5,7 @@ import threading
 import logging
 import time
 import json
+import subprocess
 from functools import partial
 from datetime import datetime
 
@@ -161,7 +162,7 @@ class ApiDialog(QDialog):
     def __init__(self, parent=None, client_id="", client_secret=""):
         super().__init__(parent)
         self.setWindowTitle("API Keys Configuration")
-        self.setFixedSize(440, 300)                                         
+        self.setFixedSize(440, 300)
         self.setStyleSheet(f"""
             QDialog {{ background-color: {BG_COLOR}; color: {TEXT_COLOR}; }}
             QLabel {{ color: {TEXT_COLOR}; }}
@@ -182,61 +183,101 @@ class ApiDialog(QDialog):
         layout.setSpacing(15)
 
         info_label = QLabel("Enter your osu! API credentials:")
-        info_label.setFont(QFont("Exo 2", 12))                     
+        info_label.setFont(QFont("Exo 2", 12))
         layout.addWidget(info_label)
 
                    
         id_layout = QVBoxLayout()
-        id_layout.setSpacing(10)                                           
+        id_layout.setSpacing(10)
         id_label = QLabel("Client ID:")
-        id_label.setFont(QFont("Exo 2", 12))                     
+        id_label.setFont(QFont("Exo 2", 12))
         self.id_input = QLineEdit(client_id)
-        self.id_input.setFont(QFont("Exo 2", 12))                     
-        self.id_input.setMinimumHeight(35)                           
+        self.id_input.setFont(QFont("Exo 2", 12))
+        self.id_input.setMinimumHeight(35)
         id_layout.addWidget(id_label)
         id_layout.addWidget(self.id_input)
         layout.addLayout(id_layout)
 
-                                                      
         layout.addSpacing(10)
 
                        
         secret_layout = QVBoxLayout()
-        secret_layout.setSpacing(10)                                           
+        secret_layout.setSpacing(10)
         secret_label = QLabel("Client Secret:")
-        secret_label.setFont(QFont("Exo 2", 12))                     
+        secret_label.setFont(QFont("Exo 2", 12))
+
+                                                                                       
+        self.secret_container = QFrame()
+        self.secret_container.setMinimumHeight(40)                       
+        self.secret_container.setStyleSheet(f"""
+            QFrame {{
+                background-color: {FG_COLOR};
+                border: 2px solid {NORMAL_BORDER_COLOR};
+                border-radius: 5px;
+            }}
+            QFrame:hover {{
+                border: 2px solid {ACCENT_COLOR};
+            }}
+        """)
+
+                                                      
+        self.secret_layout_container = QHBoxLayout(self.secret_container)
+        self.secret_layout_container.setContentsMargins(10, 0, 10, 0)
+        self.secret_layout_container.setSpacing(0)
+
+                                     
         self.secret_input = QLineEdit(client_secret)
-        self.secret_input.setFont(QFont("Exo 2", 12))                     
-        self.secret_input.setMinimumHeight(35)                           
+        self.secret_input.setFont(QFont("Exo 2", 12))
+        self.secret_input.setMinimumHeight(35)
+        self.secret_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.secret_input.setStyleSheet("""
+            QLineEdit {
+                background-color: transparent;
+                border: none;
+                padding: 5px;
+            }
+        """)
+
+                                                  
+        self.show_secret_btn = FolderButton(
+            QIcon(os.path.join(ICON_PATH, "eye_closed.png")),
+            QIcon(os.path.join(ICON_PATH, "eye_closed_hover.png"))
+        )
+        self.show_secret_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.show_secret_btn.setFixedSize(30, 30)
+        self.show_secret_btn.setStyleSheet("QPushButton { background: transparent; border: none; }")
+        self.show_secret_btn.clicked.connect(self.toggle_secret_visibility)
+        self.is_secret_visible = False
+
+                                        
+        self.secret_layout_container.addWidget(self.secret_input, 1)               
+        self.secret_layout_container.addWidget(self.show_secret_btn, 0)               
+
         secret_layout.addWidget(secret_label)
-        secret_layout.addWidget(self.secret_input)
+        secret_layout.addWidget(self.secret_container)
         layout.addLayout(secret_layout)
 
-                                                       
         layout.addSpacing(15)
 
-                              
         help_label = QLabel(
             '<a href="https://osu.ppy.sh/home/account/edit#oauth" style="color:#ee4bbd;">How to get API keys?</a>')
-        help_label.setFont(QFont("Exo 2", 11))                     
+        help_label.setFont(QFont("Exo 2", 11))
         help_label.setOpenExternalLinks(True)
         layout.addWidget(help_label)
 
-                 
         button_layout = QHBoxLayout()
-        button_layout.setSpacing(15)                                     
+        button_layout.setSpacing(15)
 
         self.cancel_btn = QPushButton("Cancel")
-        self.cancel_btn.setFont(QFont("Exo 2", 12))                     
-        self.cancel_btn.setMinimumHeight(40)                             
+        self.cancel_btn.setFont(QFont("Exo 2", 12))
+        self.cancel_btn.setMinimumHeight(40)
         self.cancel_btn.clicked.connect(self.reject)
 
         self.save_btn = QPushButton("Save")
-        self.save_btn.setFont(QFont("Exo 2", 12, QFont.Weight.Bold))                     
-        self.save_btn.setMinimumHeight(40)                             
+        self.save_btn.setFont(QFont("Exo 2", 12, QFont.Weight.Bold))
+        self.save_btn.setMinimumHeight(40)
         self.save_btn.clicked.connect(self.accept)
 
-                                                       
         self.save_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: {FG_COLOR};
@@ -268,6 +309,82 @@ class ApiDialog(QDialog):
         button_layout.addWidget(self.cancel_btn)
         button_layout.addWidget(self.save_btn)
         layout.addLayout(button_layout)
+
+                                                                          
+        self.id_input.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.id_input.customContextMenuRequested.connect(lambda pos: self.show_context_menu(self.id_input, pos))
+
+        self.secret_input.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.secret_input.customContextMenuRequested.connect(lambda pos: self.show_context_menu(self.secret_input, pos))
+
+    def toggle_secret_visibility(self):
+        self.is_secret_visible = not self.is_secret_visible
+        if self.is_secret_visible:
+            self.secret_input.setEchoMode(QLineEdit.EchoMode.Normal)
+            self.show_secret_btn.normal_icon = QIcon(os.path.join(ICON_PATH, "eye_open.png"))
+            self.show_secret_btn.hover_icon = QIcon(os.path.join(ICON_PATH, "eye_open_hover.png"))
+        else:
+            self.secret_input.setEchoMode(QLineEdit.EchoMode.Password)
+            self.show_secret_btn.normal_icon = QIcon(os.path.join(ICON_PATH, "eye_closed.png"))
+            self.show_secret_btn.hover_icon = QIcon(os.path.join(ICON_PATH, "eye_closed_hover.png"))
+
+        self.show_secret_btn.setIcon(self.show_secret_btn.normal_icon)
+
+    def show_context_menu(self, widget, position):
+        menu = QMenu()
+                                           
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #121212;
+                color: white;
+                border: 1px solid #333333;
+                border-radius: 5px;
+                padding: 5px;
+            }
+            QMenu::item {
+                padding: 5px 15px;
+                border-radius: 3px;
+            }
+            QMenu::item:selected {
+                background-color: #333333; /* Цвет выделения при наведении/выборе */
+            }
+            QMenu::item:disabled {
+                color: #666666; /* Цвет для неактивных пунктов */
+            }
+        """)
+
+        if isinstance(widget, QLineEdit):
+            cut_action = menu.addAction("Cut")
+            cut_action.triggered.connect(widget.cut)
+                                                                          
+                                                                        
+            cut_action.setEnabled(widget.hasSelectedText())                      
+
+            copy_action = menu.addAction("Copy")
+            copy_action.triggered.connect(widget.copy)
+                                               
+            copy_action.setEnabled(widget.hasSelectedText())                      
+
+            paste_action = menu.addAction("Paste")
+            paste_action.triggered.connect(widget.paste)
+                                               
+                                                                     
+            if PYPERCLIP_AVAILABLE:
+                 paste_action.setEnabled(bool(pyperclip.paste()))
+            else:
+                                                                                  
+                 paste_action.setEnabled(True)
+
+
+            menu.addSeparator()
+
+            select_all_action = menu.addAction("Select All")
+            select_all_action.triggered.connect(widget.selectAll)
+                                               
+            select_all_action.setEnabled(bool(widget.text()))                      
+
+        if menu.actions():
+            menu.exec(widget.mapToGlobal(position))
 
 class MainWindow(QWidget):
     def __init__(self):
@@ -439,7 +556,7 @@ class MainWindow(QWidget):
     def load_icons(self):
         self.icons = {}
         icon_files_qt = {
-            "folder": {"normal": "folder_normal.png", "hover": "folder_hover.png"}
+            "folder": {"normal": "folder.png", "hover": "folder_hover.png"}
         }
         for name, states in icon_files_qt.items():
             self.icons[name] = {}
@@ -649,20 +766,19 @@ class MainWindow(QWidget):
         validator = QtGui.QIntValidator(1, 100, self)
         self.scores_count_entry.setValidator(validator)
 
-                                                      
-        self.btn_scan = QPushButton(self)
-        self.btn_scan.setGeometry(0, 0, 0, 0)                                    
-        self.btn_scan.clicked.connect(self.start_scan)
+        self.action_scan = QPushButton(self)
+        self.action_scan.setGeometry(0, 0, 0, 0)
+        self.action_scan.clicked.connect(self.start_scan)
 
-        self.btn_top = QPushButton(self)
-        self.btn_top.setGeometry(0, 0, 0, 0)                   
-        self.btn_top.clicked.connect(self.start_top)
+        self.action_top = QPushButton(self)
+        self.action_top.setGeometry(0, 0, 0, 0)
+        self.action_top.clicked.connect(self.start_top)
 
-        self.btn_img = QPushButton(self)
-        self.btn_img.setGeometry(0, 0, 0, 0)                   
-        self.btn_img.clicked.connect(self.start_img)
+        self.action_img = QPushButton(self)
+        self.action_img.setGeometry(0, 0, 0, 0)
+        self.action_img.clicked.connect(self.start_img)
 
-                                                                        
+
         btn_all_width = 550
         btn_y = 435
         self.btn_all = HoverButton("Start Scan", None, None, self)
@@ -984,7 +1100,7 @@ class MainWindow(QWidget):
         try:
                                                       
             QtCore.QMetaObject.invokeMethod(
-                self.btn_scan, "click",
+                self.action_scan, "click",
                 QtCore.Qt.ConnectionType.QueuedConnection
             )
 
@@ -1013,7 +1129,7 @@ class MainWindow(QWidget):
 
                                                        
             QtCore.QMetaObject.invokeMethod(
-                self.btn_top, "click",
+                self.action_top, "click",
                 QtCore.Qt.ConnectionType.QueuedConnection
             )
 
@@ -1038,7 +1154,7 @@ class MainWindow(QWidget):
 
                                                       
             QtCore.QMetaObject.invokeMethod(
-                self.btn_img, "click",
+                self.action_img, "click",
                 QtCore.Qt.ConnectionType.QueuedConnection
             )
 
@@ -1077,12 +1193,29 @@ class MainWindow(QWidget):
                 QtCore.Qt.ConnectionType.QueuedConnection
             )
 
+    def open_folder(self, path):
+                                                  
+        if platform.system() == "Windows":
+            os.startfile(path)
+        elif platform.system() == "Darwin":         
+            subprocess.Popen(["open", path])
+        else:                                        
+            subprocess.Popen(["xdg-open", path])
+
     @Slot()
     def all_completed_successfully(self):
-
         self.append_log("All operations completed successfully!", False)
+        results_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "results")
+
+                                                       
+        if os.path.exists(results_path) and os.path.isdir(results_path):
+            self.append_log(f"Opening results folder: {results_path}", False)
+            self.open_folder(results_path)
+        else:
+            self.append_log(f"Results folder not found: {results_path}", False)
+
         QMessageBox.information(self, "Done", "Analysis completed! You can find results in the 'results' folder.")
-        self.save_config()                                                     
+        self.save_config()
         self.enable_all_button()
 
     @Slot()
@@ -1369,30 +1502,40 @@ class MainWindow(QWidget):
 
     def show_context_menu(self, widget, position):
         menu = QMenu()
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #121212;
+                color: white;
+                border: 1px solid #333333;
+                border-radius: 5px;
+                padding: 5px;
+            }
+            QMenu::item {
+                padding: 5px 15px;
+                border-radius: 3px;
+            }
+            QMenu::item:selected {
+                background-color: #333333;
+            }
+            QMenu::item:disabled {
+                color: #666666;
+            }
+        """)
+
         if isinstance(widget, QLineEdit):
             cut_action = menu.addAction("Cut")
             cut_action.triggered.connect(widget.cut)
-            cut_action.setEnabled(widget.hasSelectedText())
+                                                                                    
+
             copy_action = menu.addAction("Copy")
             copy_action.triggered.connect(widget.copy)
-            copy_action.setEnabled(widget.hasSelectedText())
+                                                                        
+
             paste_action = menu.addAction("Paste")
             paste_action.triggered.connect(widget.paste)
-            paste_action.setEnabled(PYPERCLIP_AVAILABLE and bool(pyperclip.paste()))
+
             menu.addSeparator()
-            select_all_action = menu.addAction("Select All")
-            select_all_action.triggered.connect(widget.selectAll)
-        elif isinstance(widget, QTextEdit):
-            cut_action = menu.addAction("Cut")
-            cut_action.triggered.connect(widget.cut)
-            cut_action.setEnabled(not widget.isReadOnly() and widget.textCursor().hasSelection())
-            copy_action = menu.addAction("Copy")
-            copy_action.triggered.connect(widget.copy)
-            copy_action.setEnabled(widget.textCursor().hasSelection())
-            paste_action = menu.addAction("Paste")
-            paste_action.triggered.connect(widget.paste)
-            paste_action.setEnabled(not widget.isReadOnly() and PYPERCLIP_AVAILABLE and bool(pyperclip.paste()))
-            menu.addSeparator()
+
             select_all_action = menu.addAction("Select All")
             select_all_action.triggered.connect(widget.selectAll)
 

@@ -17,6 +17,7 @@ os.makedirs(cache_folder, exist_ok=True)
 
 MD5_CACHE_LOCK = threading.Lock()
 MD5_BEATMAPID_CACHE = {}
+MD5_MAP = {}
 
 OSR_CACHE_PATH = os.path.join(os.path.dirname(__file__), "..", "cache", "osr_cache.json")
 MD5_CACHE_PATH = os.path.join(os.path.dirname(__file__), "..", "cache", "osu_md5_cache.json")
@@ -140,6 +141,10 @@ def find_osu(songs_folder, progress_callback=None):
             if progress_callback:
                 progress_callback(count, total)
     md5_save(cache)
+
+    global MD5_MAP
+    MD5_MAP = md5_map
+
     return md5_map
 
 def read_string(data, offset):
