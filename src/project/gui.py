@@ -23,7 +23,7 @@ try:
     PYPERCLIP_AVAILABLE = True
 except ImportError:
     print(
-        "ПРЕДУПРЕЖДЕНИЕ: pyperclip не найден (pip install pyperclip). Копирование/вставка могут работать некорректно.")
+        "WARNING: pyperclip not found (pip install pyperclip). Copy/paste may not work correctly.")
     PYPERCLIP_AVAILABLE = False
 
 import generate_image as img_mod
@@ -282,9 +282,8 @@ class MainWindow(QWidget):
         self.img_completed = threading.Event()
         self.has_error = False
         self.overall_progress = 0
-        self.current_task = "Готово к запуску"
+        self.current_task = "Ready to start"
 
-                                   
         self.load_fonts()
         self.load_icons()
         self.load_background()
@@ -306,9 +305,8 @@ class MainWindow(QWidget):
 
                                     
         self.threadpool = QThreadPool()
-        logger.info(f"Макс. потоков в пуле: {self.threadpool.maxThreadCount()}")
+        logger.info(f"Max threads in pool: {self.threadpool.maxThreadCount()}")
 
-                                             
         self._try_auto_detect_osu_path()
 
         from osu_api import load_api_keys
@@ -339,31 +337,29 @@ class MainWindow(QWidget):
             try:
                 with open(lost_scores_path, "w", encoding="utf-8") as f:
                     f.write("PP,Beatmap ID,Beatmap,Mods,100,50,Misses,Accuracy,Score,Date,Rank\n")
-                self.append_log("Создан пустой файл lost_scores.csv", False)
+                self.append_log("Created empty file lost_scores.csv", False)
             except Exception as e:
-                self.append_log(f"Ошибка при создании lost_scores.csv: {e}", False)
+                self.append_log(f"Error creating lost_scores.csv: {e}", False)
 
-                        
         parsed_top_path = os.path.join(csv_dir, "parsed_top.csv")
         if not os.path.exists(parsed_top_path):
             try:
                 with open(parsed_top_path, "w", encoding="utf-8") as f:
                     f.write(
                         "PP,Beatmap ID,Beatmap,Mods,100,50,Misses,Accuracy,Score,Date,weight_%,weight_PP,Score ID,Rank\n")
-                self.append_log("Создан пустой файл parsed_top.csv", False)
+                self.append_log("Created empty file parsed_top.csv", False)
             except Exception as e:
-                self.append_log(f"Ошибка при создании parsed_top.csv: {e}", False)
+                self.append_log(f"Error creating parsed_top.csv: {e}", False)
 
-                           
         top_with_lost_path = os.path.join(csv_dir, "top_with_lost.csv")
         if not os.path.exists(top_with_lost_path):
             try:
                 with open(top_with_lost_path, "w", encoding="utf-8") as f:
                     f.write(
                         "PP,Beatmap ID,Status,Beatmap,Mods,100,50,Misses,Accuracy,Score,Date,Rank,weight_%,weight_PP,Score ID\n")
-                self.append_log("Создан пустой файл top_with_lost.csv", False)
+                self.append_log("Created empty file top_with_lost.csv", False)
             except Exception as e:
-                self.append_log(f"Ошибка при создании top_with_lost.csv: {e}", False)
+                self.append_log(f"Error creating top_with_lost.csv: {e}", False)
 
     def load_config(self):
                                                
@@ -372,12 +368,10 @@ class MainWindow(QWidget):
             if os.path.exists(CONFIG_PATH):
                 with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
                     self.config = json.load(f)
-                logger.info(f"Конфигурация загружена из {CONFIG_PATH}")
-
-
+                logger.info(f"Configuration loaded from {CONFIG_PATH}")
 
         except Exception as e:
-            logger.error(f"Ошибка загрузки конфигурации: {e}")
+            logger.error(f"Error loading configuration: {e}")
             self.config = {}
 
                                       
@@ -407,9 +401,9 @@ class MainWindow(QWidget):
             with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
                 json.dump(self.config, f, indent=4)
 
-            print(f"Конфигурация сохранена в {CONFIG_PATH}")
+            print(f"Configuration saved to {CONFIG_PATH}")
         except Exception as e:
-            print(f"Ошибка сохранения конфигурации: {e}")
+            print(f"Error saving configuration: {e}")
 
     def closeEvent(self, event):
                                       
@@ -427,13 +421,13 @@ class MainWindow(QWidget):
                     if font_id != -1:
                         fonts_loaded += 1
                     else:
-                        print(f" -> Ошибка загрузки шрифта: {filename}")
+                        print(f" -> Error loading font: {filename}")
             if fonts_loaded > 0:
-                print(f"Загружено {fonts_loaded} локальных шрифтов.")
+                print(f"Loaded {fonts_loaded} local fonts.")
             else:
-                print(f"Локальные шрифты в {FONT_PATH} не загружены.")
+                print(f"Local fonts in {FONT_PATH} not loaded.")
         else:
-            print(f"Папка со шрифтами не найдена: {FONT_PATH}")
+            print(f"Font folder not found: {FONT_PATH}")
 
         self.title_font = QFont("Exo 2", 24, QFont.Weight.Bold)
         self.button_font = QFont("Exo 2", 14, QFont.Weight.Bold)
@@ -454,7 +448,7 @@ class MainWindow(QWidget):
                 if os.path.exists(path):
                     self.icons[name][state] = QIcon(path)
                 else:
-                    logger.warning(f"Файл иконки не найден: {path}")
+                    logger.warning(f"Icon file not found: {path}")
                     self.icons[name][state] = QIcon()
 
     def load_background(self):
@@ -465,14 +459,14 @@ class MainWindow(QWidget):
                 self.background_pixmap = QPixmap(BACKGROUND_IMAGE_PATH)
                 if self.background_pixmap.isNull():
                     self.background_pixmap = None
-                    print(f"Не удалось загрузить фон: {BACKGROUND_IMAGE_PATH}")
+                    print(f"Failed to load background: {BACKGROUND_IMAGE_PATH}")
                 else:
-                    print("Фоновое изображение загружено.")
+                    print("Background image loaded.")
             except Exception as e:
-                print(f"Ошибка загрузки фона: {e}")
+                print(f"Error loading background: {e}")
                 self.background_pixmap = None
         else:
-            print(f"Файл фона не найден: {BACKGROUND_IMAGE_PATH}")
+            print(f"Background file not found: {BACKGROUND_IMAGE_PATH}")
 
     def paintEvent(self, event):
 
@@ -544,7 +538,7 @@ class MainWindow(QWidget):
         self.browse_button.clicked.connect(self.browse_directory)
 
                         
-        url_label = QLabel("Nickname (or ID / URL)", self)
+        url_label = QLabel("Username (or ID / URL)", self)
         url_label.setGeometry(50, 180, 550, 30)
         url_label.setFont(self.label_font)
 
@@ -848,7 +842,7 @@ class MainWindow(QWidget):
 
         except Exception as e:
             error_logger = logging.getLogger("gui_error")
-            error_logger.exception(f"Исключение внутри append_log при обработке сообщения '{message}': {e}")
+            error_logger.exception(f"Exception inside append_log when processing message '{message}': {e}")
 
     @Slot(int, int)
     def update_progress_bar(self, current, total):
@@ -869,20 +863,20 @@ class MainWindow(QWidget):
 
     @Slot()
     def task_finished(self):
-        print("Фоновая задача завершена.")
-                                                                 
+        print("Background task completed.")
+
         if not self.scan_completed.is_set():
-            self.progress_bar.setValue(30)                      
-            self.current_task = "Сканирование реплеев завершено"
+            self.progress_bar.setValue(30)
+            self.current_task = "Replay scanning completed"
             self.status_label.setText(self.current_task)
         self.scan_completed.set()                                                 
 
     @Slot(str)
     def task_error(self, error_message):
-        self.append_log(f"Ошибка выполнения задачи: {error_message}", False)
-        QMessageBox.critical(self, "Ошибка задачи", f"Произошла ошибка:\n{error_message}")
+        self.append_log(f"Task execution error: {error_message}", False)
+        QMessageBox.critical(self, "Task Error", f"An error occurred:\n{error_message}")
         self.progress_bar.setValue(0)
-        self.current_task = "Ошибка выполнения задачи"
+        self.current_task = "Task execution error"
         self.status_label.setText(self.current_task)
 
                                    
@@ -900,8 +894,8 @@ class MainWindow(QWidget):
         folder = QFileDialog.getExistingDirectory(self, "Select osu! Game Directory", "")
         if folder:
             self.game_entry.setText(folder.replace("/", os.sep))
-            self.append_log(f"Выбрана папка: {folder}", False)
-                                           
+            self.append_log(f"Selected folder: {folder}", False)
+
             self.save_config()
 
     def start_all_processes(self):
@@ -911,12 +905,12 @@ class MainWindow(QWidget):
 
                                  
         if not game_dir or not user_input:
-            QMessageBox.warning(self, "Ошибка", "Укажите папку osu! и ввод профиля (URL/ID/Ник).")
+            QMessageBox.warning(self, "Error", "Please specify osu! folder and profile input (URL/ID/Username).")
             return
 
                                                 
         if not os.path.isdir(game_dir):
-            QMessageBox.warning(self, "Ошибка", f"Указанная директория не существует: {game_dir}")
+            QMessageBox.warning(self, "Error", f"Specified directory doesn't exist: {game_dir}")
             return
 
                                             
@@ -924,18 +918,18 @@ class MainWindow(QWidget):
         replays_dir = os.path.join(game_dir, "Data", "r")
 
         if not os.path.isdir(songs_dir):
-            QMessageBox.warning(self, "Ошибка", f"Директория Songs не найдена: {songs_dir}")
+            QMessageBox.warning(self, "Error", f"Songs directory not found: {songs_dir}")
             return
 
         if not os.path.isdir(replays_dir):
-            QMessageBox.warning(self, "Ошибка", f"Директория реплеев не найдена: {replays_dir}")
+            QMessageBox.warning(self, "Error", f"Replays directory not found: {replays_dir}")
             return
 
         self.has_error = False
 
                                                            
         if self.clean_scan_checkbox.isChecked():
-            self.append_log("Выполняем чистое сканирование (удаление кэша)...", False)
+            self.append_log("Performing clean scan (cache reset)...", False)
             try:
                 import shutil
                 project_root = os.path.join(os.path.dirname(__file__), "..")
@@ -951,17 +945,17 @@ class MainWindow(QWidget):
 
                 for folder in folders_to_clean:
                     if os.path.exists(folder):
-                        self.append_log(f"Удаление папки: {folder}", False)
+                        self.append_log(f"Deleting folder: {folder}", False)
                         shutil.rmtree(folder)
                                               
                         os.makedirs(folder, exist_ok=True)
-                        self.append_log(f"Папка пересоздана: {folder}", False)
+                        self.append_log(f"Folder recreated: {folder}", False)
 
                                                                
                 self.ensure_csv_files_exist()
-                self.append_log("Очистка кэша выполнена успешно", False)
+                self.append_log("Cache clearing completed successfully", False)
             except Exception as e:
-                self.append_log(f"Ошибка при очистке кэша: {e}", False)
+                self.append_log(f"Error clearing cache: {e}", False)
 
                                
         self.btn_all.setDisabled(True)
@@ -979,12 +973,10 @@ class MainWindow(QWidget):
         self.overall_progress = 0
         self.progress_bar.setValue(0)
 
-                                        
-        self.current_task = "Запуск сканирования..."
+        self.current_task = "Starting scan..."
         self.status_label.setText(self.current_task)
-        self.append_log("Запускаем анализ...", False)
+        self.append_log("Starting analysis...", False)
 
-                                                                   
         threading.Thread(target=self._run_sequence, daemon=True).start()
 
     def _run_sequence(self):
@@ -1003,11 +995,11 @@ class MainWindow(QWidget):
             while not self.scan_completed.is_set():
                                    
                 if time.time() - wait_start > max_wait_time:
-                    logger.error("Превышено время ожидания сканирования реплеев")
+                    logger.error("Maximum wait time exceeded for replay scanning")
                     QtCore.QMetaObject.invokeMethod(
                         self, "task_error",
                         QtCore.Qt.ConnectionType.QueuedConnection,
-                        QtCore.Q_ARG(str, "Превышено время ожидания сканирования")
+                        QtCore.Q_ARG(str, "Scan timeout exceeded")
                     )
                     return
 
@@ -1016,7 +1008,7 @@ class MainWindow(QWidget):
 
                                                                                    
             if self.has_error:
-                logger.error("Сканирование завершилось с ошибкой, прерываем последовательность")
+                logger.error("Scanning completed with error, aborting sequence")
                 return
 
                                                        
@@ -1030,18 +1022,18 @@ class MainWindow(QWidget):
 
             while not self.top_completed.is_set():
                 if time.time() - wait_start > max_wait_time:
-                    logger.error("Превышено время ожидания создания потенциального топа")
+                    logger.error("Maximum wait time exceeded for potential top creation")
                     QtCore.QMetaObject.invokeMethod(
                         self, "task_error",
                         QtCore.Qt.ConnectionType.QueuedConnection,
-                        QtCore.Q_ARG(str, "Превышено время ожидания создания топа")
+                        QtCore.Q_ARG(str, "Top creation timeout exceeded")
                     )
                     return
                 time.sleep(0.1)
 
                                       
             if self.has_error:
-                logger.error("Создание топа завершилось с ошибкой, прерываем последовательность")
+                logger.error("Top creation completed with error, aborting sequence")
                 return
 
                                                       
@@ -1055,11 +1047,11 @@ class MainWindow(QWidget):
 
             while not self.img_completed.is_set():
                 if time.time() - wait_start > max_wait_time:
-                    logger.error("Превышено время ожидания создания изображений")
+                    logger.error("Maximum wait time exceeded for image creation")
                     QtCore.QMetaObject.invokeMethod(
                         self, "task_error",
                         QtCore.Qt.ConnectionType.QueuedConnection,
-                        QtCore.Q_ARG(str, "Превышено время ожидания создания изображений")
+                        QtCore.Q_ARG(str, "Image creation timeout exceeded")
                     )
                     return
                 time.sleep(0.1)
@@ -1072,11 +1064,11 @@ class MainWindow(QWidget):
                     QtCore.Qt.ConnectionType.QueuedConnection
                 )
         except Exception as e:
-            logger.error(f"Ошибка последовательного запуска: {e}")
+            logger.error(f"Sequential launch error: {e}")
             QtCore.QMetaObject.invokeMethod(
                 self, "task_error",
                 QtCore.Qt.ConnectionType.QueuedConnection,
-                QtCore.Q_ARG(str, f"Ошибка последовательного запуска: {e}")
+                QtCore.Q_ARG(str, f"Sequential launch error: {e}")
             )
         finally:
                                                 
@@ -1087,9 +1079,9 @@ class MainWindow(QWidget):
 
     @Slot()
     def all_completed_successfully(self):
-                                                                  
-        self.append_log("Все операции успешно завершены!", False)
-        QMessageBox.information(self, "Готово", "Анализ завершен! Вы можете найти результаты в папке 'results'.")
+
+        self.append_log("All operations completed successfully!", False)
+        QMessageBox.information(self, "Done", "Analysis completed! You can find results in the 'results' folder.")
         self.save_config()                                                     
         self.enable_all_button()
 
@@ -1109,7 +1101,7 @@ class MainWindow(QWidget):
         game_dir = self.game_entry.text().strip()
         user_input = self.profile_entry.text().strip()
         if not game_dir or not user_input:
-            QMessageBox.warning(self, "Ошибка", "Укажите папку osu! и ввод профиля (URL/ID/Ник).")
+            QMessageBox.warning(self, "Error", "Please specify osu! folder and profile input (URL/ID/Username).")
             self.scan_completed.set()
             return
 
@@ -1118,7 +1110,7 @@ class MainWindow(QWidget):
             self.scan_completed.set()
             return
 
-        self.append_log("Запуск сканирования реплеев...", False)
+        self.append_log("Starting replay scanning...", False)
         self.progress_bar.setValue(0)
 
         include_unranked = self.include_unranked_checkbox.isChecked()
@@ -1133,7 +1125,7 @@ class MainWindow(QWidget):
         game_dir = self.game_entry.text().strip()
         user_input = self.profile_entry.text().strip()
         if not game_dir or not user_input:
-            QMessageBox.warning(self, "Ошибка", "Укажите папку osu! и ввод профиля (URL/ID/Ник).")
+            QMessageBox.warning(self, "Error", "Please specify osu! folder and profile input (URL/ID/Username).")
             self.top_completed.set()                          
             return
 
@@ -1142,7 +1134,7 @@ class MainWindow(QWidget):
             self.top_completed.set()                          
             return
 
-        self.append_log("Генерация потенциального топа...", False)
+        self.append_log("Generating potential top...", False)
 
         worker = Worker(make_top, game_dir, identifier, lookup_key)
         worker.signals.log.connect(self.append_log)
@@ -1153,17 +1145,17 @@ class MainWindow(QWidget):
 
     @Slot()
     def top_finished(self):
-        self.progress_bar.setValue(60)                                           
-        self.current_task = "Потенциальный топ создан"
+        self.progress_bar.setValue(60)
+        self.current_task = "Potential top created"
         self.status_label.setText(self.current_task)
         self.top_completed.set()                                         
 
     @Slot(str)
     def top_error(self, error_message):
-        self.append_log(f"Ошибка создания топа: {error_message}", False)
-        QMessageBox.critical(self, "Ошибка", f"Произошла ошибка:\n{error_message}")
-        self.progress_bar.setValue(30)                   
-        self.current_task = "Ошибка создания топа"
+        self.append_log(f"Error creating top: {error_message}", False)
+        QMessageBox.critical(self, "Error", f"An error occurred:\n{error_message}")
+        self.progress_bar.setValue(30)
+        self.current_task = "Error creating top"
         self.status_label.setText(self.current_task)
         self.top_completed.set()                                          
 
@@ -1172,7 +1164,7 @@ class MainWindow(QWidget):
         scores_count = self.scores_count_entry.text().strip()
 
         if not user_input:
-            QMessageBox.warning(self, "Ошибка", "Укажите ввод профиля (URL/ID/Ник).")
+            QMessageBox.warning(self, "Error", "Please specify profile input (URL/ID/Username).")
             self.img_completed.set()                          
             return
 
@@ -1193,7 +1185,7 @@ class MainWindow(QWidget):
             self.img_completed.set()                          
             return
 
-        self.append_log("Генерация изображений...", False)
+        self.append_log("Generating images...", False)
 
         def task(user_id_or_name, key_type, num_scores):
             try:
@@ -1211,14 +1203,13 @@ class MainWindow(QWidget):
                     self,
                     "update_task",
                     QtCore.Qt.ConnectionType.QueuedConnection,
-                    QtCore.Q_ARG(str, "Получение токена API...")
+                    QtCore.Q_ARG(str, "Getting API token...")
                 )
 
                 token = img_mod.get_token_osu()
                 if not token:
-                    raise ValueError("Не удалось получить токен API osu!")
+                    raise ValueError("Failed to get osu! API token!")
 
-                               
                 QtCore.QMetaObject.invokeMethod(
                     self,
                     "update_progress_bar",
@@ -1232,12 +1223,12 @@ class MainWindow(QWidget):
                     self,
                     "update_task",
                     QtCore.Qt.ConnectionType.QueuedConnection,
-                    QtCore.Q_ARG(str, "Получение данных пользователя...")
+                    QtCore.Q_ARG(str, "Getting user data...")
                 )
 
                 user_data = img_mod.get_user_osu(user_id_or_name, key_type, token)
                 if not user_data:
-                    error_msg = f"Не удалось получить данные пользователя '{user_id_or_name}' (тип: {key_type})."
+                    error_msg = f"Failed to get user data '{user_id_or_name}' (type: {key_type})."
                     QtCore.QMetaObject.invokeMethod(
                         self,
                         "img_error",
@@ -1259,7 +1250,7 @@ class MainWindow(QWidget):
                 uname = user_data["username"]
 
                 profile_link = f"https://osu.ppy.sh/users/{uid}"
-                log_message = f"Найден пользователь: {uname} ({profile_link})"
+                log_message = f"User found: {uname} ({profile_link})"
                 QtCore.QMetaObject.invokeMethod(
                     self,
                     "append_log",
@@ -1273,7 +1264,7 @@ class MainWindow(QWidget):
                     self,
                     "update_task",
                     QtCore.Qt.ConnectionType.QueuedConnection,
-                    QtCore.Q_ARG(str, "Создание изображения lost scores...")
+                    QtCore.Q_ARG(str, "Creating lost scores image...")
                 )
 
                 img_mod.make_img_lost(user_id=uid, user_name=uname, max_scores=num_scores)
@@ -1290,7 +1281,7 @@ class MainWindow(QWidget):
                     self,
                     "update_task",
                     QtCore.Qt.ConnectionType.QueuedConnection,
-                    QtCore.Q_ARG(str, "Создание изображения потенциального топа...")
+                    QtCore.Q_ARG(str, "Creating potential top image...")
                 )
 
                 img_mod.make_img_top(user_id=uid, user_name=uname, max_scores=num_scores)
@@ -1309,7 +1300,7 @@ class MainWindow(QWidget):
                 )
 
             except Exception as e:
-                error_message = f"Ошибка в потоке генерации изображений: {e}"
+                error_message = f"Error in image generation thread: {e}"
                 QtCore.QMetaObject.invokeMethod(
                     self,
                     "img_error",
@@ -1327,19 +1318,19 @@ class MainWindow(QWidget):
 
     @Slot()
     def img_finished(self):
-        self.append_log("Изображения созданы (в папке 'results').", False)
-        self.progress_bar.setValue(100)                    
-        self.current_task = "Изображения созданы"
+        self.append_log("Images created (in 'results' folder).", False)
+        self.progress_bar.setValue(100)
+        self.current_task = "Images created"
         self.status_label.setText(self.current_task)
         self.img_completed.set()                          
 
     @Slot(str)
     def img_error(self, error_message):
-        self.append_log(f"Ошибка генерации изображений: {error_message}", False)
-        QMessageBox.critical(self, "Ошибка генерации изображений",
-                             f"Не удалось создать изображения.\n{error_message}")
-        self.progress_bar.setValue(60)                   
-        self.current_task = "Ошибка генерации изображений"
+        self.append_log(f"Error generating images: {error_message}", False)
+        QMessageBox.critical(self, "Error generating images",
+                             f"Failed to create images.\n{error_message}")
+        self.progress_bar.setValue(60)
+        self.current_task = "Error generating images"
         self.status_label.setText(self.current_task)
         self.img_completed.set()                                          
 
@@ -1356,10 +1347,10 @@ class MainWindow(QWidget):
                 elif len(parts) >= 1 and parts[-1].isdigit():
                     identifier = parts[-1]
                 else:
-                    raise IndexError("Не удалось извлечь ID/ник из URL")
+                    raise IndexError("Failed to extract ID/username from URL")
 
             except IndexError:
-                QMessageBox.warning(self, "Ошибка", f"Некорректный URL профиля: {user_input}")
+                QMessageBox.warning(self, "Error", f"Invalid profile URL: {user_input}")
                 return None, None
 
             if identifier.isdigit():
@@ -1379,30 +1370,30 @@ class MainWindow(QWidget):
     def show_context_menu(self, widget, position):
         menu = QMenu()
         if isinstance(widget, QLineEdit):
-            cut_action = menu.addAction("Вырезать")
+            cut_action = menu.addAction("Cut")
             cut_action.triggered.connect(widget.cut)
             cut_action.setEnabled(widget.hasSelectedText())
-            copy_action = menu.addAction("Копировать")
+            copy_action = menu.addAction("Copy")
             copy_action.triggered.connect(widget.copy)
             copy_action.setEnabled(widget.hasSelectedText())
-            paste_action = menu.addAction("Вставить")
+            paste_action = menu.addAction("Paste")
             paste_action.triggered.connect(widget.paste)
             paste_action.setEnabled(PYPERCLIP_AVAILABLE and bool(pyperclip.paste()))
             menu.addSeparator()
-            select_all_action = menu.addAction("Выделить все")
+            select_all_action = menu.addAction("Select All")
             select_all_action.triggered.connect(widget.selectAll)
         elif isinstance(widget, QTextEdit):
-            cut_action = menu.addAction("Вырезать")
+            cut_action = menu.addAction("Cut")
             cut_action.triggered.connect(widget.cut)
             cut_action.setEnabled(not widget.isReadOnly() and widget.textCursor().hasSelection())
-            copy_action = menu.addAction("Копировать")
+            copy_action = menu.addAction("Copy")
             copy_action.triggered.connect(widget.copy)
             copy_action.setEnabled(widget.textCursor().hasSelection())
-            paste_action = menu.addAction("Вставить")
+            paste_action = menu.addAction("Paste")
             paste_action.triggered.connect(widget.paste)
             paste_action.setEnabled(not widget.isReadOnly() and PYPERCLIP_AVAILABLE and bool(pyperclip.paste()))
             menu.addSeparator()
-            select_all_action = menu.addAction("Выделить все")
+            select_all_action = menu.addAction("Select All")
             select_all_action.triggered.connect(widget.selectAll)
 
         if menu.actions():
@@ -1425,7 +1416,7 @@ class MainWindow(QWidget):
             saved_path = self.config['osu_path']
             if os.path.isdir(saved_path):
                 self.game_entry.setText(saved_path.replace("/", os.sep))
-                self.append_log(f"Загружен путь из конфигурации: {saved_path}", False)
+                self.append_log(f"Loaded path from configuration: {saved_path}", False)
                 return
 
                                                                                  
@@ -1453,13 +1444,13 @@ class MainWindow(QWidget):
         for path in potential_paths:
             if os.path.isdir(path):
                 self.game_entry.setText(path.replace("/", os.sep))
-                self.append_log(f"Папка osu! найдена автоматически: {path}", False)
-                                          
+                self.append_log(f"osu! folder automatically found: {path}", False)
+
                 self.config['osu_path'] = path
                 self.save_config()
                 return
 
-        self.append_log("Папка osu! не найдена автоматически. Укажите путь вручную.", False)
+        self.append_log("osu! folder not found automatically. Please specify path manually.", False)
 
     def open_api_dialog(self):
         from osu_api import load_api_keys, save_api_keys, update_env_file

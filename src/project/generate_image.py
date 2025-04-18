@@ -40,7 +40,7 @@ try:
     BOLD_ITALIC_FONT = ImageFont.truetype(os.path.join(FONTS_DIR, "Exo2-BoldItalic.otf"), 18)
     BOLD_ITALIC_FONT_SMALL = ImageFont.truetype(os.path.join(FONTS_DIR, "Exo2-BoldItalic.otf"), 14)
 except Exception:
-    print("Не удалось загрузить шрифты Exo2, используем стандартные.")
+    print("Failed to load Exo2 fonts, using default fonts.")
     TITLE_FONT = SUBTITLE_FONT = MAP_NAME_FONT = CREATOR_SMALL_FONT = VERSION_FONT = SMALL_FONT = ImageFont.load_default()
     BOLD_ITALIC_FONT = BOLD_ITALIC_FONT_SMALL = ImageFont.load_default()
 
@@ -76,8 +76,7 @@ def create_placeholder_image(filename, username, message):
     draw.text((width // 2, height // 2), message,
               font=SUBTITLE_FONT, fill=COLOR_WHITE, anchor="mm")
 
-                              
-    draw.text((width // 2, height - 50), "Попробуйте повторить анализ или проверьте наличие файлов",
+    draw.text((width // 2, height - 50), "Try running the analysis again or check for missing files",
               font=SMALL_FONT, fill=DATE_COLOR, anchor="mm")
 
                            
@@ -87,8 +86,7 @@ def create_placeholder_image(filename, username, message):
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
     img.save(out_path)
-    print(f"Изображение-заглушка сохранено в {out_path}")
-
+    print(f"Placeholder image saved to {out_path}")
 
 def get_token_osu():
     url = "https://osu.ppy.sh/oauth/token"
@@ -97,7 +95,7 @@ def get_token_osu():
     client_id = os.environ.get("CLIENT_ID")
     client_secret = os.environ.get("CLIENT_SECRET")
 
-    logger.info(f"Используемые ключи: ID={client_id[:4]}...")
+    logger.info(f"Using keys: ID={client_id[:4]}...")
 
     data = {
         "client_id": client_id,
@@ -111,13 +109,13 @@ def get_token_osu():
         r.raise_for_status()
         token = r.json().get("access_token")
         if token:
-            logger.info("Успешно получен токен API для генерации изображений")
+            logger.info("API token successfully obtained for image generation")
             return token
         else:
-            logger.error("Токен не получен в ответе API при генерации изображений")
+            logger.error("Token not received in API response during image generation")
             return None
     except Exception as e:
-        logger.error(f"Ошибка при получении токена для генерации изображений: {e}")
+        logger.error(f"Error getting token for image generation: {e}")
         return None
 
 
@@ -132,7 +130,7 @@ def get_user_osu(identifier, lookup_key, token):
 
     resp = requests.get(url, headers=headers, params=params)
     if resp.status_code == 404:
-        logger.error(f"Пользователь '{identifier}' (тип поиска: {lookup_key}) не найден при генерации изображения.")
+        logger.error(f"User '{identifier}' (lookup type: {lookup_key}) not found during image generation.")
         return None
     resp.raise_for_status()
     return resp.json()
@@ -166,7 +164,7 @@ def dl_img(url, path):
             f.write(resp.content)
         return True
     except Exception as e:
-        logger.warning(f"Не удалось скачать изображение {url}: {e}")
+        logger.warning(f"Failed to download image {url}: {e}")
         return False
 
 
@@ -240,10 +238,8 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
                                                   
         user_data_json = get_user_osu(str(user_id), 'id', token)
     except Exception as api_err:
-        logger.error(f"Ошибка при получении данных пользователя {user_id} для make_img: {api_err}")
-                                                       
+        logger.error(f"Error getting user data {user_id} for make_img: {api_err}")
 
-                                       
     if mode == "lost":
         csv_path = CSV_LOST
         out_path = IMG_LOST_OUT
@@ -260,20 +256,21 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
         with open(csv_path, "r", encoding="utf-8") as f:
             all_rows = list(csv.DictReader(f))
     except FileNotFoundError:
-        logger.error(f"CSV файл не найден: {csv_path}")
-        print(f"Ошибка: CSV файл не найден: {csv_path}")
-        create_placeholder_image(os.path.basename(out_path), user_name, f"CSV файл не найден: {os.path.basename(csv_path)}")
+        logger.error(f"CSV file not found: {csv_path}")
+        print(f"Error: CSV file not found: {csv_path}")
+        create_placeholder_image(os.path.basename(out_path), user_name,
+                                 f"CSV file not found: {os.path.basename(csv_path)}")
         return
     except Exception as csv_err:
-        logger.error(f"Ошибка чтения CSV файла {csv_path}: {csv_err}")
-        print(f"Ошибка: Не удалось прочитать CSV файл: {csv_path}")
-        create_placeholder_image(os.path.basename(out_path), user_name, f"Ошибка чтения CSV файла: {str(csv_err)}")
+        logger.error(f"Error reading CSV file {csv_path}: {csv_err}")
+        print(f"Error: Failed to read CSV file: {csv_path}")
+        create_placeholder_image(os.path.basename(out_path), user_name, f"Error reading CSV file: {str(csv_err)}")
         return
 
                                                       
     if not all_rows:
-        logger.info(f"Нет данных в CSV файле {csv_path} для создания изображения")
-        create_placeholder_image(os.path.basename(out_path), user_name, f"Нет данных для отображения в режиме {mode}")
+        logger.info(f"No data in CSV file {csv_path} for image creation")
+        create_placeholder_image(os.path.basename(out_path), user_name, f"No data to display in {mode} mode")
         return
 
                                                                 
@@ -348,7 +345,7 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
             acc_diff_str = "N/A"
             acc_diff_color = COLOR_WHITE
 
-    logger.info(f"Отображение {len(rows)}/{total_rows_count} скоров в {mode} режиме")
+    logger.info(f"Displaying {len(rows)}/{total_rows_count} scores in {mode} mode")
 
                                        
     if mode == "lost":
@@ -418,12 +415,12 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
             base.paste(avatar_img_raw, (av_x, av_y), avatar_img_raw)
             avatar_drawn = True
         except FileNotFoundError:
-            logger.warning(f"Файл аватара {avatar_path} не найден после попытки скачивания.")
+            logger.warning(f"Avatar file {avatar_path} not found after download attempt.")
         except Exception as img_err:
-            logger.warning(f"Ошибка обработки аватара {avatar_path}: {img_err}.")
+            logger.warning(f"Error processing avatar {avatar_path}: {img_err}.")
 
     if not avatar_drawn:
-        logger.warning(f"Используется заглушка для аватара user_id {user_id}.")
+        logger.warning(f"Using placeholder for avatar user_id {user_id}.")
         d.rounded_rectangle((av_x, av_y, av_x + av_size, av_y + av_size), radius=15, fill=(80, 80, 80, 255))
 
                       
@@ -497,9 +494,8 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
                 if match:
                     raw_artist, raw_title, creator, version = match.groups()
             except Exception as parse_err:
-                logger.warning(f"Не удалось разобрать название карты: {beatmap_full_name}")
+                logger.warning(f"Failed to parse beatmap name: {beatmap_full_name}")
 
-                                                     
         if not all([raw_artist, raw_title, creator, version]) and beatmap_id and beatmap_id.isdigit():
             try:
                 db_info = db_get(beatmap_id)
@@ -509,9 +505,8 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
                     creator = db_info.get("creator", creator) or creator
                     version = db_info.get("version", version) or version
             except Exception as db_err:
-                logger.warning(f"Ошибка получения данных карты из БД {beatmap_id}: {db_err}")
+                logger.warning(f"Error getting map data from DB {beatmap_id}: {db_err}")
 
-                                   
         cover_file = None
         if beatmap_id and beatmap_id.isdigit():
             cover_file = os.path.join(COVER_DIR, f"cover_{beatmap_id}.png")
@@ -537,9 +532,8 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
                             if bdata.get("beatmapset") and "covers" in bdata["beatmapset"]:
                                 cover_url = bdata["beatmapset"]["covers"].get("cover@2x")
                 except Exception as map_err:
-                    logger.warning(f"Ошибка получения данных карты {beatmap_id} из API: {map_err}")
+                    logger.warning(f"Error getting map data {beatmap_id} from API: {map_err}")
 
-                           
         cover_w = card_w // 3
         cover_h_ = card_h
         c_img = None
@@ -549,7 +543,7 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
             try:
                 c_img = Image.open(cover_file).convert("RGBA").resize((cover_w, cover_h_))
             except Exception as cover_err:
-                logger.warning(f"Не удалось открыть обложку {cover_file}: {cover_err}")
+                logger.warning(f"Failed to open cover {cover_file}: {cover_err}")
                 c_img = None
         elif cover_url and beatmap_id:
                                       
@@ -558,7 +552,7 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
                 if os.path.exists(cover_file):
                     c_img = Image.open(cover_file).convert("RGBA").resize((cover_w, cover_h_))
             except Exception as dl_err:
-                logger.warning(f"Не удалось скачать обложку {cover_url}: {dl_err}")
+                logger.warning(f"Failed to download cover {cover_url}: {dl_err}")
                 c_img = None
 
                                                             
@@ -595,7 +589,7 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
                 g_img_resized = g_img.resize((nw, nh), Image.Resampling.LANCZOS)
                 base.paste(g_img_resized, (card_x + 10, center_line - nh // 2), g_img_resized)
             except Exception as grade_err:
-                logger.warning(f"Ошибка обработки иконки ранга {grade_icon_path}: {grade_err}")
+                logger.warning(f"Error processing grade icon {grade_icon_path}: {grade_err}")
                 d_card.text((card_x + 10, center_line - 8), grade, font=SUBTITLE_FONT, fill=COLOR_WHITE)
         else:
             d_card.text((card_x + 10, center_line - 8), grade, font=SUBTITLE_FONT, fill=COLOR_WHITE)
@@ -702,7 +696,7 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
                         base.paste(mod_img_resized, (int(mod_x_cur), center_line - nh // 2), mod_img_resized)
                         mod_x_cur -= 5
                     except Exception as mod_err:
-                        logger.warning(f"Ошибка обработки иконки мода {path_}: {mod_err}")
+                        logger.warning(f"Error processing mod icon {path_}: {mod_err}")
                 else:
                     try:
                         box_m = d_card.textbbox((0, 0), m_, font=SMALL_FONT)
@@ -815,7 +809,8 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
                         base.paste(mod_img_resized, (int(mod_x_cur), center_line - nh // 2), mod_img_resized)
                         mod_x_cur -= 5
                     except Exception as mod_err:
-                        logger.warning(f"Ошибка обработки иконки мода {path_}: {mod_err}")
+                        logger.warning(f"Error processing mod icon {path_}: {mod_err}")
+
                 else:
                     try:
                         box_m = d_card.textbbox((0, 0), m_, font=SMALL_FONT)
@@ -834,7 +829,7 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
         base = base.crop((0, 0, width, final_height))
 
     base.save(out_path)
-    print(f"Изображение сохранено в {out_path}")
+    print(f"Image saved to {out_path}")
 
 
 def make_img_lost(user_id=None, user_name="", max_scores=20):

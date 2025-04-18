@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 def find_lost_scores(scores):
     if not scores:
-        logger.warning("Пустой список скоров в find_lost_scores")
+        logger.warning("Empty score list in find_lost_scores")
         return []
 
                                       
@@ -29,38 +29,38 @@ def find_lost_scores(scores):
         try:
                               
             if not isinstance(rec, dict):
-                logger.warning(f"Скор не является словарем: {type(rec)}")
+                logger.warning(f"Score is not a dictionary: {type(rec)}")
                 continue
 
                                                 
             if "beatmap_id" not in rec or rec["beatmap_id"] is None:
-                logger.warning(f"Скор не содержит beatmap_id или он равен None")
+                logger.warning(f"Score does not contain beatmap_id or it is None")
                 continue
 
             if not all(key in rec for key in ["mods", "pp", "total_score"]):
-                logger.warning(f"Скор не содержит все необходимые ключи: {rec.keys()}")
+                logger.warning(f"Score does not contain all required keys: {rec.keys()}")
                 continue
 
                                                                                    
             try:
                 rec["pp_float"] = float(rec["pp"])
             except (ValueError, TypeError):
-                logger.warning(f"Не удалось преобразовать PP в число: {rec.get('pp')}")
+                logger.warning(f"Failed to convert PP to number: {rec.get('pp')}")
                 rec["pp_float"] = 0.0
 
             try:
                 rec["total_int"] = int(rec["total_score"])
             except (ValueError, TypeError):
-                logger.warning(f"Не удалось преобразовать total_score в число: {rec.get('total_score')}")
+                logger.warning(f"Failed to convert total_score to number: {rec.get('total_score')}")
                 rec["total_int"] = 0
 
             valid_scores.append(rec)
         except Exception as e:
-            logger.warning(f"Ошибка при проверке скора: {e}")
+            logger.warning(f"Error checking score: {e}")
             continue
 
     if not valid_scores:
-        logger.warning("Нет валидных скоров для анализа")
+        logger.warning("No valid scores for analysis")
         return []
 
     groups = {}
@@ -69,7 +69,7 @@ def find_lost_scores(scores):
             key = (rec["beatmap_id"], tuple(rec["mods"]))
             groups.setdefault(key, []).append(rec)
         except Exception as e:
-            logger.warning(f"Ошибка при группировке скора: {e}")
+            logger.warning(f"Error grouping score: {e}")
             continue
 
     possible_lost = {}
@@ -82,11 +82,11 @@ def find_lost_scores(scores):
             best_total = max(recs, key=lambda s: s["total_int"])
 
             if not all(k in best_pp for k in ["total_score", "pp", "beatmap_id"]):
-                logger.warning(f"best_pp не содержит необходимые ключи")
+                logger.warning(f"best_pp does not contain required keys")
                 continue
 
             if not all(k in best_total for k in ["total_score", "pp"]):
-                logger.warning(f"best_total не содержит необходимые ключи")
+                logger.warning(f"best_total does not contain required keys")
                 continue
 
             pp_better = best_pp["pp_float"] > best_total["pp_float"]
@@ -96,7 +96,7 @@ def find_lost_scores(scores):
                 bid = best_pp["beatmap_id"]
                 possible_lost.setdefault(bid, []).append(best_pp)
         except Exception as e:
-            logger.warning(f"Ошибка при обработке группы скоров: {e}")
+            logger.warning(f"Error processing score group: {e}")
             continue
 
     lost_results = []
@@ -120,13 +120,13 @@ def find_lost_scores(scores):
             if candidate["pp_float"] >= best_score["pp_float"]:
                 lost_results.append(candidate)
         except Exception as e:
-            logger.warning(f"Ошибка при обработке потенциально потерянного скора: {e}")
+            logger.warning(f"Error processing potentially lost score: {e}")
             continue
 
     try:
         lost_results.sort(key=lambda s: s["pp_float"], reverse=True)
     except Exception as e:
-        logger.warning(f"Ошибка при сортировке результатов: {e}")
+        logger.warning(f"Error sorting results: {e}")
 
     return lost_results
 
@@ -187,7 +187,7 @@ def parse_top(raw, token):
                 "Rank": rank
             })
         except Exception as e:
-            logger.exception("Ошибка топ-результата: %s", e)
+            logger.exception("Error in top result: %s", e)
             continue
     return parsed
 
@@ -220,11 +220,11 @@ def scan_replays(game_dir, user_identifier, lookup_key, progress_callback=None, 
     if progress_callback:
         progress_callback(0, 100)                      
     if gui_log:
-        gui_log("Инициализация...", update_last=True)
+        gui_log("Initializing...", update_last=True)
 
                                            
     if not os.path.isdir(game_dir):
-        error_msg = f"Директория игры не существует: {game_dir}"
+        error_msg = f"Game directory does not exist: {game_dir}"
         logger.error(error_msg)
         if gui_log:
             gui_log(error_msg, False)
@@ -234,14 +234,14 @@ def scan_replays(game_dir, user_identifier, lookup_key, progress_callback=None, 
     replays = os.path.join(game_dir, "Data", "r")
 
     if not os.path.isdir(songs):
-        error_msg = f"Директория Songs не найдена: {songs}"
+        error_msg = f"Songs directory not found: {songs}"
         logger.error(error_msg)
         if gui_log:
             gui_log(error_msg, False)
         raise ValueError(error_msg)
 
     if not os.path.isdir(replays):
-        error_msg = f"Директория реплеев не найдена: {replays}"
+        error_msg = f"Replays directory not found: {replays}"
         logger.error(error_msg)
         if gui_log:
             gui_log(error_msg, False)
@@ -250,7 +250,7 @@ def scan_replays(game_dir, user_identifier, lookup_key, progress_callback=None, 
     try:
         db_init()
     except Exception as e:
-        error_msg = f"Ошибка инициализации БД: {e}"
+        error_msg = f"Database initialization error: {e}"
         logger.error(error_msg)
         if gui_log:
             gui_log(error_msg, False)
@@ -259,7 +259,7 @@ def scan_replays(game_dir, user_identifier, lookup_key, progress_callback=None, 
     try:
         token = token_osu()
         if not token:
-            error_msg = "Не удалось получить токен API"
+            error_msg = "Failed to get API token"
             logger.error(error_msg)
             if gui_log:
                 gui_log(error_msg, False)
@@ -267,27 +267,27 @@ def scan_replays(game_dir, user_identifier, lookup_key, progress_callback=None, 
 
         user_json = user_osu(user_identifier, lookup_key, token)
         if not user_json:
-            error_msg = f"Ошибка: Не удалось получить данные пользователя '{user_identifier}' (тип: {lookup_key})."
+            error_msg = f"Error: Failed to get user data '{user_identifier}' (type: {lookup_key})."
             logger.error(error_msg)
             if gui_log:
                 gui_log(error_msg, False)
-            raise ValueError(f"Пользователь не найден: {user_identifier}")
+            raise ValueError(f"User not found: {user_identifier}")
 
         username = user_json["username"]
         user_id = user_json["id"]
 
         profile_link = f"https://osu.ppy.sh/users/{user_id}"
-        logger.info(f"Найден пользователь: {username} (ID: {user_id})")
+        logger.info(f"User found: {username} (ID: {user_id})")
         if gui_log:
-            gui_log(f"Найден пользователь: {username} ({profile_link})", False)
+            gui_log(f"User found: {username} ({profile_link})", False)
     except Exception as e:
-        error_msg = f"Ошибка при получении данных пользователя: {e}"
+        error_msg = f"Error getting user data: {e}"
         logger.error(error_msg)
         if gui_log:
             gui_log(error_msg, False)
         raise
 
-    gui_log("Сканирую .osu файлы в Songs: 0%", update_last=True)
+    gui_log("Scanning .osu files in Songs: 0%", update_last=True)
     last_songs_update = {"time": 0}
 
     def update_songs(curr, tot):
@@ -296,8 +296,8 @@ def scan_replays(game_dir, user_identifier, lookup_key, progress_callback=None, 
             last_songs_update["time"] = now
             pct = int((curr / tot) * 100)
             if gui_log:
-                gui_log(f"Сканирую .osu файлы в Songs: {pct}%", update_last=True)
-                                                    
+                gui_log(f"Scanning .osu files in Songs: {pct}%", update_last=True)
+
             if progress_callback:
                 progress_callback(int(pct * 0.2), 100)
 
@@ -305,15 +305,15 @@ def scan_replays(game_dir, user_identifier, lookup_key, progress_callback=None, 
 
                                                         
     if progress_callback:
-        progress_callback(20, 100)                 
+        progress_callback(20, 100)
 
-    gui_log("Сканирование .osu файлов в Songs: 100%", update_last=True)
-    gui_log(f"Найдено {len(md5_map)} osu файлов в Songs.", update_last=False)
+    gui_log("Scanning .osu files in Songs: 100%", update_last=True)
+    gui_log(f"{len(md5_map)} osu files found in Songs.", update_last=False)
     cutoff = CUTOFF_DATE
 
     rep_files = [f for f in os.listdir(replays) if f.endswith(".osr")]
     total_rep = len(rep_files)
-    gui_log(f"Обработано 0/{total_rep} реплеев", update_last=True)
+    gui_log(f"Processed 0/{total_rep} replays", update_last=True)
 
     start = time.time()
     score_list = []
@@ -376,38 +376,38 @@ def scan_replays(game_dir, user_identifier, lookup_key, progress_callback=None, 
                                 "Date": rep.get("score_time", "")
                             })
                     else:
-                        logger.warning("Невозможно распарсить реплей: %s", osr_filename)
+                        logger.warning("Unable to parse replay: %s", osr_filename)
                 except Exception as e:
-                    logger.exception("Ошибка при обработке проблемного реплея %s: %s", osr_filename, e)
+                    logger.exception("Error processing problematic replay %s: %s", osr_filename, e)
 
             now = time.time()
             if now - last_replay_update["time"] >= 1 or count == total_rep:
                 last_replay_update["time"] = now
-                gui_log(f"Обработано {count}/{total_rep} реплеев", update_last=True)
+                gui_log(f"Processed {count}/{total_rep} replays", update_last=True)
 
     from file_parser import OSR_CACHE, osr_save
     osr_save(OSR_CACHE)
 
     elapsed = time.time() - start
-    gui_log(f"Сканирование реплеев завершено за {elapsed:.2f} сек. Найдено {len(score_list)} результатов.",
+    gui_log(f"Replay scanning completed in {elapsed:.2f} sec. {len(score_list)} found results.",
             update_last=False)
 
                                      
     if gui_log:
-        gui_log("Обрабатываю потерянные скоры...", update_last=False)
+        gui_log("Processing lost scores...", update_last=False)
     if progress_callback:
         progress_callback(80, 100)
 
     lost = find_lost_scores(score_list)
     lost = [r for r in lost if calendar.timegm(time.strptime(r["score_time"], "%d-%m-%Y %H-%M-%S")) < cutoff]
-    logger.info("Найдено %d потерянных скоров (до cutoff)", len(lost))
+    logger.info("%d lost scores found (before cutoff)", len(lost))
 
                                               
     logger.info(f"Include unranked/loved beatmaps: {include_unranked}")
 
                                                              
     if include_unranked:
-        logger.info(f"ВКЛЮЧЕНЫ unranked/loved карты. Получаем информацию локально. Всего скоров: {len(lost)}")
+        logger.info(f"ENABLED unranked/loved maps. Getting information locally. Total scores: {len(lost)}")
 
                                             
         for i, rec in enumerate(lost):
@@ -432,22 +432,22 @@ def scan_replays(game_dir, user_identifier, lookup_key, progress_callback=None, 
                     hit_objects
                 )
             else:
-                logger.warning(f"Не найден локальный .osu файл для скора с beatmap_id {beatmap_id}")
+                logger.warning(f"Local .osu file not found for score with beatmap_id {beatmap_id}")
 
                                                                                
             rec["Status"] = "unknown"
 
             if gui_log:
-                gui_log(f"Обработка карты {beatmap_id} ({i + 1}/{len(lost)})", update_last=True)
+                gui_log(f"Processing map {beatmap_id} ({i + 1}/{len(lost)})", update_last=True)
             if progress_callback:
                 progress_callback(80 + int((i / len(lost)) * 15), 100)
 
                                           
-        logger.info(f"ВКЛЮЧЕНЫ unranked/loved карты. Всего скоров: {len(lost)}")
+        logger.info(f"ENABLED unranked/loved maps. Total scores: {len(lost)}")
 
     else:
                                                                           
-        logger.info(f"Проверяем статус для {len(lost)} карт...")
+        logger.info(f"Checking status for {len(lost)} maps...")
 
                                                    
         for i, rec in enumerate(lost):
@@ -466,7 +466,8 @@ def scan_replays(game_dir, user_identifier, lookup_key, progress_callback=None, 
                 from osu_api import map_osu
                 info_api = map_osu(rec["beatmap_id"], token)
                 if gui_log:
-                    gui_log(f"Получение информации о карте {rec['beatmap_id']} ({i + 1}/{len(lost)})", update_last=True)
+                    gui_log(f"Getting information about map {rec['beatmap_id']} ({i + 1}/{len(lost)})",
+                            update_last=True)
                 if progress_callback:
                     progress_callback(80 + int((i / len(lost)) * 15), 100)
 
@@ -506,7 +507,7 @@ def scan_replays(game_dir, user_identifier, lookup_key, progress_callback=None, 
         original_count = len(lost)
         lost = [r for r in lost if r.get("Status") in ["ranked", "approved"]]
         filtered_count = len(lost)
-        logger.info(f"Отфильтровано {original_count - filtered_count} скоров, осталось: {filtered_count}")
+        logger.info(f"Filtered {original_count - filtered_count} scores, remaining: {filtered_count}")
 
     for rec in lost:
         db_info = db_get(rec["beatmap_id"])
@@ -514,7 +515,7 @@ def scan_replays(game_dir, user_identifier, lookup_key, progress_callback=None, 
             pass
 
     if gui_log:
-        gui_log("Сохранение результатов...", update_last=True)
+        gui_log("Saving results...", update_last=True)
     if progress_callback:
         progress_callback(95, 100)
 
@@ -552,18 +553,17 @@ def scan_replays(game_dir, user_identifier, lookup_key, progress_callback=None, 
                             "Date": rec.get("score_time", ""),
                             "Rank": rank_
                         })
-                gui_log(f"Файл lost_scores.csv сохранен.", update_last=True)
+                gui_log(f"File lost_scores.csv saved.", update_last=True)
                 break
             except PermissionError:
-                logger.warning("Файл %s занят, повторяю через 0.5 сек.", out_file)
+                logger.warning("File %s is busy, retrying in 0.5 sec.", out_file)
                 time.sleep(0.5)
             except Exception as e:
-                logger.exception("Ошибка записи %s: %s", out_file, e)
+                logger.exception("Error writing %s: %s", out_file, e)
                 break
     else:
-        logger.info("Пусто: потерянные скоры не записаны.")
+        logger.info("Empty: lost scores not written.")
 
-                     
     if progress_callback:
         progress_callback(100, 100)                  
 
@@ -574,15 +574,15 @@ def make_top(game_dir, user_identifier, lookup_key, gui_log=None, progress_callb
         progress_callback(0, 100)
 
     if gui_log:
-        gui_log("Инициализация создания потенциального топа...", update_last=True)
+        gui_log("Initializing potential top creation...", update_last=True)
 
     lost_path = os.path.join(os.path.dirname(__file__), "..", "csv", "lost_scores.csv")
     if not os.path.exists(lost_path):
-        gui_log("Файл lost_scores.csv не найден. Прерываю создание потенциального топа.", update_last=False)
+        gui_log("File lost_scores.csv not found. Aborting potential top creation.", update_last=False)
         return
 
     start = time.time()
-    gui_log("Создаю потенциальный топ...", update_last=False)
+    gui_log("Creating potential top...", update_last=False)
 
     db_init()
     token = token_osu()
@@ -593,13 +593,12 @@ def make_top(game_dir, user_identifier, lookup_key, gui_log=None, progress_callb
 
     user_json = user_osu(user_identifier, lookup_key, token)
     if not user_json:
-        gui_log(f"Ошибка: Не удалось получить данные пользователя '{user_identifier}' (тип: {lookup_key}).", False)
-        raise ValueError(f"Пользователь не найден: {user_identifier}")
+        gui_log(f"Error: Failed to get user data '{user_identifier}' (type: {lookup_key}).", False)
+        raise ValueError(f"User not found: {user_identifier}")
     username = user_json["username"]
     user_id = user_json["id"]
-    gui_log(f"Получена информация о пользователе: {username}", update_last=False)
+    gui_log(f"User information received: {username}", update_last=False)
 
-                                         
     if progress_callback:
         progress_callback(30, 100)
 
@@ -609,7 +608,7 @@ def make_top(game_dir, user_identifier, lookup_key, gui_log=None, progress_callb
 
 
     if gui_log:
-        gui_log("Запрашиваю топ-результаты...", update_last=False)
+        gui_log("Requesting top results...", update_last=False)
     if progress_callback:
         progress_callback(50, 100)
 
@@ -622,7 +621,7 @@ def make_top(game_dir, user_identifier, lookup_key, gui_log=None, progress_callb
 
                                          
     if gui_log:
-        gui_log("Сохраняю CSV (parsed_top.csv)...", update_last=False)
+        gui_log("Saving CSV (parsed_top.csv)...", update_last=False)
     if progress_callback:
         progress_callback(70, 100)
 
@@ -672,7 +671,7 @@ def make_top(game_dir, user_identifier, lookup_key, gui_log=None, progress_callb
 
                                            
     if gui_log:
-        gui_log("Объединяю с потерянными скорами...", update_last=False)
+        gui_log("Merging with lost scores...", update_last=False)
     if progress_callback:
         progress_callback(90, 100)
 
@@ -800,8 +799,7 @@ def make_top(game_dir, user_identifier, lookup_key, gui_log=None, progress_callb
             csv_writer.writerow([label, val])
 
     elapsed = time.time() - start
-    gui_log(f"Потенциальный топ создан за {elapsed:.2f} сек.", update_last=False)
+    gui_log(f"Potential top created in {elapsed:.2f} sec.", update_last=False)
 
-                     
     if progress_callback:
         progress_callback(100, 100)

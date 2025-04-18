@@ -32,7 +32,7 @@ if not ENV_PATH or not os.path.exists(ENV_PATH):
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     ENV_PATH = os.path.join(project_root, ".env")
     ENV_PATH = os.path.abspath(ENV_PATH)
-    logger.warning(f"DOTENV_PATH не задан или файл не существует, используем: {ENV_PATH}")
+    logger.warning(f"DOTENV_PATH not set or file doesn't exist, using: {ENV_PATH}")
 
 def wait_osu():
     global last_call
@@ -71,10 +71,10 @@ def token_osu():
     client_id = os.environ.get("CLIENT_ID")
     client_secret = os.environ.get("CLIENT_SECRET")
 
-    logger.info(f"POST: {url} с клиентом: {client_id[:4]}...")
+    logger.info(f"POST: {url} with client: {client_id[:4]}...")
 
     if client_id == "default_client_id" or client_secret == "default_client_secret":
-        logger.error("Используются значения по умолчанию для CLIENT_ID или CLIENT_SECRET")
+        logger.error("Default values are being used for CLIENT_ID or CLIENT_SECRET")
         logger.error(f"CLIENT_ID: {client_id[:4]}..., CLIENT_SECRET: {client_secret[:4]}...")
         return None
 
@@ -88,21 +88,21 @@ def token_osu():
     try:
         resp = session.post(url, data=data)
         if resp.status_code == 401:
-            logger.error(f"Неверные учетные данные API. Проверьте ваши CLIENT_ID и CLIENT_SECRET.")
-            logger.error(f"Ответ сервера: {resp.text}")
+            logger.error(f"Invalid API credentials. Check your CLIENT_ID and CLIENT_SECRET.")
+            logger.error(f"Server response: {resp.text}")
             return None
 
         resp.raise_for_status()
         token = resp.json().get("access_token")
         if token:
-            logger.info("Успешно получен токен API")
+            logger.info("API token successfully received")
             TOKEN_CACHE = token
             return token
         else:
-            logger.error("Токен не получен в ответе API")
+            logger.error("Token not received in API response")
             return None
     except Exception as e:
-        logger.error(f"Ошибка при получении токена: {e}")
+        logger.error(f"Error getting token: {e}")
         return None
 
 @retry_request
@@ -118,15 +118,15 @@ def user_osu(identifier, lookup_key, token):
     try:
         resp = session.get(url, headers=headers, params=params)
         if resp.status_code == 404:
-            logger.error(f"Пользователь '{identifier}' (тип поиска: {lookup_key}) не найден.")
+            logger.error(f"User '{identifier}' (lookup type: {lookup_key}) not found.")
             return None
         resp.raise_for_status()
         return resp.json()
     except requests.exceptions.HTTPError as e:
-        logger.error(f"HTTP ошибка при запросе данных пользователя {identifier}: {e}")
+        logger.error(f"HTTP error when requesting user data {identifier}: {e}")
         raise
     except Exception as e:
-        logger.error(f"Неожиданная ошибка при запросе данных пользователя {identifier}: {e}")
+        logger.error(f"Unexpected error when requesting user data {identifier}: {e}")
         raise
 
 
@@ -167,10 +167,10 @@ def top_osu(token, user_id, limit=200):
                 break
 
         except requests.exceptions.HTTPError as e:
-            logger.error(f"HTTP ошибка при запросе топ-скоров пользователя {user_id}: {e}")
+            logger.error(f"HTTP error when requesting top scores for user {user_id}: {e}")
             raise
         except Exception as e:
-            logger.error(f"Неожиданная ошибка при запросе топ-скоров пользователя {user_id}: {e}")
+            logger.error(f"Unexpected error when requesting top scores for user {user_id}: {e}")
             raise
 
     return all_scores
@@ -188,13 +188,13 @@ def map_osu(beatmap_id, token):
     try:
         resp = session.get(url, headers=headers)
         if resp.status_code == 404:
-            logger.warning(f"Карта с ID {beatmap_id} не найдена")
+            logger.warning(f"Beatmap with ID {beatmap_id} not found")
             return None
         resp.raise_for_status()
         data = resp.json()
 
         if not data:
-            logger.warning(f"Пустой ответ API для карты {beatmap_id}")
+            logger.warning(f"Empty API response for beatmap {beatmap_id}")
             return None
 
         bset = data.get("beatmapset", {})
@@ -213,12 +213,12 @@ def map_osu(beatmap_id, token):
             "hit_objects": hobj
         }
     except requests.exceptions.HTTPError as e:
-        logger.error(f"HTTP ошибка при запросе данных карты {beatmap_id}: {e}")
+        logger.error(f"HTTP error when requesting beatmap data {beatmap_id}: {e}")
         if "429" in str(e):              
             time.sleep(5)                                                
         raise
     except Exception as e:
-        logger.error(f"Неожиданная ошибка при запросе данных карты {beatmap_id}: {e}")
+        logger.error(f"Unexpected error when requesting beatmap data {beatmap_id}: {e}")
         raise
 
 
@@ -230,7 +230,7 @@ def lookup_osu(checksum):
     try:
         token = token_osu()
         if not token:
-            logger.error("Не удалось получить токен для lookup_osu")
+            logger.error("Failed to get token for lookup_osu")
             return None
 
         headers = {
@@ -243,24 +243,24 @@ def lookup_osu(checksum):
         response = session.get(url, headers=headers, params=params)
 
         if response.status_code == 404:
-            logger.warning(f"Карта с checksum {checksum} не найдена.")
+            logger.warning(f"Beatmap with checksum {checksum} not found.")
             return None
 
         response.raise_for_status()
         data = response.json()
 
         if not data:
-            logger.warning(f"Пустой ответ API для checksum {checksum}")
+            logger.warning(f"Empty API response for checksum {checksum}")
             return None
 
         return data.get("id")
     except requests.exceptions.HTTPError as e:
-        logger.error(f"HTTP ошибка при поиске карты по checksum {checksum}: {e}")
+        logger.error(f"HTTP error when looking up beatmap by checksum {checksum}: {e}")
         if "429" in str(e):              
             time.sleep(5)
         raise
     except Exception as e:
-        logger.error(f"Неожиданная ошибка при поиске карты по checksum {checksum}: {e}")
+        logger.error(f"Unexpected error when looking up beatmap by checksum {checksum}: {e}")
         raise
 
 
@@ -269,7 +269,7 @@ def save_api_keys(client_id, client_secret):
     try:
         os.makedirs(CONFIG_DIR, exist_ok=True)
 
-        logger.info(f"Сохраняем API ключи в: {USER_CONFIG_PATH}")
+        logger.info(f"Saving API keys to: {USER_CONFIG_PATH}")
         logger.info(f"CLIENT_ID: {client_id[:4]}..., CLIENT_SECRET: {client_secret[:4]}...")
 
         with open(USER_CONFIG_PATH, 'w', encoding='utf-8') as f:
@@ -279,7 +279,7 @@ def save_api_keys(client_id, client_secret):
             }, f, indent=4)
         return True
     except Exception as e:
-        logger.error(f"Ошибка при сохранении API ключей: {e}")
+        logger.error(f"Error saving API keys: {e}")
         return False
 
 def load_api_keys():
@@ -292,18 +292,17 @@ def load_api_keys():
             config = json.load(f)
         return config.get("client_id"), config.get("client_secret")
     except Exception as e:
-        logger.error(f"Ошибка при загрузке API ключей: {e}")
+        logger.error(f"Error loading API keys: {e}")
         return None, None
 
 
 def update_env_file(client_id, client_secret):
                                                                          
     try:
-        logger.info(f"Обновляем .env файл: {ENV_PATH}")
+        logger.info(f"Updating .env file: {ENV_PATH}")
 
-                                            
         if not os.path.exists(ENV_PATH):
-            logger.warning(f".env файл не найден, создаем новый: {ENV_PATH}")
+            logger.warning(f".env file not found, creating new: {ENV_PATH}")
             with open(ENV_PATH, 'w', encoding='utf-8') as f:
                 f.write("CLIENT_ID=default_client_id\n")
                 f.write("CLIENT_SECRET=default_client_secret\n")
@@ -341,33 +340,30 @@ def update_env_file(client_id, client_secret):
         os.environ["CLIENT_ID"] = client_id
         os.environ["CLIENT_SECRET"] = client_secret
 
-                                                           
         logger.info(
-            f"Переменные окружения обновлены: CLIENT_ID={os.environ.get('CLIENT_ID')[:4]}..., CLIENT_SECRET={os.environ.get('CLIENT_SECRET')[:4]}...")
+            f"Environment variables updated: CLIENT_ID={os.environ.get('CLIENT_ID')[:4]}..., CLIENT_SECRET={os.environ.get('CLIENT_SECRET')[:4]}...")
 
-                                        
         try:
             from dotenv import load_dotenv
             load_dotenv(dotenv_path=ENV_PATH, override=True)
-            logger.info("Перезагрузка .env файла выполнена успешно")
+            logger.info(".env file reload completed successfully")
         except Exception as dotenv_error:
-            logger.warning(f"Не удалось перезагрузить .env файл: {dotenv_error}")
+            logger.warning(f"Failed to reload .env file: {dotenv_error}")
 
-        logger.info(f".env файл обновлен по пути: {ENV_PATH}")
+        logger.info(f".env file updated at path: {ENV_PATH}")
         return True
     except Exception as e:
-        logger.error(f"Ошибка при обновлении .env файла: {e}")
+        logger.error(f"Error updating .env file: {e}")
         return False
 
 
 def restore_env_defaults():
                                                             
     try:
-        logger.info(f"Восстанавливаем .env файл до значений по умолчанию: {ENV_PATH}")
+        logger.info(f"Restoring .env file to default values: {ENV_PATH}")
 
-                                            
         if not os.path.exists(ENV_PATH):
-            logger.warning(f".env файл не найден, создаем новый: {ENV_PATH}")
+            logger.warning(f".env file not found, creating new: {ENV_PATH}")
             with open(ENV_PATH, 'w', encoding='utf-8') as f:
                 f.write("CLIENT_ID=default_client_id\n")
                 f.write("CLIENT_SECRET=default_client_secret\n")
@@ -396,10 +392,10 @@ def restore_env_defaults():
         with open(ENV_PATH, 'w', encoding='utf-8') as f:
             f.write('\n'.join(env_content))
 
-        logger.info(f".env файл восстановлен до значений по умолчанию: {ENV_PATH}")
+        logger.info(f".env file restored to default values: {ENV_PATH}")
         return True
     except Exception as e:
-        logger.error(f"Ошибка при восстановлении .env файла: {e}")
+        logger.error(f"Error restoring .env file: {e}")
         return False
 
 
@@ -409,10 +405,10 @@ def setup_api_keys():
     if not client_id or not client_secret:
                                                                             
                                
-        logger.warning("API ключи не найдены. Требуется их ввод через интерфейс.")
+        logger.warning("API keys not found. Input required through interface.")
         return False
     else:
-        logger.info(f"Используются сохраненные API ключи: {client_id[:4]}...")
+        logger.info(f"Using saved API keys: {client_id[:4]}...")
 
                          
     result = update_env_file(client_id, client_secret)

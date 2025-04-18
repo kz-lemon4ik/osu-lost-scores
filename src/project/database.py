@@ -25,7 +25,7 @@ def db_init():
             conn.commit()
     except Exception as e:
         logger = logging.getLogger(__name__)
-        logger.error(f"Ошибка при инициализации БД: {e}")
+        logger.error(f"Error initializing database: {e}")
         raise
 
 def db_save(bid, status, artist, title, version, creator, objs):
@@ -41,7 +41,7 @@ def db_save(bid, status, artist, title, version, creator, objs):
             conn.commit()
     except Exception as e:
         logger = logging.getLogger(__name__)
-        logger.error(f"Ошибка при сохранении данных в БД: {e}")
+        logger.error(f"Error saving data to database: {e}")
 
 def db_get(bid):
     try:
@@ -66,5 +66,5 @@ def db_get(bid):
         return None
     except Exception as e:
         logger = logging.getLogger(__name__)
-        logger.error(f"Ошибка при получении данных из БД: {e}")
+        logger.error(f"Error retrieving data from database: {e}")
         return None

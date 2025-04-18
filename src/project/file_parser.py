@@ -34,7 +34,7 @@ def not_submitted_cache_load():
             with open(NOT_SUBMITTED_CACHE_PATH, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:
-            logger.warning("Ошибка чтения not_submitted_cache: %s", e)
+            logger.warning("Error reading not_submitted_cache: %s", e)
             return {}
     return {}
 
@@ -43,8 +43,7 @@ def not_submitted_cache_save(cache):
         with open(NOT_SUBMITTED_CACHE_PATH, "w", encoding="utf-8") as f:
             json.dump(cache, f, indent=4)
     except Exception as e:
-        logger.error("Ошибка записи not_submitted_cache: %s", e)
-
+        logger.error("Error writing not_submitted_cache: %s", e)
 
 
 NOT_SUBMITTED_CACHE_PATH = os.path.join(os.path.dirname(__file__), "..", "cache", "not_submitted_cache.json")
@@ -56,11 +55,11 @@ def osr_load():
             try:
                 with open(OSR_CACHE_PATH, "r", encoding="utf-8") as f:
                     content = f.read()
-                    logger.debug("OSR-кэш (%s): %s", OSR_CACHE_PATH, content[:200])
+                    logger.debug("OSR-cache (%s): %s", OSR_CACHE_PATH, content[:200])
                     f.seek(0)
                     return json.load(f)
             except Exception:
-                logger.exception("Ошибка чтения OSR-кэша: %s", OSR_CACHE_PATH)
+                logger.exception("Error reading OSR-cache: %s", OSR_CACHE_PATH)
         return {}
 
 def osr_save(cache):
@@ -69,7 +68,7 @@ def osr_save(cache):
             with open(OSR_CACHE_PATH, "w", encoding="utf-8") as f:
                 json.dump(cache, f, indent=4)
         except Exception as e:
-            logger.error(f"Ошибка при сохранении OSR-кэша: {e}")
+            logger.error(f"Error saving OSR-cache: {e}")
 
 def md5_load():
     with MD5_CACHE_LOCK:
@@ -78,7 +77,7 @@ def md5_load():
                 with open(MD5_CACHE_PATH, "r", encoding="utf-8") as f:
                     return json.load(f)
             except Exception as e:
-                logger.warning("Ошибка чтения MD5-кэша: %s", e)
+                logger.warning("Error reading MD5-cache: %s", e)
                 return {}
         return {}
 
@@ -88,7 +87,7 @@ def md5_save(cache):
             with open(MD5_CACHE_PATH, "w", encoding="utf-8") as f:
                 json.dump(cache, f, indent=4)
         except Exception as e:
-            logger.error(f"Ошибка при сохранении MD5-кэша: {e}")
+            logger.error(f"Error saving MD5-cache: {e}")
 
 def get_md5(path):
 
@@ -161,7 +160,7 @@ def read_string(data, offset):
         s = data[offset:offset+length].decode('utf-8', errors='ignore')
         return s, offset + length
     else:
-        raise ValueError("Неправильная строка в .osr")
+        raise ValueError("Invalid string in .osr")
 
 MODS_MAPPING_ITER = [
     (1, "NF"), (2, "EZ"), (8, "HD"), (16, "HR"), (32, "SD"),
@@ -212,7 +211,7 @@ def parse_osu_metadata(osu_path):
                         if len(parts) == 2:
                             result["version"] = parts[1].strip()
     except Exception as e:
-        logger.exception("Ошибка при парсинге .osu файла %s: %s", osu_path, e)
+        logger.exception("Error parsing .osu file %s: %s", osu_path, e)
     return result
 
 def parse_beatmap_id(osu_path):
@@ -395,7 +394,7 @@ def calculate_pp_rosu(osu_path, replay):
         return result
 
     except Exception as e:
-        logger.exception("Ошибка при расчёте PP через rosu-pp для %s", osu_path)
+        logger.exception("Error calculating PP via rosu-pp for %s", osu_path)
         return None
 
 
@@ -403,7 +402,7 @@ def proc_osr(osr_path, md5_map, cutoff, username):
     try:
         rep = parse_osr(osr_path)
         if not rep:
-            logger.warning("Не удалось обработать osr: %s", osr_path)
+            logger.warning("Failed to process osr: %s", osr_path)
             return None
         if rep["game_mode"] != 0:
             return None
@@ -412,8 +411,8 @@ def proc_osr(osr_path, md5_map, cutoff, username):
         if rep["beatmap_md5"] not in md5_map:
             with OSR_CACHE_LOCK:
                 if rep["beatmap_md5"] in NOT_SUBMITTED_CACHE:
-                    logger.warning("md5 %s уже отмечен как не найденный, пропускаем реплей: %s", rep["beatmap_md5"],
-                                   osr_path)
+                    logger.error("md5 %s already marked as not found, skipping replay: %s", rep["beatmap_md5"],
+                                 osr_path)
                     return None
 
             from osu_api import lookup_osu
@@ -423,17 +422,17 @@ def proc_osr(osr_path, md5_map, cutoff, username):
                 if new_osu_path:
                     md5_map[rep["beatmap_md5"]] = new_osu_path
                     update_osu_md5_cache(new_osu_path, rep["beatmap_md5"])
-                    logger.info("Скачан новый .osu файл для beatmap_id %s по md5 %s", beatmap_id_api,
+                    logger.info("Downloaded new .osu file for beatmap_id %s by md5 %s", beatmap_id_api,
                                 rep["beatmap_md5"])
                 else:
-                    logger.error("Не удалось скачать .osu файл для beatmap_id %s", beatmap_id_api)
+                    logger.error("Failed to download .osu file for beatmap_id %s", beatmap_id_api)
 
                     with OSR_CACHE_LOCK:
                         NOT_SUBMITTED_CACHE[rep["beatmap_md5"]] = True
                         not_submitted_cache_save(NOT_SUBMITTED_CACHE)
                     return None
             else:
-                logger.error("Нет .osu файла для реплея: %s с md5: %s", osr_path, rep["beatmap_md5"])
+                logger.error("No .osu file for replay: %s with md5: %s", osr_path, rep["beatmap_md5"])
 
                 with OSR_CACHE_LOCK:
                     NOT_SUBMITTED_CACHE[rep["beatmap_md5"]] = True
@@ -468,11 +467,10 @@ def proc_osr(osr_path, md5_map, cutoff, username):
                             MD5_BEATMAPID_CACHE[md5] = new_id
                             res["beatmap_id"] = new_id
                     except Exception as e:
-                        logger.error("Ошибка при запросе beatmap_id по md5 (%s): %s", md5, e)
+                        logger.error("Error when requesting beatmap_id by md5 (%s): %s", md5, e)
 
-                                                                               
             if res.get("beatmap_id") is None:
-                logger.warning(f"Не удалось получить beatmap_id для реплея {osr_path}")
+                logger.warning(f"Failed to get beatmap_id for replay {osr_path}")
                 return None
 
                                                           
@@ -485,11 +483,11 @@ def proc_osr(osr_path, md5_map, cutoff, username):
                 with OSR_CACHE_LOCK:
                     OSR_CACHE[osr_path] = {"mtime": mtime, "result": res}
             else:
-                logger.warning(f"Неверный формат реплея для {osr_path}: {type(rep)}")
+                logger.warning(f"Invalid replay format for {osr_path}: {type(rep)}")
                 return None
         return res
     except Exception as e:
-        logger.exception(f"Неожиданная ошибка при обработке реплея {osr_path}: {e}")
+        logger.exception(f"Unexpected error processing replay {osr_path}: {e}")
         return None
 
 def download_osu_file(beatmap_id):
@@ -506,7 +504,7 @@ def download_osu_file(beatmap_id):
         response = requests.get(url)
         response.raise_for_status()
     except Exception as e:
-        logger.error("Ошибка при скачивании .osu файла для beatmap_id %s: %s", beatmap_id, e)
+        logger.error("Error downloading .osu file for beatmap_id %s: %s", beatmap_id, e)
         return None
 
                                     
@@ -537,12 +535,12 @@ def update_osu_md5_cache(new_osu_path, md5_hash):
                 with open(MD5_CACHE_PATH, "r", encoding="utf-8") as f:
                     cache = json.load(f)
         except Exception as e:
-            logger.error(f"Не удалось прочитать кэш: {e}")
+            logger.error(f"Failed to read cache: {e}")
 
         try:
             mtime = os.path.getmtime(new_osu_path)
         except Exception as e:
-            logger.warning(f"Не удалось получить mtime для {new_osu_path}: {e}")
+            logger.warning(f"Failed to get mtime for {new_osu_path}: {e}")
             mtime = None
 
         cache[new_osu_path] = {"mtime": mtime, "md5": md5_hash}
@@ -551,7 +549,7 @@ def update_osu_md5_cache(new_osu_path, md5_hash):
             with open(MD5_CACHE_PATH, "w", encoding="utf-8") as f:
                 json.dump(cache, f, indent=4)
         except Exception as e:
-            logger.error(f"Ошибка обновления osu_md5_cache: {e}")
+            logger.error(f"Error updating osu_md5_cache: {e}")
 
 def count_objs(osu_path, beatmap_id):
                                                                            
@@ -567,7 +565,7 @@ def count_objs(osu_path, beatmap_id):
                 if in_hit and line and not line.startswith("//"):
                     total += 1
     except Exception as e:
-        logger.error("Ошибка при чтении .osu файла %s: %s", osu_path, e)
+        logger.error("Error reading .osu file %s: %s", osu_path, e)
         return 0
 
                                        
@@ -622,11 +620,11 @@ def grade_osu(beatmap_id, c300, c100, c50, cMiss):
 
         if osu_file:
             total = count_objs(osu_file, beatmap_id)
-            logger.info(f"Локально подсчитано {total} объектов для beatmap_id {beatmap_id}")
+            logger.info(f"Locally counted {total} objects for beatmap_id {beatmap_id}")
 
                                                                   
         if not total:
-            logger.warning(f"Не удалось определить количество объектов для beatmap_id {beatmap_id}")
+            logger.warning(f"Failed to determine object count for beatmap_id {beatmap_id}")
             return "?"
 
                                                   
