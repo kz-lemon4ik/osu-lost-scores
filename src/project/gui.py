@@ -8,6 +8,7 @@ import json
 import subprocess
 from functools import partial
 from datetime import datetime
+from utils import get_resource_path
 
 from PySide6 import QtWidgets, QtCore, QtGui
 from PySide6.QtCore import Qt, Signal, QRunnable, QThreadPool, QObject, Slot, QPropertyAnimation, QEasingCurve
@@ -32,14 +33,13 @@ from analyzer import scan_replays, make_top
 
 logger = logging.getLogger(__name__)
 
-BASE_SRC_PATH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ICON_PATH = os.path.join(BASE_SRC_PATH, "assets", "icons")
-FONT_PATH = os.path.join(BASE_SRC_PATH, "assets", "fonts")
-BACKGROUND_FOLDER_PATH = os.path.join(BASE_SRC_PATH, "assets", "background")
-BACKGROUND_IMAGE_PATH = os.path.join(BACKGROUND_FOLDER_PATH, "bg.png")
-CONFIG_PATH = os.path.join(BASE_SRC_PATH, "config", "gui_config.json")
+BASE_SRC_PATH = get_resource_path("")
+ICON_PATH = get_resource_path(os.path.join("assets", "icons"))
+FONT_PATH = get_resource_path(os.path.join("assets", "fonts"))
+BACKGROUND_FOLDER_PATH = get_resource_path(os.path.join("assets", "background"))
+BACKGROUND_IMAGE_PATH = get_resource_path(os.path.join("assets", "background", "bg.png"))
+CONFIG_PATH = get_resource_path(os.path.join("config", "gui_config.json"))
 
-                                                        
 os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
 
 BG_COLOR = "#251a37"
@@ -109,7 +109,7 @@ class HoverButton(QPushButton):
 
     def leaveEvent(self, event):
         if self.objectName() != "BrowseButton":
-            pass                                     
+            pass
         if self.normal_icon and not self.normal_icon.isNull():
             self.setIcon(self.normal_icon)
         super().leaveEvent(event)
@@ -141,20 +141,16 @@ class AnimatedProgressBar(QProgressBar):
         super().__init__(parent)
         self.setTextVisible(False)
 
-                                            
         self.animation = QPropertyAnimation(self, b"value")
         self.animation.setEasingCurve(QEasingCurve.Type.OutCubic)
-        self.animation.setDuration(500)                              
+        self.animation.setDuration(500)
 
     def setValue(self, value):
-                                                                
         self.animation.stop()
 
-                                                            
         self.animation.setStartValue(self.value())
         self.animation.setEndValue(value)
 
-                            
         self.animation.start()
 
 
@@ -186,7 +182,6 @@ class ApiDialog(QDialog):
         info_label.setFont(QFont("Exo 2", 12))
         layout.addWidget(info_label)
 
-                   
         id_layout = QVBoxLayout()
         id_layout.setSpacing(10)
         id_label = QLabel("Client ID:")
@@ -200,15 +195,13 @@ class ApiDialog(QDialog):
 
         layout.addSpacing(10)
 
-                       
         secret_layout = QVBoxLayout()
         secret_layout.setSpacing(10)
         secret_label = QLabel("Client Secret:")
         secret_label.setFont(QFont("Exo 2", 12))
 
-                                                                                       
         self.secret_container = QFrame()
-        self.secret_container.setMinimumHeight(40)                       
+        self.secret_container.setMinimumHeight(40)
         self.secret_container.setStyleSheet(f"""
             QFrame {{
                 background-color: {FG_COLOR};
@@ -220,12 +213,10 @@ class ApiDialog(QDialog):
             }}
         """)
 
-                                                      
         self.secret_layout_container = QHBoxLayout(self.secret_container)
         self.secret_layout_container.setContentsMargins(10, 0, 10, 0)
         self.secret_layout_container.setSpacing(0)
 
-                                     
         self.secret_input = QLineEdit(client_secret)
         self.secret_input.setFont(QFont("Exo 2", 12))
         self.secret_input.setMinimumHeight(35)
@@ -238,7 +229,6 @@ class ApiDialog(QDialog):
             }
         """)
 
-                                                  
         self.show_secret_btn = FolderButton(
             QIcon(os.path.join(ICON_PATH, "eye_closed.png")),
             QIcon(os.path.join(ICON_PATH, "eye_closed_hover.png"))
@@ -249,9 +239,8 @@ class ApiDialog(QDialog):
         self.show_secret_btn.clicked.connect(self.toggle_secret_visibility)
         self.is_secret_visible = False
 
-                                        
-        self.secret_layout_container.addWidget(self.secret_input, 1)               
-        self.secret_layout_container.addWidget(self.show_secret_btn, 0)               
+        self.secret_layout_container.addWidget(self.secret_input, 1)
+        self.secret_layout_container.addWidget(self.show_secret_btn, 0)
 
         secret_layout.addWidget(secret_label)
         secret_layout.addWidget(self.secret_container)
@@ -310,7 +299,6 @@ class ApiDialog(QDialog):
         button_layout.addWidget(self.save_btn)
         layout.addLayout(button_layout)
 
-                                                                          
         self.id_input.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.id_input.customContextMenuRequested.connect(lambda pos: self.show_context_menu(self.id_input, pos))
 
@@ -332,7 +320,7 @@ class ApiDialog(QDialog):
 
     def show_context_menu(self, widget, position):
         menu = QMenu()
-                                           
+
         menu.setStyleSheet("""
             QMenu {
                 background-color: #121212;
@@ -356,35 +344,33 @@ class ApiDialog(QDialog):
         if isinstance(widget, QLineEdit):
             cut_action = menu.addAction("Cut")
             cut_action.triggered.connect(widget.cut)
-                                                                          
-                                                                        
-            cut_action.setEnabled(widget.hasSelectedText())                      
+
+            cut_action.setEnabled(widget.hasSelectedText())
 
             copy_action = menu.addAction("Copy")
             copy_action.triggered.connect(widget.copy)
-                                               
-            copy_action.setEnabled(widget.hasSelectedText())                      
+
+            copy_action.setEnabled(widget.hasSelectedText())
 
             paste_action = menu.addAction("Paste")
             paste_action.triggered.connect(widget.paste)
-                                               
-                                                                     
-            if PYPERCLIP_AVAILABLE:
-                 paste_action.setEnabled(bool(pyperclip.paste()))
-            else:
-                                                                                  
-                 paste_action.setEnabled(True)
 
+            if PYPERCLIP_AVAILABLE:
+                paste_action.setEnabled(bool(pyperclip.paste()))
+            else:
+
+                paste_action.setEnabled(True)
 
             menu.addSeparator()
 
             select_all_action = menu.addAction("Select All")
             select_all_action.triggered.connect(widget.selectAll)
-                                               
-            select_all_action.setEnabled(bool(widget.text()))                      
+
+            select_all_action.setEnabled(bool(widget.text()))
 
         if menu.actions():
             menu.exec(widget.mapToGlobal(position))
+
 
 class MainWindow(QWidget):
     def __init__(self):
@@ -393,7 +379,6 @@ class MainWindow(QWidget):
         self.setGeometry(100, 100, 650, 500)
         self.setFixedSize(650, 500)
 
-                                        
         self.scan_completed = threading.Event()
         self.top_completed = threading.Event()
         self.img_completed = threading.Event()
@@ -405,14 +390,11 @@ class MainWindow(QWidget):
         self.load_icons()
         self.load_background()
 
-                                 
         self.initUI()
 
-                                      
         self.config = {}
         self.load_config()
 
-                                       
         if 'osu_path' in self.config and self.config['osu_path']:
             self.game_entry.setText(self.config['osu_path'])
         if 'username' in self.config and self.config['username']:
@@ -420,7 +402,6 @@ class MainWindow(QWidget):
         if 'scores_count' in self.config and self.config['scores_count']:
             self.scores_count_entry.setText(str(self.config['scores_count']))
 
-                                    
         self.threadpool = QThreadPool()
         logger.info(f"Max threads in pool: {self.threadpool.maxThreadCount()}")
 
@@ -429,13 +410,11 @@ class MainWindow(QWidget):
         from osu_api import load_api_keys
         client_id, client_secret = load_api_keys()
 
-                                                               
         if not client_id or not client_secret:
-                                                                                      
             QtCore.QTimer.singleShot(500, self.show_first_run_api_dialog)
 
     def show_first_run_api_dialog(self):
-                                                                   
+
         QMessageBox.information(self, "API Keys Required",
                                 "Welcome to osu! Lost Scores Analyzer!\n\n"
                                 "To use this application, you need to provide osu! API keys.\n"
@@ -443,12 +422,10 @@ class MainWindow(QWidget):
         self.open_api_dialog()
 
     def ensure_csv_files_exist(self):
-                                                                 
-        csv_dir = os.path.join(os.path.dirname(__file__), "..", "csv")
+
+        csv_dir = get_resource_path("csv")
         os.makedirs(csv_dir, exist_ok=True)
 
-                                                             
-                         
         lost_scores_path = os.path.join(csv_dir, "lost_scores.csv")
         if not os.path.exists(lost_scores_path):
             try:
@@ -479,7 +456,7 @@ class MainWindow(QWidget):
                 self.append_log(f"Error creating top_with_lost.csv: {e}", False)
 
     def load_config(self):
-                                               
+
         self.config = {}
         try:
             if os.path.exists(CONFIG_PATH):
@@ -491,16 +468,15 @@ class MainWindow(QWidget):
             logger.error(f"Error loading configuration: {e}")
             self.config = {}
 
-                                      
         if 'include_unranked' in self.config:
             self.include_unranked_checkbox.setChecked(self.config['include_unranked'])
         if 'clean_scan' in self.config:
             self.clean_scan_checkbox.setChecked(self.config['clean_scan'])
 
     def save_config(self):
-                                             
+
         try:
-                                 
+
             self.config['osu_path'] = self.game_entry.text().strip()
             self.config['username'] = self.profile_entry.text().strip()
 
@@ -511,7 +487,6 @@ class MainWindow(QWidget):
                 except ValueError:
                     self.config['scores_count'] = 10
 
-                                           
             self.config['include_unranked'] = self.include_unranked_checkbox.isChecked()
             self.config['clean_scan'] = self.clean_scan_checkbox.isChecked()
 
@@ -523,7 +498,7 @@ class MainWindow(QWidget):
             print(f"Error saving configuration: {e}")
 
     def closeEvent(self, event):
-                                      
+
         self.save_config()
         event.accept()
 
@@ -602,10 +577,8 @@ class MainWindow(QWidget):
         self.setGeometry(100, 100, 650, window_height)
         self.setFixedSize(650, window_height)
 
-                                                
-        self.setLayout(None)                    
+        self.setLayout(None)
 
-                                                     
         self.title_label = QLabel(self)
         self.title_label.setGeometry(50, 20, 550, 50)
         self.title_label.setObjectName("TitleLabel")
@@ -615,12 +588,10 @@ class MainWindow(QWidget):
             '<span style="color: #ee4bbd;">osu!</span><span style="color: white;"> Lost Scores Analyzer</span> 🍋')
         self.title_label.setTextFormat(Qt.TextFormat.RichText)
 
-                           
         dir_label = QLabel("osu! Game Directory", self)
         dir_label.setGeometry(50, 90, 550, 30)
         dir_label.setFont(self.label_font)
 
-                                                         
         dir_container = QFrame(self)
         dir_container.setGeometry(50, 125, 550, 40)
         dir_container.setStyleSheet(f"""
@@ -634,7 +605,6 @@ class MainWindow(QWidget):
             }}
         """)
 
-                                                 
         self.game_entry = QLineEdit(dir_container)
         self.game_entry.setGeometry(10, 0, 500, 40)
         self.game_entry.setFont(self.entry_font)
@@ -647,14 +617,12 @@ class MainWindow(QWidget):
             }
         """)
 
-                                                                            
         self.browse_button = FolderButton(self.icons.get("folder", {}).get("normal"),
                                           self.icons.get("folder", {}).get("hover"), dir_container)
-                                        
+
         self.browse_button.setGeometry(510, 5, 30, 30)
         self.browse_button.clicked.connect(self.browse_directory)
 
-                        
         url_label = QLabel("Username (or ID / URL)", self)
         url_label.setGeometry(50, 180, 550, 30)
         url_label.setFont(self.label_font)
@@ -676,7 +644,6 @@ class MainWindow(QWidget):
             }}
         """)
 
-                                  
         scores_label = QLabel("Number of scores to display", self)
         scores_label.setGeometry(50, 270, 550, 30)
         scores_label.setFont(self.label_font)
@@ -778,15 +745,12 @@ class MainWindow(QWidget):
         self.action_img.setGeometry(0, 0, 0, 0)
         self.action_img.clicked.connect(self.start_img)
 
-
         btn_all_width = 550
         btn_y = 435
         self.btn_all = HoverButton("Start Scan", None, None, self)
         self.btn_all.setGeometry(50, btn_y, 550, 50)
         self.btn_all.setFont(self.button_font)
 
-                               
-                               
         self.btn_all.setStyleSheet(f"""
             QPushButton {{
                 background-color: {FG_COLOR};
@@ -800,7 +764,6 @@ class MainWindow(QWidget):
             }}
         """)
 
-                             
         self.api_button.setStyleSheet(f"""
             QPushButton {{
                 background-color: {FG_COLOR};
@@ -815,7 +778,6 @@ class MainWindow(QWidget):
         """)
         self.btn_all.clicked.connect(self.start_all_processes)
 
-                                  
         self.progress_bar = AnimatedProgressBar(self)
         self.progress_bar.setGeometry(50, btn_y + 65, 550, 20)
         self.progress_bar.setRange(0, 100)
@@ -844,7 +806,6 @@ class MainWindow(QWidget):
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_label.setStyleSheet(f"QLabel#StatusLabel {{ color: {TEXT_COLOR}; background-color: transparent; }}")
 
-             
         log_label = QLabel("Log", self)
         log_label.setGeometry(50, btn_y + 130, 550, 25)
         log_label.setFont(self.label_font)
@@ -865,7 +826,6 @@ class MainWindow(QWidget):
             }}
         """)
 
-                                                        
         log_layout = QVBoxLayout(log_container)
         log_layout.setContentsMargins(5, 5, 5, 5)
 
@@ -881,7 +841,6 @@ class MainWindow(QWidget):
         """)
         log_layout.addWidget(self.log_textbox)
 
-                          
         self.log_textbox.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.log_textbox.customContextMenuRequested.connect(partial(self.show_context_menu, self.log_textbox))
 
@@ -936,12 +895,12 @@ class MainWindow(QWidget):
 
         try:
             if update_last:
-                                                   
+
                 self.current_task = message
                 self.status_label.setText(message)
 
             else:
-                                                                                           
+
                 if message:
                     self.current_task = message
                     self.status_label.setText(message)
@@ -962,18 +921,17 @@ class MainWindow(QWidget):
 
     @Slot(int, int)
     def update_progress_bar(self, current, total):
-                                                     
+
         if self.scan_completed.is_set() and not self.top_completed.is_set():
-                                                           
+
             progress = 30 + int((current / total) * 30) if total > 0 else 30
         elif self.scan_completed.is_set() and self.top_completed.is_set():
-                                                     
+
             progress = 60 + int((current / total) * 40) if total > 0 else 60
         else:
-                                                  
+
             progress = int((current / total) * 30) if total > 0 else 0
 
-                                                           
         self.overall_progress = progress
         self.progress_bar.setValue(progress)
 
@@ -985,7 +943,7 @@ class MainWindow(QWidget):
             self.progress_bar.setValue(30)
             self.current_task = "Replay scanning completed"
             self.status_label.setText(self.current_task)
-        self.scan_completed.set()                                                 
+        self.scan_completed.set()
 
     @Slot(str)
     def task_error(self, error_message):
@@ -995,15 +953,12 @@ class MainWindow(QWidget):
         self.current_task = "Task execution error"
         self.status_label.setText(self.current_task)
 
-                                   
         self.has_error = True
 
-                                    
         self.scan_completed.set()
         self.top_completed.set()
         self.img_completed.set()
 
-                             
         self.enable_all_button()
 
     def browse_directory(self):
@@ -1015,21 +970,18 @@ class MainWindow(QWidget):
             self.save_config()
 
     def start_all_processes(self):
-                                                                                           
+
         game_dir = self.game_entry.text().strip()
         user_input = self.profile_entry.text().strip()
 
-                                 
         if not game_dir or not user_input:
             QMessageBox.warning(self, "Error", "Please specify osu! folder and profile input (URL/ID/Username).")
             return
 
-                                                
         if not os.path.isdir(game_dir):
             QMessageBox.warning(self, "Error", f"Specified directory doesn't exist: {game_dir}")
             return
 
-                                            
         songs_dir = os.path.join(game_dir, "Songs")
         replays_dir = os.path.join(game_dir, "Data", "r")
 
@@ -1043,14 +995,12 @@ class MainWindow(QWidget):
 
         self.has_error = False
 
-                                                           
         if self.clean_scan_checkbox.isChecked():
             self.append_log("Performing clean scan (cache reset)...", False)
             try:
                 import shutil
                 project_root = os.path.join(os.path.dirname(__file__), "..")
 
-                                          
                 folders_to_clean = [
                     os.path.join(project_root, "cache"),
                     os.path.join(project_root, "maps"),
@@ -1063,17 +1013,15 @@ class MainWindow(QWidget):
                     if os.path.exists(folder):
                         self.append_log(f"Deleting folder: {folder}", False)
                         shutil.rmtree(folder)
-                                              
+
                         os.makedirs(folder, exist_ok=True)
                         self.append_log(f"Folder recreated: {folder}", False)
 
-                                                               
                 self.ensure_csv_files_exist()
                 self.append_log("Cache clearing completed successfully", False)
             except Exception as e:
                 self.append_log(f"Error clearing cache: {e}", False)
 
-                               
         self.btn_all.setDisabled(True)
         self.browse_button.setDisabled(True)
         self.api_button.setDisabled(True)
@@ -1096,20 +1044,19 @@ class MainWindow(QWidget):
         threading.Thread(target=self._run_sequence, daemon=True).start()
 
     def _run_sequence(self):
-                                                                
+
         try:
-                                                      
+
             QtCore.QMetaObject.invokeMethod(
                 self.action_scan, "click",
                 QtCore.Qt.ConnectionType.QueuedConnection
             )
 
-                                            
-            max_wait_time = 3600                                                  
+            max_wait_time = 3600
             wait_start = time.time()
 
             while not self.scan_completed.is_set():
-                                   
+
                 if time.time() - wait_start > max_wait_time:
                     logger.error("Maximum wait time exceeded for replay scanning")
                     QtCore.QMetaObject.invokeMethod(
@@ -1119,21 +1066,17 @@ class MainWindow(QWidget):
                     )
                     return
 
-                                                           
                 time.sleep(0.1)
 
-                                                                                   
             if self.has_error:
                 logger.error("Scanning completed with error, aborting sequence")
                 return
 
-                                                       
             QtCore.QMetaObject.invokeMethod(
                 self.action_top, "click",
                 QtCore.Qt.ConnectionType.QueuedConnection
             )
 
-                               
             wait_start = time.time()
 
             while not self.top_completed.is_set():
@@ -1147,18 +1090,15 @@ class MainWindow(QWidget):
                     return
                 time.sleep(0.1)
 
-                                      
             if self.has_error:
                 logger.error("Top creation completed with error, aborting sequence")
                 return
 
-                                                      
             QtCore.QMetaObject.invokeMethod(
                 self.action_img, "click",
                 QtCore.Qt.ConnectionType.QueuedConnection
             )
 
-                               
             wait_start = time.time()
 
             while not self.img_completed.is_set():
@@ -1172,9 +1112,7 @@ class MainWindow(QWidget):
                     return
                 time.sleep(0.1)
 
-                                                              
             if not self.has_error:
-                                                                                 
                 QtCore.QMetaObject.invokeMethod(
                     self, "all_completed_successfully",
                     QtCore.Qt.ConnectionType.QueuedConnection
@@ -1187,27 +1125,26 @@ class MainWindow(QWidget):
                 QtCore.Q_ARG(str, f"Sequential launch error: {e}")
             )
         finally:
-                                                
+
             QtCore.QMetaObject.invokeMethod(
                 self, "enable_all_button",
                 QtCore.Qt.ConnectionType.QueuedConnection
             )
 
     def open_folder(self, path):
-                                                  
+
         if platform.system() == "Windows":
             os.startfile(path)
-        elif platform.system() == "Darwin":         
+        elif platform.system() == "Darwin":
             subprocess.Popen(["open", path])
-        else:                                        
+        else:
             subprocess.Popen(["xdg-open", path])
 
     @Slot()
     def all_completed_successfully(self):
         self.append_log("All operations completed successfully!", False)
-        results_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "results")
+        results_path = get_resource_path("results")
 
-                                                       
         if os.path.exists(results_path) and os.path.isdir(results_path):
             self.append_log(f"Opening results folder: {results_path}", False)
             self.open_folder(results_path)
@@ -1220,7 +1157,7 @@ class MainWindow(QWidget):
 
     @Slot()
     def enable_all_button(self):
-                                
+
         self.btn_all.setDisabled(False)
         self.browse_button.setDisabled(False)
         self.api_button.setDisabled(False)
@@ -1259,12 +1196,12 @@ class MainWindow(QWidget):
         user_input = self.profile_entry.text().strip()
         if not game_dir or not user_input:
             QMessageBox.warning(self, "Error", "Please specify osu! folder and profile input (URL/ID/Username).")
-            self.top_completed.set()                          
+            self.top_completed.set()
             return
 
         identifier, lookup_key = self._parse_user_input(user_input)
         if identifier is None:
-            self.top_completed.set()                          
+            self.top_completed.set()
             return
 
         self.append_log("Generating potential top...", False)
@@ -1281,7 +1218,7 @@ class MainWindow(QWidget):
         self.progress_bar.setValue(60)
         self.current_task = "Potential top created"
         self.status_label.setText(self.current_task)
-        self.top_completed.set()                                         
+        self.top_completed.set()
 
     @Slot(str)
     def top_error(self, error_message):
@@ -1290,7 +1227,7 @@ class MainWindow(QWidget):
         self.progress_bar.setValue(30)
         self.current_task = "Error creating top"
         self.status_label.setText(self.current_task)
-        self.top_completed.set()                                          
+        self.top_completed.set()
 
     def start_img(self):
         user_input = self.profile_entry.text().strip()
@@ -1298,31 +1235,29 @@ class MainWindow(QWidget):
 
         if not user_input:
             QMessageBox.warning(self, "Error", "Please specify profile input (URL/ID/Username).")
-            self.img_completed.set()                          
+            self.img_completed.set()
             return
 
-                                      
         self.ensure_csv_files_exist()
 
-                                                                                   
         try:
             scores_count = int(scores_count) if scores_count else 10
-                                   
+
             scores_count = max(1, min(100, scores_count))
         except ValueError:
             scores_count = 10
-            self.scores_count_entry.setText("10")                              
+            self.scores_count_entry.setText("10")
 
         identifier, lookup_key = self._parse_user_input(user_input)
         if identifier is None:
-            self.img_completed.set()                          
+            self.img_completed.set()
             return
 
         self.append_log("Generating images...", False)
 
         def task(user_id_or_name, key_type, num_scores):
             try:
-                                            
+
                 QtCore.QMetaObject.invokeMethod(
                     self,
                     "update_progress_bar",
@@ -1331,7 +1266,6 @@ class MainWindow(QWidget):
                     QtCore.Q_ARG(int, 100)
                 )
 
-                                              
                 QtCore.QMetaObject.invokeMethod(
                     self,
                     "update_task",
@@ -1351,7 +1285,6 @@ class MainWindow(QWidget):
                     QtCore.Q_ARG(int, 100)
                 )
 
-                                              
                 QtCore.QMetaObject.invokeMethod(
                     self,
                     "update_task",
@@ -1370,7 +1303,6 @@ class MainWindow(QWidget):
                     )
                     return
 
-                                              
                 QtCore.QMetaObject.invokeMethod(
                     self,
                     "update_progress_bar",
@@ -1392,7 +1324,6 @@ class MainWindow(QWidget):
                     QtCore.Q_ARG(bool, False)
                 )
 
-                                              
                 QtCore.QMetaObject.invokeMethod(
                     self,
                     "update_task",
@@ -1409,7 +1340,6 @@ class MainWindow(QWidget):
                     QtCore.Q_ARG(int, 100)
                 )
 
-                                              
                 QtCore.QMetaObject.invokeMethod(
                     self,
                     "update_task",
@@ -1422,7 +1352,7 @@ class MainWindow(QWidget):
                     self,
                     "update_progress_bar",
                     QtCore.Qt.ConnectionType.QueuedConnection,
-                    QtCore.Q_ARG(int, 100),                           
+                    QtCore.Q_ARG(int, 100),
                     QtCore.Q_ARG(int, 100)
                 )
 
@@ -1445,7 +1375,7 @@ class MainWindow(QWidget):
 
     @Slot(str)
     def update_task(self, task_message):
-                                      
+
         self.current_task = task_message
         self.status_label.setText(task_message)
 
@@ -1455,7 +1385,7 @@ class MainWindow(QWidget):
         self.progress_bar.setValue(100)
         self.current_task = "Images created"
         self.status_label.setText(self.current_task)
-        self.img_completed.set()                          
+        self.img_completed.set()
 
     @Slot(str)
     def img_error(self, error_message):
@@ -1465,9 +1395,8 @@ class MainWindow(QWidget):
         self.progress_bar.setValue(60)
         self.current_task = "Error generating images"
         self.status_label.setText(self.current_task)
-        self.img_completed.set()                                          
+        self.img_completed.set()
 
-                                          
     def _parse_user_input(self, user_input):
         identifier = user_input
         lookup_key = 'username'
@@ -1525,11 +1454,9 @@ class MainWindow(QWidget):
         if isinstance(widget, QLineEdit):
             cut_action = menu.addAction("Cut")
             cut_action.triggered.connect(widget.cut)
-                                                                                    
 
             copy_action = menu.addAction("Copy")
             copy_action.triggered.connect(widget.copy)
-                                                                        
 
             paste_action = menu.addAction("Paste")
             paste_action.triggered.connect(widget.paste)
@@ -1553,8 +1480,7 @@ class MainWindow(QWidget):
         self.clean_scan_checkbox.setEnabled(not disabled)
 
     def _try_auto_detect_osu_path(self):
-                                                                                   
-                                                           
+
         if 'osu_path' in self.config and self.config['osu_path']:
             saved_path = self.config['osu_path']
             if os.path.isdir(saved_path):
@@ -1562,16 +1488,13 @@ class MainWindow(QWidget):
                 self.append_log(f"Loaded path from configuration: {saved_path}", False)
                 return
 
-                                                                                 
         potential_paths = []
 
-                                             
         if platform.system() == "Windows":
             local_app_data = os.getenv('LOCALAPPDATA')
             if local_app_data:
                 potential_paths.append(os.path.join(local_app_data, 'osu!'))
 
-                                           
             for drive in ['C:', 'D:', 'E:', 'F:']:
                 try:
                     if os.path.exists(f"{drive}\\Users"):
@@ -1580,10 +1503,9 @@ class MainWindow(QWidget):
                             if os.path.isdir(user_appdata):
                                 potential_paths.append(user_appdata)
                 except Exception:
-                                                                   
+
                     pass
 
-                                       
         for path in potential_paths:
             if os.path.isdir(path):
                 self.game_entry.setText(path.replace("/", os.sep))
@@ -1598,10 +1520,8 @@ class MainWindow(QWidget):
     def open_api_dialog(self):
         from osu_api import load_api_keys, save_api_keys, update_env_file
 
-                                           
         current_client_id, current_client_secret = load_api_keys()
 
-                                                  
         dialog = ApiDialog(self, current_client_id or "", current_client_secret or "")
         result = dialog.exec()
 
@@ -1613,9 +1533,8 @@ class MainWindow(QWidget):
                 QMessageBox.warning(self, "Missing Keys", "Both Client ID and Client Secret are required.")
                 return
 
-                             
             if save_api_keys(client_id, client_secret):
-                                     
+
                 if update_env_file(client_id, client_secret):
                     QMessageBox.information(self, "Success", "API keys saved successfully!")
                 else:
@@ -1624,15 +1543,17 @@ class MainWindow(QWidget):
                 QMessageBox.critical(self, "Error", "Failed to save API keys.")
 
     def closeEvent(self, event):
-                                      
+
         self.save_config()
         event.accept()
+
 
 def create_gui():
     app = QApplication.instance()
     window = MainWindow()
     window.show()
-    return window                                          
+    return window
+
 
 if __name__ == "__main__":
     create_gui()

@@ -8,23 +8,24 @@ import datetime
 import logging
 from database import db_get
 from config import CLIENT_ID, CLIENT_SECRET
+from utils import get_resource_path
 
 logger = logging.getLogger(__name__)
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-FONTS_DIR = os.path.join(BASE_DIR, "assets", "fonts")
-GRADES_DIR = os.path.join(BASE_DIR, "assets", "grades")
-MODS_DIR = os.path.join(BASE_DIR, "assets", "mod-icons")
+BASE_DIR = get_resource_path("")
+FONTS_DIR = get_resource_path(os.path.join("assets", "fonts"))
+GRADES_DIR = get_resource_path(os.path.join("assets", "grades"))
+MODS_DIR = get_resource_path(os.path.join("assets", "mod-icons"))
 
 os.makedirs(os.path.join(BASE_DIR, "results"), exist_ok=True)
 
-CSV_LOST = os.path.join(BASE_DIR, "csv", "lost_scores.csv")
-CSV_TOPLOST = os.path.join(BASE_DIR, "csv", "top_with_lost.csv")
-IMG_LOST_OUT = os.path.join(BASE_DIR, "results", "lost_scores_result.png")
-IMG_TOP_OUT = os.path.join(BASE_DIR, "results", "potential_top_result.png")
+CSV_LOST = get_resource_path(os.path.join("csv", "lost_scores.csv"))
+CSV_TOPLOST = get_resource_path(os.path.join("csv", "top_with_lost.csv"))
+IMG_LOST_OUT = get_resource_path(os.path.join("results", "lost_scores_result.png"))
+IMG_TOP_OUT = get_resource_path(os.path.join("results", "potential_top_result.png"))
 
-AVATAR_DIR = os.path.join(BASE_DIR, "assets", "images", "avatar")
-COVER_DIR = os.path.join(BASE_DIR, "assets", "images", "cover")
+AVATAR_DIR = get_resource_path(os.path.join("assets", "images", "avatar"))
+COVER_DIR = get_resource_path(os.path.join("assets", "images", "cover"))
 os.makedirs(AVATAR_DIR, exist_ok=True)
 os.makedirs(COVER_DIR, exist_ok=True)
 
@@ -59,39 +60,33 @@ USERNAME_COLOR = (255, 204, 33)
 
 
 def create_placeholder_image(filename, username, message):
-                                                   
     width, height = 920, 400
     img = Image.new("RGBA", (width, height), COLOR_BG)
     draw = ImageDraw.Draw(img)
 
-               
     draw.text((width // 2, 50), f"osu! Lost Scores Analyzer",
               font=TITLE_FONT, fill=ACC_COLOR, anchor="mm")
 
-                      
     draw.text((width // 2, 100), f"Player: {username}",
               font=SUBTITLE_FONT, fill=USERNAME_COLOR, anchor="mm")
 
-               
     draw.text((width // 2, height // 2), message,
               font=SUBTITLE_FONT, fill=COLOR_WHITE, anchor="mm")
 
     draw.text((width // 2, height - 50), "Try running the analysis again or check for missing files",
               font=SMALL_FONT, fill=DATE_COLOR, anchor="mm")
 
-                           
-    out_path = os.path.join(os.path.dirname(__file__), "..", "results", filename)
+    out_path = get_resource_path(os.path.join("results", filename))
 
-                                            
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
     img.save(out_path)
     print(f"Placeholder image saved to {out_path}")
 
+
 def get_token_osu():
     url = "https://osu.ppy.sh/oauth/token"
 
-                                            
     client_id = os.environ.get("CLIENT_ID")
     client_secret = os.environ.get("CLIENT_SECRET")
 
@@ -120,7 +115,6 @@ def get_token_osu():
 
 
 def get_user_osu(identifier, lookup_key, token):
-
     url = f"https://osu.ppy.sh/api/v2/users/{identifier}/osu"
     params = {
         'key': lookup_key
@@ -150,11 +144,9 @@ def get_map_osu(bid, token):
 
 
 def dl_img(url, path):
-                                                                       
     if os.path.exists(path):
         return
 
-                                    
     os.makedirs(os.path.dirname(path), exist_ok=True)
 
     try:
@@ -226,16 +218,14 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
     token = get_token_osu()
     if user_id is None or not user_name:
         max_scores = max(1, min(100, max_scores))
-                             
+
         raise ValueError("Need user_id and user_name")
 
-                                                     
     max_scores = max(1, min(100, max_scores))
 
-                                         
     user_data_json = None
     try:
-                                                  
+
         user_data_json = get_user_osu(str(user_id), 'id', token)
     except Exception as api_err:
         logger.error(f"Error getting user data {user_id} for make_img: {api_err}")
@@ -245,13 +235,12 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
         out_path = IMG_LOST_OUT
         main_title = "Lost Scores"
         show_weights = False
-    else:       
+    else:
         csv_path = CSV_TOPLOST
         out_path = IMG_TOP_OUT
         main_title = "Potential Top"
         show_weights = True
 
-                
     try:
         with open(csv_path, "r", encoding="utf-8") as f:
             all_rows = list(csv.DictReader(f))
@@ -267,20 +256,15 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
         create_placeholder_image(os.path.basename(out_path), user_name, f"Error reading CSV file: {str(csv_err)}")
         return
 
-                                                      
     if not all_rows:
         logger.info(f"No data in CSV file {csv_path} for image creation")
         create_placeholder_image(os.path.basename(out_path), user_name, f"No data to display in {mode} mode")
         return
 
-                                                                
     total_rows_count = max(0, len(all_rows) - 5) if show_weights else max(0, len(all_rows))
 
-                                                                               
     rows = all_rows[:max_scores]
 
-
-                                      
     cur_pp_val = 0
     cur_acc_f = 0.0
     if user_data_json and user_data_json.get("statistics"):
@@ -289,19 +273,17 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
         cur_acc_f = float(user_data_json["statistics"].get("hit_accuracy", 0.0))
     cur_acc_str = f"{cur_acc_f:.2f}%"
 
-                            
     top_summary = {}
     pot_pp_val = "N/A"
     new_diff_pp = "N/A"
     pot_acc_str = "N/A"
     acc_diff_str = "N/A"
     acc_diff_color = COLOR_WHITE
-    diff_color = COLOR_WHITE                                      
+    diff_color = COLOR_WHITE
 
     if show_weights:
         top_summary = parse_sum(csv_path)
 
-            
         raw_pot_pp_str = top_summary.get("Overall Potential PP", "0")
         try:
             pot_pp_val_num = round(float(raw_pot_pp_str))
@@ -309,7 +291,6 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
         except ValueError:
             pot_pp_val = "N/A"
 
-                    
         diff_pp_str = top_summary.get("Difference", "0")
         try:
             diff_pp_f = float(diff_pp_str)
@@ -325,7 +306,6 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
             new_diff_pp = "N/A"
             diff_color = COLOR_WHITE
 
-                              
         pot_acc_str_raw = top_summary.get("Overall Accuracy", "0%").replace('%', '').strip()
         delta_acc_str_raw = top_summary.get("Δ Overall Accuracy", "0%").replace('%', '').strip()
         try:
@@ -347,7 +327,6 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
 
     logger.info(f"Displaying {len(rows)}/{total_rows_count} scores in {mode} mode")
 
-                                       
     if mode == "lost":
         threshold = 4
     else:
@@ -363,7 +342,7 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
 
     MARGIN = 30
     card_h = 60
-    spacing = 2                                                         
+    spacing = 2
     top_panel_height = 80
     width = card_w + 2 * MARGIN
     if mode == "lost":
@@ -373,14 +352,11 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
     start_y = MARGIN + top_panel_height - baseline_offset
     total_h = start_y + len(rows) * (card_h + spacing) + MARGIN
 
-                                         
     base = Image.new("RGBA", (width, total_h), COLOR_BG)
     d = ImageDraw.Draw(base)
 
-                                      
     baseline_y = max(0, MARGIN + 10 - baseline_offset)
 
-               
     d.text((MARGIN, baseline_y), main_title, font=TITLE_FONT, fill=COLOR_WHITE)
     try:
         title_box = d.textbbox((MARGIN, baseline_y), main_title, font=TITLE_FONT)
@@ -390,14 +366,12 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
         title_right_x = MARGIN + 200
         title_h = 40
 
-                      
     av_size = 70
     av_x = width - MARGIN - av_size
     center_y = baseline_y + title_h / 2
     extra_shift = 13 if mode == "lost" else 0
     av_y = int(center_y - av_size / 2 + extra_shift)
 
-                               
     avatar_filename = f"avatar_{user_name}.png"
     avatar_path = os.path.join(AVATAR_DIR, avatar_filename)
     avatar_url = None
@@ -423,7 +397,6 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
         logger.warning(f"Using placeholder for avatar user_id {user_id}.")
         d.rounded_rectangle((av_x, av_y, av_x + av_size, av_y + av_size), radius=15, fill=(80, 80, 80, 255))
 
-                      
     try:
         nb = d.textbbox((0, 0), user_name, font=SUBTITLE_FONT)
         n_w = nb[2] - nb[0]
@@ -434,7 +407,6 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
     except AttributeError:
         d.text((av_x - 110, av_y + 25), user_name, font=SUBTITLE_FONT, fill=USERNAME_COLOR)
 
-                                  
     if show_weights:
         stats_start_x = title_right_x + 50
         stats_baseline = baseline_y + 5
@@ -442,7 +414,6 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
         row1_y = stats_baseline
         row2_y = row1_y + 25
 
-                                                  
         def draw_col(label, val, x, y, val_color):
             try:
                 label_box = d.textbbox((0, 0), label, font=VERSION_FONT)
@@ -452,31 +423,27 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
             except AttributeError:
                 d.text((x, y), f"{label} {val}", font=VERSION_FONT, fill=val_color)
 
-                                  
         draw_col("Cur PP:", cur_pp_val, stats_start_x, row1_y, COLOR_WHITE)
         draw_col("Cur Acc:", cur_acc_str, stats_start_x + col_w, row1_y, COLOR_WHITE)
         draw_col("Δ PP:", new_diff_pp, stats_start_x + 2 * col_w, row1_y, diff_color)
         draw_col("Pot PP:", pot_pp_val, stats_start_x, row2_y, COLOR_WHITE)
         draw_col("Pot Acc:", pot_acc_str, stats_start_x + col_w, row2_y, COLOR_WHITE)
         draw_col("Δ Acc:", acc_diff_str, stats_start_x + 2 * col_w, row2_y, acc_diff_color)
-    elif mode == "lost":                                   
+    elif mode == "lost":
         scammed_y = baseline_y + title_h + 15
         s_ = f"Peppy scammed me for {total_rows_count} of them!"
         d.text((MARGIN, scammed_y), s_, font=VERSION_FONT, fill=COLOR_HIGHLIGHT)
 
-                                  
     for i, row in enumerate(rows):
         card_x = MARGIN
         card_y = start_y + i * (card_h + spacing)
         center_line = card_y + card_h // 2
 
-                                 
         score_id_val = row.get("Score ID", "").strip().upper()
         is_lost_row = (score_id_val == "LOST")
         bg_color = COLOR_CARD_LOST if show_weights and is_lost_row else COLOR_CARD
         bg_img = Image.new("RGBA", (card_w, card_h), bg_color)
 
-                                     
         beatmap_id = row.get("Beatmap ID", "").strip()
         raw_artist = ""
         raw_title = ""
@@ -484,10 +451,9 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
         version = ""
         cover_url = None
 
-                                                           
         beatmap_full_name = row.get("Beatmap", "")
         if beatmap_full_name:
-                                                                                    
+
             try:
                 pattern = r"(.+) - (.+) \((.+)\) \[(.+)\]"
                 match = re.match(pattern, beatmap_full_name)
@@ -511,14 +477,14 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
         if beatmap_id and beatmap_id.isdigit():
             cover_file = os.path.join(COVER_DIR, f"cover_{beatmap_id}.png")
             if not os.path.exists(cover_file):
-                                                   
+
                 try:
-                                                                                 
+
                     if (not all([raw_artist, raw_title, creator, version]) or not os.path.exists(
                             cover_file)) and beatmap_id:
                         bdata = get_map_osu(beatmap_id, token)
                         if bdata:
-                                                          
+
                             if "artist" in bdata:
                                 raw_artist = bdata.get("artist") or raw_artist
                             if "title" in bdata:
@@ -528,7 +494,6 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
                             if "version" in bdata:
                                 version = bdata.get("version") or version
 
-                                                                         
                             if bdata.get("beatmapset") and "covers" in bdata["beatmapset"]:
                                 cover_url = bdata["beatmapset"]["covers"].get("cover@2x")
                 except Exception as map_err:
@@ -538,7 +503,6 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
         cover_h_ = card_h
         c_img = None
 
-                                                  
         if cover_file and os.path.exists(cover_file):
             try:
                 c_img = Image.open(cover_file).convert("RGBA").resize((cover_w, cover_h_))
@@ -546,7 +510,7 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
                 logger.warning(f"Failed to open cover {cover_file}: {cover_err}")
                 c_img = None
         elif cover_url and beatmap_id:
-                                      
+
             try:
                 dl_img(cover_url, cover_file)
                 if os.path.exists(cover_file):
@@ -555,11 +519,9 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
                 logger.warning(f"Failed to download cover {cover_url}: {dl_err}")
                 c_img = None
 
-                                                            
         if not c_img:
             c_img = Image.new("RGBA", (cover_w, cover_h_), (80, 80, 80, 255))
 
-                                          
         fade_mask = Image.new("L", (cover_w, cover_h_), 255)
         dm_fade = ImageDraw.Draw(fade_mask)
         for x_ in range(cover_w):
@@ -567,16 +529,13 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
             dm_fade.line([(x_, 0), (x_, cover_h_)], fill=alpha_val)
         bg_img.paste(c_img, (0, 0), fade_mask)
 
-                                                      
         corner_mask = Image.new("L", (card_w, card_h), 0)
         dr_corner = ImageDraw.Draw(corner_mask)
         dr_corner.rounded_rectangle((0, 0, card_w, card_h), radius=15, fill=255)
         base.paste(bg_img, (card_x, card_y), corner_mask)
 
-                                                 
         d_card = ImageDraw.Draw(base)
 
-                      
         grade = row.get("Rank", "?")
         GRADE_TARGET_WIDTH = 45
         grade_icon_path = os.path.join(GRADES_DIR, f"{grade}.png")
@@ -594,7 +553,6 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
         else:
             d_card.text((card_x + 10, center_line - 8), grade, font=SUBTITLE_FONT, fill=COLOR_WHITE)
 
-                                     
         full_name = short_txt(f"{raw_title} by {raw_artist}", 50)
         text_x = card_x + 70
         text_y_map = card_y + 4
@@ -615,20 +573,16 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
         except AttributeError:
             d_card.text((text_x, text_y_map), f"{version}{gap}{date_human}", font=VERSION_FONT, fill=DATE_COLOR)
 
-            
-                                       
         shape_w = 100
         shape_left = card_x + card_w - shape_w
-        right_block_x = shape_left - 20                                                        
+        right_block_x = shape_left - 20
 
-                                                       
         d_card.rounded_rectangle(
             (shape_left, card_y, shape_left + shape_w, card_y + card_h),
             radius=15,
             fill=PP_SHAPE_COLOR
         )
 
-                                
         raw_pp = row.get("PP", "0")
         try:
             pp_val = round(float(raw_pp))
@@ -637,7 +591,7 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
         pp_str = f"{pp_val}pp"
 
         try:
-                                                               
+
             box_pp = d_card.textbbox((0, 0), pp_str, font=SUBTITLE_FONT)
             w_pp_ = box_pp[2] - box_pp[0]
             h_pp_ = box_pp[3] - box_pp[1]
@@ -648,15 +602,13 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
         except AttributeError:
             d_card.text((shape_left + 15, center_line - 10), pp_str, font=SUBTITLE_FONT, fill=COLOR_WHITE)
 
-                                                     
         right_block_x = shape_left - 20
 
-        if not show_weights:                          
-                                                         
-            mods_edge = right_block_x - 90                        
-            acc_center_x = (mods_edge + shape_left) / 2                           
+        if not show_weights:
 
-                                            
+            mods_edge = right_block_x - 90
+            acc_center_x = (mods_edge + shape_left) / 2
+
             raw_acc_str = row.get("Accuracy", "0")
             try:
                 acc_s = f"{float(raw_acc_str):.2f}%"
@@ -664,12 +616,12 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
                 acc_s = f"{raw_acc_str}%" if raw_acc_str else "?.??%"
 
             try:
-                                                                                    
+
                 acc_box = d_card.textbbox((0, 0), acc_s, font=BOLD_ITALIC_FONT)
                 d_card.text((acc_center_x, center_line), acc_s, font=BOLD_ITALIC_FONT,
                             fill=ACC_COLOR, anchor="mm")
             except AttributeError:
-                                       
+
                 acc_box = d_card.textbbox((0, 0), acc_s, font=BOLD_ITALIC_FONT)
                 if acc_box:
                     acc_w = acc_box[2] - acc_box[0]
@@ -679,7 +631,6 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
                     d_card.text((acc_center_x - 30, center_line - 10), acc_s,
                                 font=BOLD_ITALIC_FONT, fill=ACC_COLOR)
 
-                  
             mods_right_edge = mods_edge
             mods_list = short_mods(row.get("Mods", ""))
             mod_x_cur = mods_right_edge
@@ -707,12 +658,11 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
                     except AttributeError:
                         pass
 
-        else:                            
-                                        
-            acc_column_width = 120                               
-            pp_column_width = 70                           
+        else:
 
-                                                                               
+            acc_column_width = 120
+            pp_column_width = 70
+
             wpp_x = shape_left - 10
             raw_wpp = row.get("weight_PP", "")
             try:
@@ -721,29 +671,26 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
                 weight_pp_text = ""
 
             if weight_pp_text:
-                                                                   
+
                 try:
-                                                                       
+
                     wpp_box = d_card.textbbox((0, 0), weight_pp_text, font=BOLD_ITALIC_FONT_SMALL)
                     wpp_w = wpp_box[2] - wpp_box[0]
 
-                                                                                  
                     d_card.text((wpp_x - pp_column_width / 2, center_line),
                                 weight_pp_text,
                                 font=BOLD_ITALIC_FONT_SMALL,
                                 fill=WEIGHT_COLOR,
-                                anchor="mm")                              
+                                anchor="mm")
                 except AttributeError:
-                                           
+
                     d_card.text((wpp_x - pp_column_width + 5, center_line - 8),
                                 weight_pp_text,
                                 font=BOLD_ITALIC_FONT_SMALL,
                                 fill=WEIGHT_COLOR)
 
-                                           
             acc_block_x = wpp_x - pp_column_width - acc_column_width / 2
 
-                            
             raw_acc = row.get("Accuracy", "0")
             try:
                 acc_str2 = f"{float(raw_acc):.2f}%"
@@ -757,22 +704,19 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
                 w_percent_str = ""
 
             try:
-                                          
+
                 acc_box = d_card.textbbox((0, 0), acc_str2, font=BOLD_ITALIC_FONT)
                 acc_h = acc_box[3] - acc_box[1]
 
-                                            
-                left_align_x = acc_block_x - acc_column_width / 2 + 10                                    
+                left_align_x = acc_block_x - acc_column_width / 2 + 10
 
-                                                                    
-                vertical_spacing = 5                               
+                vertical_spacing = 5
 
-                                                                                 
                 d_card.text((left_align_x, center_line - acc_h / 2 - vertical_spacing),
                             acc_str2,
                             font=BOLD_ITALIC_FONT,
                             fill=ACC_COLOR,
-                            anchor="lm")                                                     
+                            anchor="lm")
 
                 if w_percent_str:
                     wpct_box = d_card.textbbox((0, 0), w_percent_str, font=CREATOR_SMALL_FONT)
@@ -782,20 +726,19 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
                                 w_percent_str,
                                 font=CREATOR_SMALL_FONT,
                                 fill=WEIGHT_COLOR,
-                                anchor="lm")                    
+                                anchor="lm")
             except AttributeError:
-                                                                 
+
                 d_card.text((acc_block_x - acc_column_width / 2 + 10, center_line - 14), acc_str2,
                             font=BOLD_ITALIC_FONT, fill=ACC_COLOR)
                 if w_percent_str:
                     d_card.text((acc_block_x - acc_column_width / 2 + 10, center_line + 6), w_percent_str,
                                 font=CREATOR_SMALL_FONT, fill=WEIGHT_COLOR)
 
-                                                        
             mods_right_edge = acc_block_x - acc_column_width / 2 - 10
             mods_list = short_mods(row.get("Mods", ""))
             mod_x_cur = mods_right_edge
-                                                              
+
             for m_ in reversed(mods_list):
                 path_ = os.path.join(MODS_DIR, f"{m_.upper()}.png")
                 if os.path.isfile(path_):
@@ -821,10 +764,9 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
                     except AttributeError:
                         pass
 
-                                  
     last_bottom = start_y + len(rows) * (card_h + spacing) - spacing
     final_height = last_bottom + MARGIN
-                                                  
+
     if final_height < base.height:
         base = base.crop((0, 0, width, final_height))
 
@@ -833,10 +775,8 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
 
 
 def make_img_lost(user_id=None, user_name="", max_scores=20):
-                                                   
     make_img(user_id=user_id, user_name=user_name, mode="lost", max_scores=max_scores)
 
 
 def make_img_top(user_id=None, user_name="", max_scores=20):
-                                                   
     make_img(user_id=user_id, user_name=user_name, mode="top", max_scores=max_scores)

@@ -7,6 +7,7 @@ import os
 import logging
 import functools
 from config import CLIENT_ID, CLIENT_SECRET
+from utils import get_resource_path
 from requests.adapters import HTTPAdapter
 
 logger = logging.getLogger(__name__)
@@ -21,27 +22,23 @@ session.mount("http://", adapter)
 
 TOKEN_CACHE = None
 
-                                           
-CONFIG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src", "config")
+CONFIG_DIR = get_resource_path("config")
 USER_CONFIG_PATH = os.path.join(CONFIG_DIR, "api_keys.json")
 
-                                                    
 ENV_PATH = os.environ.get("DOTENV_PATH")
 if not ENV_PATH or not os.path.exists(ENV_PATH):
-                                                                                    
-    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    ENV_PATH = os.path.join(project_root, ".env")
-    ENV_PATH = os.path.abspath(ENV_PATH)
-    logger.warning(f"DOTENV_PATH not set or file doesn't exist, using: {ENV_PATH}")
+    ENV_PATH = get_resource_path(os.path.join("..", ".env"))
+
 
 def wait_osu():
     global last_call
     with api_lock:
         now = time.time()
         diff = now - last_call
-        if diff < 1/20:
-            time.sleep((1/20) - diff)
+        if diff < 1 / 20:
+            time.sleep((1 / 20) - diff)
         last_call = time.time()
+
 
 def retry_request(func, max_retries=3, backoff_factor=0.5):
     @functools.wraps(func)
@@ -52,11 +49,12 @@ def retry_request(func, max_retries=3, backoff_factor=0.5):
                 return func(*args, **kwargs)
             except requests.exceptions.RequestException as e:
                 wait_time = backoff_factor * (2 ** retries)
-                logger.warning(f"Retry {retries+1}/{max_retries} after error: {e}. Waiting {wait_time}s")
+                logger.warning(f"Retry {retries + 1}/{max_retries} after error: {e}. Waiting {wait_time}s")
                 time.sleep(wait_time)
                 retries += 1
-                                                                                      
+
         return func(*args, **kwargs)
+
     return wrapper
 
 
@@ -67,7 +65,6 @@ def token_osu():
     wait_osu()
     url = "https://osu.ppy.sh/oauth/token"
 
-                                                                                   
     client_id = os.environ.get("CLIENT_ID")
     client_secret = os.environ.get("CLIENT_SECRET")
 
@@ -105,6 +102,7 @@ def token_osu():
         logger.error(f"Error getting token: {e}")
         return None
 
+
 @retry_request
 def user_osu(identifier, lookup_key, token):
     wait_osu()
@@ -132,11 +130,9 @@ def user_osu(identifier, lookup_key, token):
 
 @retry_request
 def top_osu(token, user_id, limit=200):
-                                                                                                         
     all_scores = []
-    page_size = 100                                                 
+    page_size = 100
 
-                                 
     for offset in range(0, limit, page_size):
         url = f"https://osu.ppy.sh/api/v2/users/{user_id}/scores/best"
         logger.info(f"GET top: {url} (offset={offset}, limit={min(page_size, limit - offset)})")
@@ -147,13 +143,12 @@ def top_osu(token, user_id, limit=200):
             "include": "beatmap"
         }
 
-        wait_osu()                                                         
+        wait_osu()
         try:
             resp = session.get(url, headers=headers, params=params)
             resp.raise_for_status()
             page_scores = resp.json()
 
-                                                                   
             if not page_scores:
                 logger.info(f"No more scores found after offset {offset}")
                 break
@@ -161,7 +156,6 @@ def top_osu(token, user_id, limit=200):
             all_scores.extend(page_scores)
             logger.debug(f"Retrieved {len(page_scores)} scores (offset {offset})")
 
-                                                                                 
             if len(page_scores) < min(page_size, limit - offset):
                 logger.debug(f"Last page reached at offset {offset}")
                 break
@@ -214,8 +208,8 @@ def map_osu(beatmap_id, token):
         }
     except requests.exceptions.HTTPError as e:
         logger.error(f"HTTP error when requesting beatmap data {beatmap_id}: {e}")
-        if "429" in str(e):              
-            time.sleep(5)                                                
+        if "429" in str(e):
+            time.sleep(5)
         raise
     except Exception as e:
         logger.error(f"Unexpected error when requesting beatmap data {beatmap_id}: {e}")
@@ -256,7 +250,7 @@ def lookup_osu(checksum):
         return data.get("id")
     except requests.exceptions.HTTPError as e:
         logger.error(f"HTTP error when looking up beatmap by checksum {checksum}: {e}")
-        if "429" in str(e):              
+        if "429" in str(e):
             time.sleep(5)
         raise
     except Exception as e:
@@ -265,7 +259,6 @@ def lookup_osu(checksum):
 
 
 def save_api_keys(client_id, client_secret):
-                                                     
     try:
         os.makedirs(CONFIG_DIR, exist_ok=True)
 
@@ -282,8 +275,8 @@ def save_api_keys(client_id, client_secret):
         logger.error(f"Error saving API keys: {e}")
         return False
 
+
 def load_api_keys():
-                                                        
     if not os.path.exists(USER_CONFIG_PATH):
         return None, None
 
@@ -297,7 +290,6 @@ def load_api_keys():
 
 
 def update_env_file(client_id, client_secret):
-                                                                         
     try:
         logger.info(f"Updating .env file: {ENV_PATH}")
 
@@ -309,7 +301,6 @@ def update_env_file(client_id, client_secret):
                 f.write("DB_FILE=../cache/beatmap_info.db\n")
                 f.write("CUTOFF_DATE=1719619200\n")
 
-                                                                            
         current_env = {}
         with open(ENV_PATH, 'r', encoding='utf-8') as f:
             for line in f:
@@ -318,17 +309,14 @@ def update_env_file(client_id, client_secret):
                     key, value = line.split('=', 1)
                     current_env[key] = value
 
-                                    
         current_env['CLIENT_ID'] = client_id
         current_env['CLIENT_SECRET'] = client_secret
 
-                                                                
         if 'DB_FILE' not in current_env:
             current_env['DB_FILE'] = '../cache/beatmap_info.db'
         if 'CUTOFF_DATE' not in current_env:
             current_env['CUTOFF_DATE'] = '1719619200'
 
-                                          
         env_content = []
         for key, value in current_env.items():
             env_content.append(f'{key}={value}')
@@ -336,7 +324,6 @@ def update_env_file(client_id, client_secret):
         with open(ENV_PATH, 'w', encoding='utf-8') as f:
             f.write('\n'.join(env_content))
 
-                                                            
         os.environ["CLIENT_ID"] = client_id
         os.environ["CLIENT_SECRET"] = client_secret
 
@@ -358,7 +345,6 @@ def update_env_file(client_id, client_secret):
 
 
 def restore_env_defaults():
-                                                            
     try:
         logger.info(f"Restoring .env file to default values: {ENV_PATH}")
 
@@ -371,7 +357,6 @@ def restore_env_defaults():
                 f.write("CUTOFF_DATE=1719619200\n")
             return True
 
-                                                                            
         current_env = {}
         with open(ENV_PATH, 'r', encoding='utf-8') as f:
             for line in f:
@@ -380,11 +365,9 @@ def restore_env_defaults():
                     key, value = line.split('=', 1)
                     current_env[key] = value
 
-                                                             
         current_env['CLIENT_ID'] = 'default_client_id'
         current_env['CLIENT_SECRET'] = 'default_client_secret'
 
-                                          
         env_content = []
         for key, value in current_env.items():
             env_content.append(f'{key}={value}')
@@ -403,13 +386,11 @@ def setup_api_keys():
     client_id, client_secret = load_api_keys()
 
     if not client_id or not client_secret:
-                                                                            
-                               
+
         logger.warning("API keys not found. Input required through interface.")
         return False
     else:
         logger.info(f"Using saved API keys: {client_id[:4]}...")
 
-                         
     result = update_env_file(client_id, client_secret)
     return result

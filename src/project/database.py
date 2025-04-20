@@ -3,9 +3,9 @@ import os
 import logging
 from config import DB_FILE
 
-                       
 if not os.path.isabs(DB_FILE):
-    DB_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), DB_FILE))
+    from utils import get_resource_path
+    DB_FILE = get_resource_path(DB_FILE.replace("../", ""))
 
 def db_init():
     try:
@@ -28,6 +28,7 @@ def db_init():
         logger.error(f"Error initializing database: {e}")
         raise
 
+
 def db_save(bid, status, artist, title, version, creator, objs):
     try:
         with sqlite3.connect(DB_FILE) as conn:
@@ -42,6 +43,7 @@ def db_save(bid, status, artist, title, version, creator, objs):
     except Exception as e:
         logger = logging.getLogger(__name__)
         logger.error(f"Error saving data to database: {e}")
+
 
 def db_get(bid):
     try:

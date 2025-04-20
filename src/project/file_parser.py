@@ -9,25 +9,26 @@ import logging
 import rosu_pp_py as rosu
 import requests
 from database import db_get, db_save
+from utils import get_resource_path
 from config import DB_FILE
 
 logger = logging.getLogger(__name__)
-cache_folder = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "cache"))
+cache_folder = get_resource_path("cache")
 os.makedirs(cache_folder, exist_ok=True)
 
 MD5_CACHE_LOCK = threading.Lock()
 MD5_BEATMAPID_CACHE = {}
 MD5_MAP = {}
 
-OSR_CACHE_PATH = os.path.join(os.path.dirname(__file__), "..", "cache", "osr_cache.json")
-MD5_CACHE_PATH = os.path.join(os.path.dirname(__file__), "..", "cache", "osu_md5_cache.json")
+OSR_CACHE_PATH = os.path.join(get_resource_path("cache"), "osr_cache.json")
+MD5_CACHE_PATH = os.path.join(get_resource_path("cache"), "osu_md5_cache.json")
 
 OSR_CACHE = {}
 OSR_CACHE_LOCK = threading.Lock()
 
-
-MAPS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "maps"))
+MAPS_DIR = get_resource_path("maps")
 os.makedirs(MAPS_DIR, exist_ok=True)
+
 
 def not_submitted_cache_load():
     if os.path.exists(NOT_SUBMITTED_CACHE_PATH):
@@ -39,6 +40,7 @@ def not_submitted_cache_load():
             return {}
     return {}
 
+
 def not_submitted_cache_save(cache):
     try:
         with open(NOT_SUBMITTED_CACHE_PATH, "w", encoding="utf-8") as f:
@@ -47,8 +49,9 @@ def not_submitted_cache_save(cache):
         logger.error("Error writing not_submitted_cache: %s", e)
 
 
-NOT_SUBMITTED_CACHE_PATH = os.path.join(os.path.dirname(__file__), "..", "cache", "not_submitted_cache.json")
+NOT_SUBMITTED_CACHE_PATH = os.path.join(get_resource_path("cache"), "not_submitted_cache.json")
 NOT_SUBMITTED_CACHE = not_submitted_cache_load()
+
 
 def osr_load():
     with OSR_CACHE_LOCK:
@@ -63,6 +66,7 @@ def osr_load():
                 logger.exception("Error reading OSR-cache: %s", OSR_CACHE_PATH)
         return {}
 
+
 def osr_save(cache):
     with OSR_CACHE_LOCK:
         try:
@@ -70,6 +74,7 @@ def osr_save(cache):
                 json.dump(cache, f, indent=4)
         except Exception as e:
             logger.error(f"Error saving OSR-cache: {e}")
+
 
 def md5_load():
     with MD5_CACHE_LOCK:
@@ -82,6 +87,7 @@ def md5_load():
                 return {}
         return {}
 
+
 def md5_save(cache):
     with MD5_CACHE_LOCK:
         try:
@@ -90,16 +96,16 @@ def md5_save(cache):
         except Exception as e:
             logger.error(f"Error saving MD5-cache: {e}")
 
-def get_md5(path):
 
+def get_md5(path):
     h = hashlib.md5()
     with open(path, 'rb') as f:
         for chunk in iter(lambda: f.read(4096), b""):
             h.update(chunk)
     return h.hexdigest()
 
-def find_md5(full_path, cache):
 
+def find_md5(full_path, cache):
     try:
         mtime = os.path.getmtime(full_path)
     except Exception:
@@ -115,8 +121,8 @@ def find_md5(full_path, cache):
 
 OSR_CACHE = osr_load()
 
-def find_osu(songs_folder, progress_callback=None):
 
+def find_osu(songs_folder, progress_callback=None):
     files = []
     for root, dirs, filenames in os.walk(songs_folder):
         for file in filenames:
@@ -147,10 +153,10 @@ def find_osu(songs_folder, progress_callback=None):
 
     return md5_map
 
-def read_string(data, offset):
 
+def read_string(data, offset):
     if data[offset] == 0x00:
-        return "", offset+1
+        return "", offset + 1
     elif data[offset] == 0x0b:
         offset += 1
         length = 0
@@ -162,10 +168,11 @@ def read_string(data, offset):
             if not (byte & 0x80):
                 break
             shift += 7
-        s = data[offset:offset+length].decode('utf-8', errors='ignore')
+        s = data[offset:offset + length].decode('utf-8', errors='ignore')
         return s, offset + length
     else:
         raise ValueError("Invalid string in .osr")
+
 
 MODS_MAPPING_ITER = [
     (1, "NF"), (2, "EZ"), (8, "HD"), (16, "HR"), (32, "SD"),
@@ -174,8 +181,8 @@ MODS_MAPPING_ITER = [
 ]
 DISALLOWED_MODS = {"RX", "AT", "AP", "SCOREV2"}
 
-def parse_osu_metadata(osu_path):
 
+def parse_osu_metadata(osu_path):
     result = {
         "artist": "",
         "title": "",
@@ -219,8 +226,8 @@ def parse_osu_metadata(osu_path):
         logger.exception("Error parsing .osu file %s: %s", osu_path, e)
     return result
 
-def parse_beatmap_id(osu_path):
 
+def parse_beatmap_id(osu_path):
     beatmap_id = None
     try:
         with open(osu_path, "r", encoding="utf-8", errors="ignore") as f:
@@ -250,31 +257,26 @@ def parse_beatmap_id(osu_path):
 
 
 def parse_mods(mods_int):
-
     mods = []
     if mods_int & 512:
-
-
-
         mods.append("NC")
     if mods_int & 16384:
-
         mods.append("PF")
     for bit, name in MODS_MAPPING_ITER:
         if mods_int & bit:
             mods.append(name.upper())
     return tuple(sorted(set(mods), key=lambda x: x))
 
-def sort_mods(mod_list):
 
+def sort_mods(mod_list):
     priority = {"EZ": 1, "HD": 2, "DT": 3, "NC": 3, "HT": 3,
                 "HR": 4, "FL": 5, "NF": 6, "SO": 7}
     out = [m for m in mod_list if m != "CL"]
     out.sort(key=lambda m: (priority.get(m, 9999), m))
     return out
 
-def parse_osr(osr_path):
 
+def parse_osr(osr_path):
     with open(osr_path, "rb") as f:
         data = f.read()
     offset = 0
@@ -332,12 +334,13 @@ def parse_osr(osr_path):
         "score_time": tstr
     }
 
-def calc_acc(c300, c100, c50, cmiss):
 
+def calc_acc(c300, c100, c50, cmiss):
     hits = c300 + c100 + c50 + cmiss
     if hits == 0:
         return 100.0
     return round((300 * c300 + 100 * c100 + 50 * c50) / (300 * hits) * 100, 2)
+
 
 def calculate_pp_rosu(osu_path, replay):
     try:
@@ -349,9 +352,7 @@ def calculate_pp_rosu(osu_path, replay):
             replay["countMiss"]
         )
 
-
         original_mods = replay["mods_list"]
-
 
         mods_for_perf = list(original_mods)
         if "CL" not in mods_for_perf:
@@ -360,7 +361,6 @@ def calculate_pp_rosu(osu_path, replay):
         priority = {"EZ": 1, "HD": 2, "DT": 3, "NC": 3, "HT": 3, "HR": 4, "FL": 5, "NF": 6, "SO": 7}
         sorted_mods_perf = sorted(mods_for_perf, key=lambda m: (priority.get(m, 9999), m))
         mods_string = "".join(sorted_mods_perf)
-
 
         perf = rosu.Performance(
             accuracy=acc,
@@ -374,7 +374,6 @@ def calculate_pp_rosu(osu_path, replay):
 
         bm_id = parse_beatmap_id(osu_path)
         meta = parse_osu_metadata(osu_path)
-
 
         mods_for_output = [m for m in original_mods if m != "CL"]
         if not mods_for_output:
@@ -478,7 +477,6 @@ def proc_osr(osr_path, md5_map, cutoff, username):
                 logger.warning(f"Failed to get beatmap_id for replay {osr_path}")
                 return None
 
-                                                          
             if isinstance(rep, dict):
                 if "player_name" in rep:
                     res["player_name"] = rep["player_name"]
@@ -495,15 +493,14 @@ def proc_osr(osr_path, md5_map, cutoff, username):
         logger.exception(f"Unexpected error processing replay {osr_path}: {e}")
         return None
 
+
 def download_osu_file(beatmap_id):
     filename = f"beatmap_{beatmap_id}.osu"
     file_path = os.path.join(MAPS_DIR, filename)
 
-                                             
     if os.path.exists(file_path):
         return file_path
 
-                                  
     url = f"https://osu.ppy.sh/osu/{beatmap_id}"
     try:
         response = requests.get(url)
@@ -512,20 +509,15 @@ def download_osu_file(beatmap_id):
         logger.error("Error downloading .osu file for beatmap_id %s: %s", beatmap_id, e)
         return None
 
-                                    
     with open(file_path, "wb") as f:
         f.write(response.content)
 
-                                                         
     from file_parser import md5_load, find_md5, md5_save
 
-                              
     cache = md5_load()
 
-                                                    
     find_md5(file_path, cache)
 
-                                                  
     md5_save(cache)
 
     return file_path
@@ -556,8 +548,8 @@ def update_osu_md5_cache(new_osu_path, md5_hash):
         except Exception as e:
             logger.error(f"Error updating osu_md5_cache: {e}")
 
+
 def count_objs(osu_path, beatmap_id):
-                                                                           
     total = 0
     try:
         with open(osu_path, "r", encoding="utf-8", errors="ignore") as f:
@@ -573,10 +565,9 @@ def count_objs(osu_path, beatmap_id):
         logger.error("Error reading .osu file %s: %s", osu_path, e)
         return 0
 
-                                       
     db_info = db_get(beatmap_id)
     if db_info:
-                                                                     
+
         if not db_info["hit_objects"]:
             db_save(
                 beatmap_id,
@@ -588,8 +579,7 @@ def count_objs(osu_path, beatmap_id):
                 total
             )
     else:
-                                                                
-                                                    
+
         metadata = parse_osu_metadata(osu_path)
         db_save(
             beatmap_id,
@@ -612,9 +602,8 @@ def grade_osu(beatmap_id, c300, c100, c50, cMiss):
     if db_info:
         total = db_info.get("hit_objects", 0)
 
-                                                                          
     if not total:
-                                                       
+
         osu_file = None
         for md5, path in MD5_MAP.items():
             if path and os.path.exists(path):
@@ -627,12 +616,10 @@ def grade_osu(beatmap_id, c300, c100, c50, cMiss):
             total = count_objs(osu_file, beatmap_id)
             logger.info(f"Locally counted {total} objects for beatmap_id {beatmap_id}")
 
-                                                                  
         if not total:
             logger.warning(f"Failed to determine object count for beatmap_id {beatmap_id}")
             return "?"
 
-                                                  
     c300_corrected = c300
     p300 = (c300_corrected / total) * 100 if total else 0
     p50 = (c50 / total) * 100 if total else 0

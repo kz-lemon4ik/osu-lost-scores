@@ -7,13 +7,12 @@ import datetime
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from file_parser import parse_osr, grade_osu
-
 from database import db_init, db_get, db_save
-
 from osu_api import token_osu, user_osu, top_osu, map_osu
-
 from file_parser import find_osu, proc_osr, calc_acc, sort_mods
 from config import CUTOFF_DATE
+from utils import get_resource_path
+
 
 logger = logging.getLogger(__name__)
 
@@ -23,16 +22,14 @@ def find_lost_scores(scores):
         logger.warning("Empty score list in find_lost_scores")
         return []
 
-                                      
     valid_scores = []
     for rec in scores:
         try:
-                              
+
             if not isinstance(rec, dict):
                 logger.warning(f"Score is not a dictionary: {type(rec)}")
                 continue
 
-                                                
             if "beatmap_id" not in rec or rec["beatmap_id"] is None:
                 logger.warning(f"Score does not contain beatmap_id or it is None")
                 continue
@@ -41,7 +38,6 @@ def find_lost_scores(scores):
                 logger.warning(f"Score does not contain all required keys: {rec.keys()}")
                 continue
 
-                                                                                   
             try:
                 rec["pp_float"] = float(rec["pp"])
             except (ValueError, TypeError):
@@ -130,6 +126,7 @@ def find_lost_scores(scores):
 
     return lost_results
 
+
 def parse_top(raw, token):
     def format_date(iso_str):
         if not iso_str:
@@ -216,13 +213,11 @@ def save_csv(filename, data, extra=None, fields=None):
 
 
 def scan_replays(game_dir, user_identifier, lookup_key, progress_callback=None, gui_log=None, include_unranked=False):
-                      
     if progress_callback:
-        progress_callback(0, 100)                      
+        progress_callback(0, 100)
     if gui_log:
         gui_log("Initializing...", update_last=True)
 
-                                           
     if not os.path.isdir(game_dir):
         error_msg = f"Game directory does not exist: {game_dir}"
         logger.error(error_msg)
@@ -303,7 +298,6 @@ def scan_replays(game_dir, user_identifier, lookup_key, progress_callback=None, 
 
     md5_map = find_osu(songs, progress_callback=update_songs)
 
-                                                        
     if progress_callback:
         progress_callback(20, 100)
 
@@ -320,9 +314,8 @@ def scan_replays(game_dir, user_identifier, lookup_key, progress_callback=None, 
     count = 0
     last_replay_update = {"time": 0}
 
-                                                            
     def update_replays(curr, tot):
-                                
+
         if progress_callback:
             progress_callback(20 + int((curr / tot) * 60), 100)
 
@@ -337,7 +330,7 @@ def scan_replays(game_dir, user_identifier, lookup_key, progress_callback=None, 
         }
         for fut in as_completed(futures):
             count += 1
-            update_replays(count, total_rep)                                             
+            update_replays(count, total_rep)
             osr_filename = futures[fut]
             res = fut.result()
             if res is not None:
@@ -392,7 +385,6 @@ def scan_replays(game_dir, user_identifier, lookup_key, progress_callback=None, 
     gui_log(f"Replay scanning completed in {elapsed:.2f} sec. {len(score_list)} found results.",
             update_last=False)
 
-                                     
     if gui_log:
         gui_log("Processing lost scores...", update_last=False)
     if progress_callback:
@@ -402,29 +394,24 @@ def scan_replays(game_dir, user_identifier, lookup_key, progress_callback=None, 
     lost = [r for r in lost if calendar.timegm(time.strptime(r["score_time"], "%d-%m-%Y %H-%M-%S")) < cutoff]
     logger.info("%d lost scores found (before cutoff)", len(lost))
 
-                                              
     logger.info(f"Include unranked/loved beatmaps: {include_unranked}")
 
-                                                             
     if include_unranked:
         logger.info(f"ENABLED unranked/loved maps. Getting information locally. Total scores: {len(lost)}")
 
-                                            
         for i, rec in enumerate(lost):
             beatmap_id = rec["beatmap_id"]
 
-                                                          
             osu_file_path = rec.get("osu_file_path")
             if osu_file_path and os.path.exists(osu_file_path):
-                                                                     
+
                 from file_parser import count_objs, parse_osu_metadata
                 hit_objects = count_objs(osu_file_path, beatmap_id)
                 metadata = parse_osu_metadata(osu_file_path)
 
-                                                                        
                 db_save(
                     beatmap_id,
-                    "unknown",                                   
+                    "unknown",
                     metadata.get("artist", rec.get("artist", "")),
                     metadata.get("title", rec.get("title", "")),
                     metadata.get("version", rec.get("version", "")),
@@ -434,7 +421,6 @@ def scan_replays(game_dir, user_identifier, lookup_key, progress_callback=None, 
             else:
                 logger.warning(f"Local .osu file not found for score with beatmap_id {beatmap_id}")
 
-                                                                               
             rec["Status"] = "unknown"
 
             if gui_log:
@@ -442,20 +428,15 @@ def scan_replays(game_dir, user_identifier, lookup_key, progress_callback=None, 
             if progress_callback:
                 progress_callback(80 + int((i / len(lost)) * 15), 100)
 
-                                          
         logger.info(f"ENABLED unranked/loved maps. Total scores: {len(lost)}")
 
     else:
-                                                                          
+
         logger.info(f"Checking status for {len(lost)} maps...")
 
-                                                   
         for i, rec in enumerate(lost):
             db_ = db_get(rec["beatmap_id"])
 
-                                                             
-                                    
-                                                                
             need_api_update = False
             if not db_:
                 need_api_update = True
@@ -503,7 +484,6 @@ def scan_replays(game_dir, user_identifier, lookup_key, progress_callback=None, 
 
             rec["Status"] = db_.get("status", "unknown")
 
-                                                
         original_count = len(lost)
         lost = [r for r in lost if r.get("Status") in ["ranked", "approved"]]
         filtered_count = len(lost)
@@ -520,7 +500,7 @@ def scan_replays(game_dir, user_identifier, lookup_key, progress_callback=None, 
         progress_callback(95, 100)
 
     if lost:
-        out_file = os.path.join(os.path.dirname(__file__), "..", "csv", "lost_scores.csv")
+        out_file = get_resource_path(os.path.join("csv", "lost_scores.csv"))
         fields = ["PP", "Beatmap ID", "Beatmap", "Mods", "100", "50", "Misses",
                   "Accuracy", "Score", "Date", "Rank"]
 
@@ -565,18 +545,17 @@ def scan_replays(game_dir, user_identifier, lookup_key, progress_callback=None, 
         logger.info("Empty: lost scores not written.")
 
     if progress_callback:
-        progress_callback(100, 100)                  
+        progress_callback(100, 100)
 
 
 def make_top(game_dir, user_identifier, lookup_key, gui_log=None, progress_callback=None):
-                                                              
     if progress_callback:
         progress_callback(0, 100)
 
     if gui_log:
         gui_log("Initializing potential top creation...", update_last=True)
 
-    lost_path = os.path.join(os.path.dirname(__file__), "..", "csv", "lost_scores.csv")
+    lost_path = get_resource_path(os.path.join("csv", "lost_scores.csv"))
     if not os.path.exists(lost_path):
         gui_log("File lost_scores.csv not found. Aborting potential top creation.", update_last=False)
         return
@@ -587,7 +566,6 @@ def make_top(game_dir, user_identifier, lookup_key, gui_log=None, progress_callb
     db_init()
     token = token_osu()
 
-                            
     if progress_callback:
         progress_callback(10, 100)
 
@@ -606,7 +584,6 @@ def make_top(game_dir, user_identifier, lookup_key, gui_log=None, progress_callb
     overall_pp = stats.get("pp", 0)
     overall_acc_from_api = float(stats.get("hit_accuracy", 0.0))
 
-
     if gui_log:
         gui_log("Requesting top results...", update_last=False)
     if progress_callback:
@@ -619,13 +596,12 @@ def make_top(game_dir, user_identifier, lookup_key, gui_log=None, progress_callb
     total_weight_pp = sum(item["weight_PP"] for item in top_data)
     diff = overall_pp - total_weight_pp
 
-                                         
     if gui_log:
         gui_log("Saving CSV (parsed_top.csv)...", update_last=False)
     if progress_callback:
         progress_callback(70, 100)
 
-    parsed_file = os.path.join(os.path.dirname(__file__), "..", "csv", "parsed_top.csv")
+    parsed_file = get_resource_path(os.path.join("csv", "parsed_top.csv"))
 
     table_fields = [
         "PP", "Beatmap ID", "Beatmap", "Mods", "100", "50", "Misses",
@@ -669,7 +645,6 @@ def make_top(game_dir, user_identifier, lookup_key, gui_log=None, progress_callb
         for label, val in summary_data:
             csv_writer.writerow([label, val])
 
-                                           
     if gui_log:
         gui_log("Merging with lost scores...", update_last=False)
     if progress_callback:
@@ -756,7 +731,7 @@ def make_top(game_dir, user_identifier, lookup_key, gui_log=None, progress_callb
          "weight_PP": f"{'+' if delta_acc >= 0 else ''}{round(delta_acc, 2)}%", "Score ID": ""}
     ]
 
-    top_with_lost_file = os.path.join(os.path.dirname(__file__), "..", "csv", "top_with_lost.csv")
+    top_with_lost_file = get_resource_path(os.path.join("csv", "top_with_lost.csv"))
     table_fields2 = [
         "PP", "Beatmap ID", "Status", "Beatmap", "Mods", "100", "50", "Misses",
         "Accuracy", "Score", "Date", "Rank", "weight_%", "weight_PP", "Score ID"
