@@ -10,7 +10,6 @@ import rosu_pp_py as rosu
 import requests
 from database import db_get, db_save
 from utils import get_resource_path
-from config import DB_FILE
 
 logger = logging.getLogger(__name__)
 cache_folder = get_resource_path("cache")

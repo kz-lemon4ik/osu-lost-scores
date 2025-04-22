@@ -1,4 +1,3 @@
-import sys
 import os
 import platform
 import threading
@@ -10,9 +9,9 @@ from functools import partial
 from datetime import datetime
 from utils import get_resource_path
 
-from PySide6 import QtWidgets, QtCore, QtGui
+from PySide6 import QtCore, QtGui
 from PySide6.QtCore import Qt, Signal, QRunnable, QThreadPool, QObject, Slot, QPropertyAnimation, QEasingCurve
-from PySide6.QtGui import QPixmap, QPainter, QFontDatabase, QAction, QIcon, QFont, QColor
+from PySide6.QtGui import QPixmap, QPainter, QFontDatabase, QIcon, QFont, QColor
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QProgressBar, QTextEdit, QFileDialog, QMessageBox, QMenu, QFrame,
@@ -155,10 +154,10 @@ class AnimatedProgressBar(QProgressBar):
 
 
 class ApiDialog(QDialog):
-    def __init__(self, parent=None, client_id="", client_secret=""):
+    def __init__(self, parent=None, client_id="", client_secret="", keys_currently_exist=False):
         super().__init__(parent)
         self.setWindowTitle("API Keys Configuration")
-        self.setFixedSize(440, 300)
+        self.setFixedSize(440, 340)                                            
         self.setStyleSheet(f"""
             QDialog {{ background-color: {BG_COLOR}; color: {TEXT_COLOR}; }}
             QLabel {{ color: {TEXT_COLOR}; }}
@@ -248,11 +247,20 @@ class ApiDialog(QDialog):
 
         layout.addSpacing(15)
 
-        help_label = QLabel(
+        self.help_label = QLabel(
             '<a href="https://osu.ppy.sh/home/account/edit#oauth" style="color:#ee4bbd;">How to get API keys?</a>')
-        help_label.setFont(QFont("Exo 2", 11))
-        help_label.setOpenExternalLinks(True)
-        layout.addWidget(help_label)
+        self.help_label.setFont(QFont("Exo 2", 11))
+        self.help_label.setOpenExternalLinks(True)
+        self.help_label.setVisible(not keys_currently_exist)                                          
+        layout.addWidget(self.help_label)
+
+                                                           
+        self.clear_hint_label = QLabel("Tip: To delete saved API keys, leave both fields empty and click 'Save'.")
+        self.clear_hint_label.setFont(QFont("Exo 2", 9))                          
+        self.clear_hint_label.setStyleSheet(f"color: #A0A0A0;")              
+        self.clear_hint_label.setWordWrap(True)
+        self.clear_hint_label.setVisible(keys_currently_exist)                                       
+        layout.addWidget(self.clear_hint_label)
 
         button_layout = QHBoxLayout()
         button_layout.setSpacing(15)
@@ -407,14 +415,13 @@ class MainWindow(QWidget):
 
         self._try_auto_detect_osu_path()
 
-        from osu_api import load_api_keys
-        client_id, client_secret = load_api_keys()
+        from osu_api import get_keys_from_keyring
+        client_id, client_secret = get_keys_from_keyring()
 
         if not client_id or not client_secret:
             QtCore.QTimer.singleShot(500, self.show_first_run_api_dialog)
 
     def show_first_run_api_dialog(self):
-
         QMessageBox.information(self, "API Keys Required",
                                 "Welcome to osu! Lost Scores Analyzer!\n\n"
                                 "To use this application, you need to provide osu! API keys.\n"
@@ -1518,29 +1525,64 @@ class MainWindow(QWidget):
         self.append_log("osu! folder not found automatically. Please specify path manually.", False)
 
     def open_api_dialog(self):
-        from osu_api import load_api_keys, save_api_keys, update_env_file
+        from osu_api import get_keys_from_keyring, save_keys_to_keyring, delete_keys_from_keyring
 
-        current_client_id, current_client_secret = load_api_keys()
+                                                                   
+        current_client_id, current_client_secret = get_keys_from_keyring()
+        keys_existed_before_dialog = bool(current_client_id and current_client_secret)
 
-        dialog = ApiDialog(self, current_client_id or "", current_client_secret or "")
+        dialog = ApiDialog(
+            self,
+            current_client_id or "",
+            current_client_secret or "",
+            keys_currently_exist=keys_existed_before_dialog
+        )
         result = dialog.exec()
 
         if result == QDialog.DialogCode.Accepted:
             client_id = dialog.id_input.text().strip()
             client_secret = dialog.secret_input.text().strip()
 
-            if not client_id or not client_secret:
-                QMessageBox.warning(self, "Missing Keys", "Both Client ID and Client Secret are required.")
+                                  
+            if not client_id and not client_secret:
+                                                                      
+                if keys_existed_before_dialog:
+                    reply = QMessageBox.question(
+                        self,
+                        "Remove API Keys",
+                        "You left both fields empty. Do you want to delete the saved API keys?",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.No
+                    )
+
+                    if reply == QMessageBox.StandardButton.Yes:
+                        if delete_keys_from_keyring():
+                            QMessageBox.information(self, "Success", "API keys have been removed successfully.")
+                        else:
+                            QMessageBox.critical(self, "Error", "Failed to remove API keys.")
+                else:
+                                                                       
+                    QMessageBox.warning(
+                        self,
+                        "Empty API Keys",
+                        "API keys cannot be empty. Please enter valid Client ID and Client Secret."
+                    )
                 return
 
-            if save_api_keys(client_id, client_secret):
+                                                                                 
+            if not client_id or not client_secret:
+                QMessageBox.warning(
+                    self,
+                    "Incomplete API Keys",
+                    "Both Client ID and Client Secret are required."
+                )
+                return
 
-                if update_env_file(client_id, client_secret):
-                    QMessageBox.information(self, "Success", "API keys saved successfully!")
-                else:
-                    QMessageBox.warning(self, "Warning", "API keys saved, but failed to update .env file.")
+                                                      
+            if save_keys_to_keyring(client_id, client_secret):
+                QMessageBox.information(self, "Success", "API keys saved successfully!")
             else:
-                QMessageBox.critical(self, "Error", "Failed to save API keys.")
+                QMessageBox.critical(self, "Error", "Failed to save API keys to system keyring.")
 
     def closeEvent(self, event):
 

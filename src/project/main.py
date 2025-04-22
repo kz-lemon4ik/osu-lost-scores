@@ -1,5 +1,4 @@
 import logging
-import atexit
 import os
 import sys
 from utils import get_resource_path
@@ -37,20 +36,12 @@ from PySide6.QtWidgets import QApplication
 from gui import create_gui
 
 
-def get_resource_path(relative_path):
-                                            
-    if hasattr(sys, '_MEIPASS'):
-                               
-        return os.path.join(sys._MEIPASS, relative_path)
-    else:
-                                  
-        return os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', relative_path)
-
 def setup_api():
     try:
-        from osu_api import setup_api_keys, restore_env_defaults
+        from osu_api import get_keys_from_keyring
 
-        if not setup_api_keys():
+        client_id, client_secret = get_keys_from_keyring()
+        if not client_id or not client_secret:
             logging.warning("API keys not configured. Will prompt to enter them through the interface.")
             return True
 

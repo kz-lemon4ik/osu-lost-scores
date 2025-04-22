@@ -1,5 +1,4 @@
 import os
-import time
 import logging
 from dotenv import load_dotenv
 from utils import get_resource_path
@@ -20,14 +19,7 @@ if os.path.exists(dotenv_path):
 else:
     logger.error(f"Could not find .env file: {dotenv_path}")
 
-CLIENT_ID = os.environ.get("CLIENT_ID", "default_client_id")
-CLIENT_SECRET = os.environ.get("CLIENT_SECRET", "default_client_secret")
 DB_FILE = os.environ.get("DB_FILE", "cache/beatmap_info.db")
-
-if CLIENT_ID != "default_client_id":
-    logger.info(f"CLIENT_ID loaded: {CLIENT_ID[:4]}...")
-else:
-    logger.warning("CLIENT_ID is using default value!")
 
 cutoff_env = os.environ.get("CUTOFF_DATE", "1729728000")
 

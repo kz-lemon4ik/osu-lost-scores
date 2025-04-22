@@ -1,5 +1,4 @@
 import os
-import json
 import csv
 import calendar
 import time
@@ -8,11 +7,10 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from file_parser import parse_osr, grade_osu
 from database import db_init, db_get, db_save
-from osu_api import token_osu, user_osu, top_osu, map_osu
+from osu_api import token_osu, user_osu, top_osu
 from file_parser import find_osu, proc_osr, calc_acc, sort_mods
 from config import CUTOFF_DATE
 from utils import get_resource_path
-
 
 logger = logging.getLogger(__name__)
 

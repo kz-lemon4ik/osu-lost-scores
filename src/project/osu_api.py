@@ -1,12 +1,10 @@
 import requests
-import json
-import re
 import threading
 import time
 import os
 import logging
 import functools
-from config import CLIENT_ID, CLIENT_SECRET
+import keyring
 from utils import get_resource_path
 from requests.adapters import HTTPAdapter
 
@@ -19,6 +17,10 @@ session = requests.Session()
 adapter = HTTPAdapter(pool_connections=20, pool_maxsize=20)
 session.mount("https://", adapter)
 session.mount("http://", adapter)
+
+KEYRING_SERVICE = "osu_lost_scores_analyzer"
+CLIENT_ID_KEY = "client_id"
+CLIENT_SECRET_KEY = "client_secret"
 
 TOKEN_CACHE = None
 
@@ -65,15 +67,13 @@ def token_osu():
     wait_osu()
     url = "https://osu.ppy.sh/oauth/token"
 
-    client_id = os.environ.get("CLIENT_ID")
-    client_secret = os.environ.get("CLIENT_SECRET")
+    client_id, client_secret = get_keys_from_keyring()
+
+    if not client_id or not client_secret:
+        logger.error("API keys not found in system keyring")
+        return None
 
     logger.info(f"POST: {url} with client: {client_id[:4]}...")
-
-    if client_id == "default_client_id" or client_secret == "default_client_secret":
-        logger.error("Default values are being used for CLIENT_ID or CLIENT_SECRET")
-        logger.error(f"CLIENT_ID: {client_id[:4]}..., CLIENT_SECRET: {client_secret[:4]}...")
-        return None
 
     data = {
         "client_id": client_id,
@@ -85,7 +85,7 @@ def token_osu():
     try:
         resp = session.post(url, data=data)
         if resp.status_code == 401:
-            logger.error(f"Invalid API credentials. Check your CLIENT_ID and CLIENT_SECRET.")
+            logger.error(f"Invalid API credentials. Check your Client ID and Client Secret.")
             logger.error(f"Server response: {resp.text}")
             return None
 
@@ -258,139 +258,46 @@ def lookup_osu(checksum):
         raise
 
 
-def save_api_keys(client_id, client_secret):
+def save_keys_to_keyring(client_id, client_secret):
+                                                                   
     try:
-        os.makedirs(CONFIG_DIR, exist_ok=True)
-
-        logger.info(f"Saving API keys to: {USER_CONFIG_PATH}")
-        logger.info(f"CLIENT_ID: {client_id[:4]}..., CLIENT_SECRET: {client_secret[:4]}...")
-
-        with open(USER_CONFIG_PATH, 'w', encoding='utf-8') as f:
-            json.dump({
-                "client_id": client_id,
-                "client_secret": client_secret
-            }, f, indent=4)
-        return True
-    except Exception as e:
-        logger.error(f"Error saving API keys: {e}")
-        return False
-
-
-def load_api_keys():
-    if not os.path.exists(USER_CONFIG_PATH):
-        return None, None
-
-    try:
-        with open(USER_CONFIG_PATH, 'r', encoding='utf-8') as f:
-            config = json.load(f)
-        return config.get("client_id"), config.get("client_secret")
-    except Exception as e:
-        logger.error(f"Error loading API keys: {e}")
-        return None, None
-
-
-def update_env_file(client_id, client_secret):
-    try:
-        logger.info(f"Updating .env file: {ENV_PATH}")
-
-        if not os.path.exists(ENV_PATH):
-            logger.warning(f".env file not found, creating new: {ENV_PATH}")
-            with open(ENV_PATH, 'w', encoding='utf-8') as f:
-                f.write("CLIENT_ID=default_client_id\n")
-                f.write("CLIENT_SECRET=default_client_secret\n")
-                f.write("DB_FILE=../cache/beatmap_info.db\n")
-                f.write("CUTOFF_DATE=1719619200\n")
-
-        current_env = {}
-        with open(ENV_PATH, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#'):
-                    key, value = line.split('=', 1)
-                    current_env[key] = value
-
-        current_env['CLIENT_ID'] = client_id
-        current_env['CLIENT_SECRET'] = client_secret
-
-        if 'DB_FILE' not in current_env:
-            current_env['DB_FILE'] = '../cache/beatmap_info.db'
-        if 'CUTOFF_DATE' not in current_env:
-            current_env['CUTOFF_DATE'] = '1719619200'
-
-        env_content = []
-        for key, value in current_env.items():
-            env_content.append(f'{key}={value}')
-
-        with open(ENV_PATH, 'w', encoding='utf-8') as f:
-            f.write('\n'.join(env_content))
-
-        os.environ["CLIENT_ID"] = client_id
-        os.environ["CLIENT_SECRET"] = client_secret
-
-        logger.info(
-            f"Environment variables updated: CLIENT_ID={os.environ.get('CLIENT_ID')[:4]}..., CLIENT_SECRET={os.environ.get('CLIENT_SECRET')[:4]}...")
-
-        try:
-            from dotenv import load_dotenv
-            load_dotenv(dotenv_path=ENV_PATH, override=True)
-            logger.info(".env file reload completed successfully")
-        except Exception as dotenv_error:
-            logger.warning(f"Failed to reload .env file: {dotenv_error}")
-
-        logger.info(f".env file updated at path: {ENV_PATH}")
-        return True
-    except Exception as e:
-        logger.error(f"Error updating .env file: {e}")
-        return False
-
-
-def restore_env_defaults():
-    try:
-        logger.info(f"Restoring .env file to default values: {ENV_PATH}")
-
-        if not os.path.exists(ENV_PATH):
-            logger.warning(f".env file not found, creating new: {ENV_PATH}")
-            with open(ENV_PATH, 'w', encoding='utf-8') as f:
-                f.write("CLIENT_ID=default_client_id\n")
-                f.write("CLIENT_SECRET=default_client_secret\n")
-                f.write("DB_FILE=../cache/beatmap_info.db\n")
-                f.write("CUTOFF_DATE=1719619200\n")
+        if client_id and client_secret:
+            keyring.set_password(KEYRING_SERVICE, CLIENT_ID_KEY, client_id)
+            keyring.set_password(KEYRING_SERVICE, CLIENT_SECRET_KEY, client_secret)
+            logger.info(f"API keys saved to system keyring (CLIENT_ID: {client_id[:4]}...)")
             return True
+        else:
+            logger.warning("Cannot save empty API keys")
+            return False
+    except Exception as e:
+        logger.error(f"Error saving API keys to keyring: {e}")
+        return False
 
-        current_env = {}
-        with open(ENV_PATH, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith('#'):
-                    key, value = line.split('=', 1)
-                    current_env[key] = value
 
-        current_env['CLIENT_ID'] = 'default_client_id'
-        current_env['CLIENT_SECRET'] = 'default_client_secret'
+def get_keys_from_keyring():
+                                                                    
+    try:
+        client_id = keyring.get_password(KEYRING_SERVICE, CLIENT_ID_KEY)
+        client_secret = keyring.get_password(KEYRING_SERVICE, CLIENT_SECRET_KEY)
 
-        env_content = []
-        for key, value in current_env.items():
-            env_content.append(f'{key}={value}')
+        if client_id and client_secret:
+            logger.info(f"API keys retrieved from system keyring (CLIENT_ID: {client_id[:4]}...)")
+        else:
+            logger.warning("API keys not found in system keyring")
 
-        with open(ENV_PATH, 'w', encoding='utf-8') as f:
-            f.write('\n'.join(env_content))
+        return client_id, client_secret
+    except Exception as e:
+        logger.error(f"Error retrieving API keys from keyring: {e}")
+        return None, None
 
-        logger.info(f".env file restored to default values: {ENV_PATH}")
+
+def delete_keys_from_keyring():
+                                                                   
+    try:
+        keyring.delete_password(KEYRING_SERVICE, CLIENT_ID_KEY)
+        keyring.delete_password(KEYRING_SERVICE, CLIENT_SECRET_KEY)
+        logger.info("API keys deleted from system keyring")
         return True
     except Exception as e:
-        logger.error(f"Error restoring .env file: {e}")
+        logger.error(f"Error deleting API keys from keyring: {e}")
         return False
-
-
-def setup_api_keys():
-    client_id, client_secret = load_api_keys()
-
-    if not client_id or not client_secret:
-
-        logger.warning("API keys not found. Input required through interface.")
-        return False
-    else:
-        logger.info(f"Using saved API keys: {client_id[:4]}...")
-
-    result = update_env_file(client_id, client_secret)
-    return result

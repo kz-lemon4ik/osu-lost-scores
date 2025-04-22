@@ -1,13 +1,11 @@
 import os
 import csv
 import requests
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from PIL import Image, ImageDraw, ImageFont
 import re
-import json
 import datetime
 import logging
 from database import db_get
-from config import CLIENT_ID, CLIENT_SECRET
 from utils import get_resource_path
 
 logger = logging.getLogger(__name__)
@@ -85,12 +83,17 @@ def create_placeholder_image(filename, username, message):
 
 
 def get_token_osu():
+    from osu_api import get_keys_from_keyring
+
+    client_id, client_secret = get_keys_from_keyring()
+
+    if not client_id or not client_secret:
+        logger.error("[generate_image] API keys are not configured.")
+        return None
+
+    logger.info(f"[generate_image] Using keys: ID={client_id[:4]}...")
+
     url = "https://osu.ppy.sh/oauth/token"
-
-    client_id = os.environ.get("CLIENT_ID")
-    client_secret = os.environ.get("CLIENT_SECRET")
-
-    logger.info(f"Using keys: ID={client_id[:4]}...")
 
     data = {
         "client_id": client_id,

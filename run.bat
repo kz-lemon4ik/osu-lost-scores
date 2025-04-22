@@ -74,15 +74,6 @@ if exist "src\project\.env" (
     echo Deleted incorrect .env file in src\project\.env
 )
 
-set ENV_FILE=.env
-if not exist "%ENV_FILE%" (
-    echo CLIENT_ID=default_client_id> "%ENV_FILE%"
-    echo CLIENT_SECRET=default_client_secret>> "%ENV_FILE%"
-    echo DB_FILE=../cache/beatmap_info.db>> "%ENV_FILE%"
-    echo CUTOFF_DATE=1719619200>> "%ENV_FILE%"
-    echo Created .env file in root directory
-)
-
 set "DOTENV_PATH=%CD%\.env"
 echo DOTENV_PATH set to: %DOTENV_PATH%
 

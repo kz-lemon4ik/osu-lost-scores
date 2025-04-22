@@ -5,7 +5,9 @@ from config import DB_FILE
 
 if not os.path.isabs(DB_FILE):
     from utils import get_resource_path
+
     DB_FILE = get_resource_path(DB_FILE.replace("../", ""))
+
 
 def db_init():
     try:
