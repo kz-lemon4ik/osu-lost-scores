@@ -28,6 +28,17 @@ OSR_CACHE_LOCK = threading.Lock()
 MAPS_DIR = get_resource_path("maps")
 os.makedirs(MAPS_DIR, exist_ok=True)
 
+def reset_in_memory_caches():
+                                                         
+    global MD5_BEATMAPID_CACHE, MD5_MAP, OSR_CACHE, NOT_SUBMITTED_CACHE
+    with MD5_CACHE_LOCK:
+        MD5_BEATMAPID_CACHE.clear()
+        MD5_MAP.clear()
+    with OSR_CACHE_LOCK:
+        OSR_CACHE.clear()
+    NOT_SUBMITTED_CACHE.clear()
+
+    logger.info("In-memory caches (MD5, OSR, NotSubmitted) have been reset.")
 
 def not_submitted_cache_load():
     if os.path.exists(NOT_SUBMITTED_CACHE_PATH):

@@ -5,9 +5,13 @@ import logging
 import time
 import json
 import subprocess
+import shutil
 from functools import partial
 from datetime import datetime
 from utils import get_resource_path
+from database import db_close, db_init
+from file_parser import reset_in_memory_caches
+from config import DB_FILE
 
 from PySide6 import QtCore, QtGui
 from PySide6.QtCore import Qt, Signal, QRunnable, QThreadPool, QObject, Slot, QPropertyAnimation, QEasingCurve
@@ -505,8 +509,16 @@ class MainWindow(QWidget):
             print(f"Error saving configuration: {e}")
 
     def closeEvent(self, event):
-
+                                
         self.save_config()
+
+                                                                 
+        try:
+            from database import db_close
+            db_close()
+        except Exception as e:
+            logger.error(f"Error closing database connection: {e}")
+
         event.accept()
 
     def load_fonts(self):
@@ -1005,29 +1017,88 @@ class MainWindow(QWidget):
         if self.clean_scan_checkbox.isChecked():
             self.append_log("Performing clean scan (cache reset)...", False)
             try:
-                import shutil
-                project_root = os.path.join(os.path.dirname(__file__), "..")
+                self.append_log("Closing database connection before cleaning...", False)
+                db_close()
+                logger.info("Database connection closed for cache cleaning.")
 
+                db_path = get_resource_path(DB_FILE.replace("../", ""))
+                if os.path.exists(db_path):
+                    try:
+                        os.remove(db_path)
+                        self.append_log(f"Database file removed: {db_path}", False)
+                    except Exception as e:
+                        self.append_log(f"Failed to delete database file: {e}", False)
+
+                project_root = get_resource_path("..")
                 folders_to_clean = [
-                    os.path.join(project_root, "cache"),
-                    os.path.join(project_root, "maps"),
-                    os.path.join(project_root, "results"),
-                    os.path.join(project_root, "csv"),
-                    os.path.join(project_root, "assets", "images")
+                    get_resource_path("cache"),
+                    get_resource_path("maps"),
+                    get_resource_path("results"),
+                    get_resource_path("csv"),
+                    get_resource_path("assets/images")
                 ]
+                logger.debug(f"Folders to clean absolute paths: {folders_to_clean}")
 
                 for folder in folders_to_clean:
-                    if os.path.exists(folder):
-                        self.append_log(f"Deleting folder: {folder}", False)
-                        shutil.rmtree(folder)
+                    abs_folder_path = os.path.abspath(folder)                                                
+                    if os.path.exists(abs_folder_path):
+                        self.append_log(f"Deleting folder: {abs_folder_path}", False)
+                        try:
+                            shutil.rmtree(abs_folder_path)
+                        except OSError as e:
+                            logger.error(f"Error removing directory {abs_folder_path}: {e}")
+                                                                                                         
+                            if os.path.isdir(abs_folder_path):
+                                for item in os.listdir(abs_folder_path):
+                                    item_path = os.path.join(abs_folder_path, item)
+                                    try:
+                                        if os.path.isfile(item_path) or os.path.islink(item_path):
+                                            os.unlink(item_path)
+                                        elif os.path.isdir(item_path):
+                                            shutil.rmtree(item_path)
+                                    except Exception as ex_inner:
+                                        logger.error(f"Failed to delete item {item_path}: {ex_inner}")
+                                                                                            
+                                        raise e from ex_inner                                 
+                            else:
+                                raise                                                    
 
-                        os.makedirs(folder, exist_ok=True)
-                        self.append_log(f"Folder recreated: {folder}", False)
+                                                                                                             
+                        if not os.path.exists(abs_folder_path):
+                            os.makedirs(abs_folder_path, exist_ok=True)
+                            self.append_log(f"Folder recreated: {abs_folder_path}", False)
+                    else:
+                                                                  
+                        os.makedirs(abs_folder_path, exist_ok=True)
+                        self.append_log(f"Folder created (did not exist): {abs_folder_path}", False)
 
-                self.ensure_csv_files_exist()
+                self.append_log("Re-initializing database connection after cleaning...", False)
+                db_init()                                                           
+                logger.info("Database re-initialized after cache cleaning.")
+
+                self.append_log("Resetting in-memory caches...", False)
+                reset_in_memory_caches()
+
+                self.ensure_csv_files_exist()                                     
                 self.append_log("Cache clearing completed successfully", False)
-            except Exception as e:
+
+            except (FileNotFoundError, PermissionError, OSError) as e:
                 self.append_log(f"Error clearing cache: {e}", False)
+                                                                                      
+                                                                              
+                try:
+                    self.append_log("Attempting DB re-initialization after cache error...", False)
+                    db_init()
+                except Exception as db_err:
+                    self.append_log(f"Failed to re-initialize DB after cache error: {db_err}", False)
+                                                                                         
+                self.enable_all_button()                                          
+                return                                            
+
+            except Exception as e:
+                self.append_log(f"Unexpected error clearing cache: {e}", False)
+                self.enable_all_button()
+                return
 
         self.btn_all.setDisabled(True)
         self.browse_button.setDisabled(True)
@@ -1583,12 +1654,6 @@ class MainWindow(QWidget):
                 QMessageBox.information(self, "Success", "API keys saved successfully!")
             else:
                 QMessageBox.critical(self, "Error", "Failed to save API keys to system keyring.")
-
-    def closeEvent(self, event):
-
-        self.save_config()
-        event.accept()
-
 
 def create_gui():
     app = QApplication.instance()

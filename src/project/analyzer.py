@@ -404,18 +404,27 @@ def scan_replays(game_dir, user_identifier, lookup_key, progress_callback=None, 
             if osu_file_path and os.path.exists(osu_file_path):
 
                 from file_parser import count_objs, parse_osu_metadata
-                hit_objects = count_objs(osu_file_path, beatmap_id)
-                metadata = parse_osu_metadata(osu_file_path)
 
-                db_save(
-                    beatmap_id,
-                    "unknown",
-                    metadata.get("artist", rec.get("artist", "")),
-                    metadata.get("title", rec.get("title", "")),
-                    metadata.get("version", rec.get("version", "")),
-                    metadata.get("creator", rec.get("creator", "")),
-                    hit_objects
-                )
+                                                            
+                db_info = db_get(beatmap_id)
+
+                                                                                                      
+                if not db_info or db_info.get("status") == "unknown":
+                    hit_objects = count_objs(osu_file_path, beatmap_id)
+                    metadata = parse_osu_metadata(osu_file_path)
+
+                                                                  
+                    status = db_info.get("status", "unknown") if db_info else "unknown"
+
+                    db_save(
+                        beatmap_id,
+                        status,
+                        metadata.get("artist", rec.get("artist", "")),
+                        metadata.get("title", rec.get("title", "")),
+                        metadata.get("version", rec.get("version", "")),
+                        metadata.get("creator", rec.get("creator", "")),
+                        hit_objects
+                    )
             else:
                 logger.warning(f"Local .osu file not found for score with beatmap_id {beatmap_id}")
 

@@ -34,6 +34,8 @@ logging.info(f"Path to .env file: {env_path}")
 
 from PySide6.QtWidgets import QApplication
 from gui import create_gui
+                                 
+from database import db_init, db_close
 
 
 def setup_api():
@@ -52,14 +54,30 @@ def setup_api():
 
 
 def main():
+                                              
+    try:
+        db_init()
+        logging.info("Database connection initialized")
+    except Exception as e:
+        logging.error(f"Failed to initialize database: {e}")
+        return 1
+
     app = QApplication(sys.argv)
 
     if not setup_api():
+                                                 
+        db_close()
         return 1
 
     window = create_gui()
 
-    return app.exec()
+                                        
+    exit_code = app.exec()
+
+                                                                   
+    db_close()
+
+    return exit_code
 
 
 if __name__ == "__main__":
