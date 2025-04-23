@@ -481,6 +481,8 @@ class MainWindow(QWidget):
 
         if 'include_unranked' in self.config:
             self.include_unranked_checkbox.setChecked(self.config['include_unranked'])
+        if 'show_lost' in self.config:
+            self.show_lost_checkbox.setChecked(self.config['show_lost'])
         if 'clean_scan' in self.config:
             self.clean_scan_checkbox.setChecked(self.config['clean_scan'])
 
@@ -499,6 +501,7 @@ class MainWindow(QWidget):
                     self.config['scores_count'] = 10
 
             self.config['include_unranked'] = self.include_unranked_checkbox.isChecked()
+            self.config['show_lost'] = self.show_lost_checkbox.isChecked()
             self.config['clean_scan'] = self.clean_scan_checkbox.isChecked()
 
             with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
@@ -592,7 +595,7 @@ class MainWindow(QWidget):
 
     def initUI(self):
 
-        window_height = 750
+        window_height = 785
         self.setGeometry(100, 100, 650, window_height)
         self.setFixedSize(650, window_height)
 
@@ -711,8 +714,31 @@ class MainWindow(QWidget):
             }}
         """)
 
+        self.show_lost_checkbox = QCheckBox("Show at least one lost score", self)
+        self.show_lost_checkbox.setGeometry(50, checkbox_y + 35, 550, 25)
+        self.show_lost_checkbox.setFont(self.label_font)
+        self.show_lost_checkbox.setStyleSheet(f"""
+            QCheckBox {{
+                color: {TEXT_COLOR};
+            }}
+            QCheckBox::indicator {{
+                width: 16px;
+                height: 16px;
+                background-color: {FG_COLOR};
+                border: 2px solid {NORMAL_BORDER_COLOR};
+                border-radius: 3px;
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: {ACCENT_COLOR};
+                border: 2px solid {ACCENT_COLOR};
+            }}
+            QCheckBox::indicator:hover {{
+                border: 2px solid {ACCENT_COLOR};
+            }}
+        """)
+
         self.clean_scan_checkbox = QCheckBox("Perform clean scan (reset cache)", self)
-        self.clean_scan_checkbox.setGeometry(50, checkbox_y + 35, 550, 25)
+        self.clean_scan_checkbox.setGeometry(50, checkbox_y + 70, 550, 25)
         self.clean_scan_checkbox.setFont(self.label_font)
         self.clean_scan_checkbox.setStyleSheet(f"""
             QCheckBox {{
@@ -765,7 +791,7 @@ class MainWindow(QWidget):
         self.action_img.clicked.connect(self.start_img)
 
         btn_all_width = 550
-        btn_y = 435
+        btn_y = 470
         self.btn_all = HoverButton("Start Scan", None, None, self)
         self.btn_all.setGeometry(50, btn_y, 550, 50)
         self.btn_all.setFont(self.button_font)
@@ -1107,6 +1133,7 @@ class MainWindow(QWidget):
         self.profile_entry.setReadOnly(True)
         self.scores_count_entry.setReadOnly(True)
         self.include_unranked_checkbox.setEnabled(False)
+        self.show_lost_checkbox.setEnabled(False)
         self.clean_scan_checkbox.setEnabled(False)
 
         self.scan_completed.clear()
@@ -1243,6 +1270,7 @@ class MainWindow(QWidget):
         self.profile_entry.setReadOnly(False)
         self.scores_count_entry.setReadOnly(False)
         self.include_unranked_checkbox.setEnabled(True)
+        self.show_lost_checkbox.setEnabled(True)
         self.clean_scan_checkbox.setEnabled(True)
 
     def start_scan(self):
@@ -1310,6 +1338,7 @@ class MainWindow(QWidget):
     def start_img(self):
         user_input = self.profile_entry.text().strip()
         scores_count = self.scores_count_entry.text().strip()
+        show_lost = self.show_lost_checkbox.isChecked()
 
         if not user_input:
             QMessageBox.warning(self, "Error", "Please specify profile input (URL/ID/Username).")
@@ -1333,7 +1362,7 @@ class MainWindow(QWidget):
 
         self.append_log("Generating images...", False)
 
-        def task(user_id_or_name, key_type, num_scores):
+        def task(user_id_or_name, key_type, num_scores, show_lost_flag):
             try:
 
                 QtCore.QMetaObject.invokeMethod(
@@ -1425,7 +1454,7 @@ class MainWindow(QWidget):
                     QtCore.Q_ARG(str, "Creating potential top image...")
                 )
 
-                img_mod.make_img_top(user_id=uid, user_name=uname, max_scores=num_scores)
+                img_mod.make_img_top(user_id=uid, user_name=uname, max_scores=num_scores, show_lost=show_lost_flag)
                 QtCore.QMetaObject.invokeMethod(
                     self,
                     "update_progress_bar",
@@ -1449,7 +1478,7 @@ class MainWindow(QWidget):
                     QtCore.Q_ARG(str, error_message)
                 )
 
-        threading.Thread(target=task, args=(identifier, lookup_key, scores_count), daemon=True).start()
+        threading.Thread(target=task, args=(identifier, lookup_key, scores_count, show_lost), daemon=True).start()
 
     @Slot(str)
     def update_task(self, task_message):

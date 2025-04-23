@@ -781,5 +781,34 @@ def make_img_lost(user_id=None, user_name="", max_scores=20):
     make_img(user_id=user_id, user_name=user_name, mode="lost", max_scores=max_scores)
 
 
-def make_img_top(user_id=None, user_name="", max_scores=20):
+def make_img_top(user_id=None, user_name="", max_scores=20, show_lost=False):
+    if show_lost:
+                                            
+        top_with_lost_path = get_resource_path(os.path.join("csv", "top_with_lost.csv"))
+        try:
+            with open(top_with_lost_path, "r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                rows = list(reader)
+
+                                                  
+            lost_score_rank = None
+            for i, row in enumerate(rows, 1):                       
+                if row.get("Score ID") == "LOST":
+                    lost_score_rank = i
+                    logger.info(f"Found first lost score at rank {lost_score_rank}")
+                    break
+
+                                                                              
+            if lost_score_rank is not None and lost_score_rank > max_scores:
+                logger.info(f"Adjusting max_scores from {max_scores} to {lost_score_rank} to include lost score")
+                max_scores = lost_score_rank
+            else:
+                if lost_score_rank is None:
+                    logger.info("No lost scores found in the top")
+                else:
+                    logger.info(f"Lost score rank {lost_score_rank} is already within displayed top {max_scores}")
+        except Exception as e:
+            logger.error(f"Error finding lost score rank: {e}")
+
+                                                                           
     make_img(user_id=user_id, user_name=user_name, mode="top", max_scores=max_scores)
