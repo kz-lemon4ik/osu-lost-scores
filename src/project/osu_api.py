@@ -37,8 +37,8 @@ def wait_osu():
     with api_lock:
         now = time.time()
         diff = now - last_call
-        if diff < 1 / 20:
-            time.sleep((1 / 20) - diff)
+        if diff < 1:
+            time.sleep((1) - diff)
         last_call = time.time()
 
 

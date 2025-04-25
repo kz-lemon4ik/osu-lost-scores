@@ -6,20 +6,23 @@ import time
 import json
 import subprocess
 import shutil
+import pandas as pd
 from functools import partial
 from datetime import datetime
 from utils import get_resource_path
 from database import db_close, db_init
 from file_parser import reset_in_memory_caches
 from config import DB_FILE
+from collections import Counter
 
 from PySide6 import QtCore, QtGui
-from PySide6.QtCore import Qt, Signal, QRunnable, QThreadPool, QObject, Slot, QPropertyAnimation, QEasingCurve
-from PySide6.QtGui import QPixmap, QPainter, QFontDatabase, QIcon, QFont, QColor
+from PySide6.QtCore import (Qt, Signal, QRunnable, QThreadPool, QObject, Slot, QPropertyAnimation, QEasingCurve,
+                            QAbstractTableModel, QModelIndex, QSize, QPoint, QRect, QTimer)
+from PySide6.QtGui import QPixmap, QPainter, QFontDatabase, QIcon, QFont, QColor, QShortcut, QKeySequence, QCursor
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QProgressBar, QTextEdit, QFileDialog, QMessageBox, QMenu, QFrame,
-    QDialog, QCheckBox
+    QDialog, QCheckBox, QHeaderView, QTabWidget, QTableView, QGridLayout, QSizePolicy, QToolTip
 )
 
 try:
@@ -123,21 +126,48 @@ class FolderButton(QPushButton):
         super().__init__(parent)
         self.normal_icon = normal_icon if normal_icon else QIcon()
         self.hover_icon = hover_icon if hover_icon else QIcon()
+        self.is_hovered = False
         self.setIcon(self.normal_icon)
         self.setMouseTracking(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setStyleSheet("QPushButton { background: transparent; border: none; }")
+        self.setStyleSheet("""
+            QPushButton { 
+                background: transparent; 
+                border: none; 
+            }
+            QPushButton:hover { 
+                background-color: rgba(100, 100, 100, 0.3); 
+                border-radius: 15px; 
+            }
+        """)
 
     def enterEvent(self, event):
+        self.is_hovered = True
         if self.hover_icon and not self.hover_icon.isNull():
             self.setIcon(self.hover_icon)
         super().enterEvent(event)
 
     def leaveEvent(self, event):
+        self.is_hovered = False
         if self.normal_icon and not self.normal_icon.isNull():
             self.setIcon(self.normal_icon)
         super().leaveEvent(event)
 
+    def mousePressEvent(self, event):
+        super().mousePressEvent(event)
+                                                        
+        if self.is_hovered:
+            self.setIcon(self.hover_icon)
+        else:
+            self.setIcon(self.normal_icon)
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+                                                                 
+        if self.is_hovered:
+            self.setIcon(self.hover_icon)
+        else:
+            self.setIcon(self.normal_icon)
 
 class AnimatedProgressBar(QProgressBar):
     def __init__(self, parent=None):
@@ -238,7 +268,16 @@ class ApiDialog(QDialog):
         )
         self.show_secret_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.show_secret_btn.setFixedSize(30, 30)
-        self.show_secret_btn.setStyleSheet("QPushButton { background: transparent; border: none; }")
+        self.show_secret_btn.setStyleSheet("""
+            QPushButton { 
+                background: transparent; 
+                border: none; 
+            }
+            QPushButton:hover { 
+                background-color: rgba(100, 100, 100, 0.3); 
+                border-radius: 15px; 
+            }
+        """)
         self.show_secret_btn.clicked.connect(self.toggle_secret_visibility)
         self.is_secret_visible = False
 
@@ -319,6 +358,7 @@ class ApiDialog(QDialog):
 
     def toggle_secret_visibility(self):
         self.is_secret_visible = not self.is_secret_visible
+
         if self.is_secret_visible:
             self.secret_input.setEchoMode(QLineEdit.EchoMode.Normal)
             self.show_secret_btn.normal_icon = QIcon(os.path.join(ICON_PATH, "eye_open.png"))
@@ -328,7 +368,11 @@ class ApiDialog(QDialog):
             self.show_secret_btn.normal_icon = QIcon(os.path.join(ICON_PATH, "eye_closed.png"))
             self.show_secret_btn.hover_icon = QIcon(os.path.join(ICON_PATH, "eye_closed_hover.png"))
 
-        self.show_secret_btn.setIcon(self.show_secret_btn.normal_icon)
+                                                                              
+        if self.show_secret_btn.is_hovered:
+            self.show_secret_btn.setIcon(self.show_secret_btn.hover_icon)
+        else:
+            self.show_secret_btn.setIcon(self.show_secret_btn.normal_icon)
 
     def show_context_menu(self, widget, position):
         menu = QMenu()
@@ -384,6 +428,1495 @@ class ApiDialog(QDialog):
             menu.exec(widget.mapToGlobal(position))
 
 
+class PandasTableModel(QAbstractTableModel):
+    def __init__(self, data):
+        super().__init__()
+        self._data = data
+
+    def rowCount(self, parent=QModelIndex()):
+        return len(self._data)
+
+    def columnCount(self, parent=QModelIndex()):
+        return len(self._data.columns)
+
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+        if not index.isValid():
+            return None
+
+        if role == Qt.ItemDataRole.DisplayRole:
+            value = self._data.iloc[index.row(), index.column()]
+
+                                               
+            col_name = self._data.columns[index.column()]
+
+                                                             
+            if col_name == "Rank":
+                if value == "XH":
+                    return "SSH"
+                elif value == "X":
+                    return "SS"
+
+                                                          
+            if col_name == "Score ID":
+                if pd.notna(value) and value != "LOST":
+                    try:
+                        return str(int(float(value)))
+                    except (ValueError, TypeError):
+                        return str(value)
+                return str(value)
+
+                                                       
+            if col_name == "Score":
+                if pd.notna(value) and value != "":
+                    try:
+                        return str(int(float(value)))
+                    except (ValueError, TypeError):
+                        return str(value)
+                return str(value)
+
+                                    
+            if isinstance(value, (float, int)):
+                                                  
+                if col_name in ["100", "50", "Misses"]:
+                    return str(int(value)) if pd.notna(value) else ""
+                                                                    
+                elif col_name in ["Accuracy"]:
+                    return f"{value:.2f}"
+                                       
+                return str(value)
+
+            return str(value)
+
+        elif role == Qt.ItemDataRole.BackgroundRole:
+                                                           
+            if index.row() % 2 == 0:
+                return QColor(FG_COLOR)                       
+            else:
+                return QColor(45, 32, 62)                                  
+
+        elif role == Qt.ItemDataRole.TextAlignmentRole:
+                                     
+            value = self._data.iloc[index.row(), index.column()]
+            if isinstance(value, (int, float)):
+                return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            return Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+
+        elif role == Qt.ItemDataRole.ForegroundRole:
+                                                                  
+            col_name = self._data.columns[index.column()]
+            score_id_col = "Score ID" if "Score ID" in self._data.columns else None
+
+            if score_id_col:
+                try:
+                    score_id_value = str(self._data.iloc[index.row(), self._data.columns.get_loc(score_id_col)])
+                    if score_id_value == "LOST":
+                                                                                      
+                        if col_name == "PP" or col_name == score_id_col:
+                            return QColor(ACCENT_COLOR)
+                except Exception:
+                    pass
+            return QColor(TEXT_COLOR)                      
+
+        return None
+
+    def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
+                        
+        if orientation == Qt.Orientation.Horizontal and role == Qt.ItemDataRole.DisplayRole:
+            if section < len(self._data.columns):
+                return str(self._data.columns[section])
+            return str(section)
+
+                                         
+        if orientation == Qt.Orientation.Vertical and role == Qt.ItemDataRole.DisplayRole:
+            return str(section + 1)
+
+                                           
+        if orientation == Qt.Orientation.Vertical and role == Qt.ItemDataRole.SizeHintRole:
+            return QSize(25, 25)
+
+        return None
+
+    def sort(self, column, order):
+                                                     
+        try:
+            if column >= len(self._data.columns):
+                return
+
+            col_name = self._data.columns[column]
+            ascending = order == Qt.SortOrder.AscendingOrder
+
+            self.layoutAboutToBeChanged.emit()
+
+                                                         
+            if col_name == "Mods":
+                                                                                           
+                temp_df = self._data.copy()
+
+                                                   
+                def mod_sort_key(mod_str):
+                    if not mod_str or pd.isna(mod_str):
+                        return (0, "")
+
+                    mods = mod_str.split(", ")
+                                                               
+                    has_nc = "NC" in mods
+                    if has_nc:
+                        mods = [m for m in mods if m != "NC"]
+                        mods.append("DT+")                                           
+
+                                                                
+                    if len(mods) == 1 and mods[0] == "NM":
+                        mod_count = 0
+                    else:
+                        mod_count = len(mods)
+
+                                              
+                    mod_text = ", ".join(sorted(mods))
+                    return (mod_count, mod_text)
+
+                temp_df["mod_sort_key"] = temp_df[col_name].apply(mod_sort_key)
+                self._data = temp_df.sort_values("mod_sort_key", ascending=ascending).drop("mod_sort_key", axis=1)
+
+            elif col_name == "Rank":
+                                                                                 
+                rank_order = {
+                    "XH": 0, "SSH": 0,                           
+                    "X": 1, "SS": 1,                         
+                    "SH": 2,
+                    "S": 3,
+                    "A": 4,
+                    "B": 5,
+                    "C": 6,
+                    "D": 7,
+                    "?": 8,
+                    "": 9,                       
+                }
+
+                temp_df = self._data.copy()
+                temp_df["rank_sort_key"] = temp_df[col_name].apply(
+                    lambda r: rank_order.get(str(r).upper(), 9) if pd.notna(r) else 9
+                )
+                self._data = temp_df.sort_values("rank_sort_key", ascending=ascending).drop("rank_sort_key", axis=1)
+
+            elif col_name == "Score ID":
+                                                                        
+                temp_df = self._data.copy()
+
+                def score_id_sort_key(id_str):
+                    if str(id_str) == "LOST":
+                        return 0 if not ascending else float('inf')
+                    try:
+                        return int(float(id_str))
+                    except (ValueError, TypeError):
+                        return id_str
+
+                temp_df["id_sort_key"] = temp_df[col_name].apply(score_id_sort_key)
+                self._data = temp_df.sort_values("id_sort_key", ascending=ascending).drop("id_sort_key", axis=1)
+
+            elif col_name == "Date":
+                                                                           
+                try:
+                                                                                   
+                    temp_df = self._data.copy()
+                                                      
+                    date_formats = [
+                        "%d-%m-%Y %H:%M:%S",                  
+                        "%d-%m-%Y",                         
+                        "%Y-%m-%d %H:%M:%S",                   
+                        "%Y-%m-%d"                         
+                    ]
+
+                    def parse_date_safe(date_str):
+                        if pd.isna(date_str):
+                            return pd.NaT
+
+                                                                                        
+                        date_str = str(date_str).strip()
+                        if date_str.endswith('...'):
+                            date_str = date_str[:-3].strip()
+
+                                         
+                        for fmt in date_formats:
+                            try:
+                                return pd.to_datetime(date_str, format=fmt)
+                            except (ValueError, TypeError):
+                                continue
+
+                                                                          
+                        try:
+                            return pd.to_datetime(date_str, errors='coerce')
+                        except:
+                            return pd.NaT
+
+                    temp_df["date_sort_key"] = temp_df[col_name].apply(parse_date_safe)
+                    self._data = temp_df.sort_values("date_sort_key", ascending=ascending, na_position='last').drop(
+                        "date_sort_key", axis=1)
+                except Exception as e:
+                    logger.error(f"Error sorting dates: {e}")
+                                                                      
+                    self._data = self._data.sort_values(col_name, ascending=ascending, na_position='last')
+
+            elif col_name in ["100", "50", "Misses"]:
+                                             
+                self._data[col_name] = pd.to_numeric(self._data[col_name], errors='coerce')
+                self._data = self._data.sort_values(col_name, ascending=ascending, na_position='last')
+
+            else:
+                                          
+                try:
+                                                    
+                    temp_series = pd.to_numeric(self._data[col_name], errors='coerce')
+                                                           
+                    if not temp_series.isna().all():
+                                                            
+                        self._data[col_name] = temp_series.fillna(self._data[col_name])
+                except Exception as e:
+                    logger.debug(f"Column {col_name} is not numeric: {e}")
+
+                                    
+                self._data = self._data.sort_values(col_name, ascending=ascending, na_position='last')
+
+            self.layoutChanged.emit()
+        except Exception as e:
+            logger.error(f"Error sorting table: {e}")
+
+
+class ResultsWindow(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+                                                                                    
+        self.setWindowFlags(
+            Qt.WindowType.Window |
+            Qt.WindowType.WindowSystemMenuHint |
+            Qt.WindowType.WindowMinMaxButtonsHint |
+            Qt.WindowType.WindowCloseButtonHint
+        )
+
+                                                                 
+        screen = QApplication.primaryScreen().availableGeometry()
+        self.resize(int(screen.width() * 0.8), int(screen.height() * 0.8))
+        self.setWindowTitle("Full Scan Results")
+
+                                 
+        logger.info("Initializing ResultsWindow")
+
+                                                         
+        self.stats_data = {
+            "lost_scores": {},
+            "parsed_top": {},
+            "top_with_lost": {}
+        }
+
+        self.search_results = []
+        self.current_result_index = -1
+
+        logger.info(f"Created stats_data dictionary: {self.stats_data}")
+
+                                                     
+        self.setWindowFlags(
+            Qt.WindowType.Dialog |
+            Qt.WindowType.WindowSystemMenuHint |
+            Qt.WindowType.WindowMinMaxButtonsHint |
+            Qt.WindowType.WindowCloseButtonHint
+        )
+
+                                                
+        screen = QApplication.primaryScreen().availableGeometry()
+        self.resize(int(screen.width() * 0.8), int(screen.height() * 0.8))
+
+                                                        
+        self.setStyleSheet(f"""
+            QDialog {{ 
+                background-color: {BG_COLOR}; 
+                color: {TEXT_COLOR}; 
+            }}
+            QLabel {{ 
+                color: {TEXT_COLOR}; 
+            }}
+            QTabWidget::pane {{ 
+                border: 1px solid {NORMAL_BORDER_COLOR}; 
+                background-color: {FG_COLOR}; 
+                border-radius: 5px; 
+            }}
+            QTabWidget::tab-bar {{ 
+                left: 10px; 
+            }}
+            QTabBar::tab {{ 
+                background-color: {FG_COLOR}; 
+                color: {TEXT_COLOR}; 
+                padding: 8px 20px; 
+                border-top-left-radius: 5px; 
+                border-top-right-radius: 5px; 
+                border: 1px solid {NORMAL_BORDER_COLOR}; 
+                border-bottom: none; 
+                margin-right: 5px; 
+            }}
+            QTabBar::tab:selected {{ 
+                background-color: {ACCENT_COLOR}; 
+                color: {TEXT_COLOR}; 
+            }}
+            QTabBar::tab:hover {{ 
+                border-color: {ACCENT_COLOR}; 
+            }}
+            QTableView {{ 
+                background-color: {FG_COLOR}; 
+                color: {TEXT_COLOR}; 
+                gridline-color: #3A2E55; 
+                border: 2px solid {NORMAL_BORDER_COLOR}; 
+                border-radius: 5px; 
+                selection-background-color: {ACCENT_COLOR}; 
+                selection-color: {TEXT_COLOR}; 
+            }}
+            QHeaderView::section {{ 
+                background-color: {NORMAL_BORDER_COLOR}; 
+                color: {TEXT_COLOR}; 
+                padding: 4px; 
+                border: none; 
+                min-width: 50px;  /* Reduced minimum width */
+            }}
+            QHeaderView {{ 
+                background-color: {FG_COLOR}; 
+            }}
+            QPushButton {{ 
+                background-color: {FG_COLOR}; 
+                color: {TEXT_COLOR}; 
+                border: 2px solid {NORMAL_BORDER_COLOR}; 
+                border-radius: 5px; 
+                padding: 8px 16px; 
+                text-align: center; 
+            }}
+            QPushButton:hover {{ 
+                border: 2px solid {ACCENT_COLOR}; 
+            }}
+            QScrollBar:vertical {{ 
+                background: {FG_COLOR}; 
+                width: 8px; 
+                margin: 0px; 
+            }}
+            QScrollBar::handle:vertical {{ 
+                background: {NORMAL_BORDER_COLOR}; 
+                min-height: 20px; 
+                border-radius: 4px; 
+            }}
+            QScrollBar::handle:vertical:hover {{ 
+                background: {ACCENT_COLOR}; 
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ 
+                background: none; 
+                height: 0px; 
+            }}
+            QScrollBar:horizontal {{ 
+                background: {FG_COLOR}; 
+                height: 8px; 
+                margin: 0px; 
+            }}
+            QScrollBar::handle:horizontal {{ 
+                background: {NORMAL_BORDER_COLOR}; 
+                min-width: 20px; 
+                border-radius: 4px; 
+            }}
+            QScrollBar::handle:horizontal:hover {{ 
+                background: {ACCENT_COLOR}; 
+            }}
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ 
+                background: none; 
+                width: 0px; 
+            }}
+            /* Statistics panel styling */
+            QFrame#StatsPanel {{ 
+                background-color: {FG_COLOR};
+                border: 1px solid {NORMAL_BORDER_COLOR};
+                border-radius: 5px;
+                padding: 6px;
+            }}
+            QLabel.StatsLabel {{ 
+                color: {TEXT_COLOR};
+                font-size: 11px;
+                padding: 2px;
+            }}
+            QLabel.Highlight {{
+                color: {ACCENT_COLOR};
+            }}
+            QLabel.PositiveValue {{
+                color: #80FF80;
+            }}
+            QLabel.NegativeValue {{
+                color: #FF8080;
+            }}
+        """)
+
+                     
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(20, 20, 20, 20)
+        self.layout.setSpacing(15)
+
+                               
+        self.scan_time_label = QLabel("Last scan: Unknown")
+        self.scan_time_label.setFont(QFont("Exo 2", 12, QFont.Weight.Bold))
+
+                                  
+        self.search_container = QFrame(self)
+        self.search_container.setMinimumWidth(350)
+        self.search_container.setMaximumHeight(40)
+        self.search_container.setStyleSheet(f"""
+            QFrame {{
+                background-color: transparent;
+                border: none;
+            }}
+            QLineEdit {{
+                background-color: {FG_COLOR};
+                color: {TEXT_COLOR};
+                border: 2px solid {NORMAL_BORDER_COLOR};
+                border-radius: 5px;
+                padding: 5px;
+            }}
+            QLineEdit:hover {{
+                border: 2px solid {ACCENT_COLOR};
+            }}
+            QPushButton {{
+                background-color: {FG_COLOR};
+                color: {TEXT_COLOR};
+                border: 2px solid {NORMAL_BORDER_COLOR};
+                border-radius: 5px;
+                padding: 5px;
+                text-align: center;
+            }}
+            QPushButton:hover {{
+                border: 2px solid {ACCENT_COLOR};
+            }}
+            QLabel {{
+                color: {TEXT_COLOR};
+            }}
+        """)
+
+                                                                  
+        search_layout = QHBoxLayout(self.search_container)
+        search_layout.setContentsMargins(0, 0, 0, 0)
+        search_layout.setSpacing(5)
+
+                                               
+        self.search_count_label = QLabel("", self.search_container)
+        self.search_count_label.setFont(QFont("Exo 2", 11))
+        self.search_count_label.setMinimumWidth(60)
+        self.search_count_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        search_layout.addWidget(self.search_count_label)
+
+                                                   
+        self.prev_result_button = QPushButton("▲", self.search_container)
+        self.prev_result_button.setMinimumHeight(30)
+        self.prev_result_button.setMinimumWidth(30)
+        self.prev_result_button.setMaximumWidth(30)
+        self.prev_result_button.setMaximumHeight(30)
+        self.prev_result_button.setFont(QFont("Exo 2", 11))
+        self.prev_result_button.clicked.connect(self.go_to_previous_result)
+        self.prev_result_button.setStyleSheet("""
+            QPushButton { 
+                background-color: transparent; 
+                border: none; 
+            }
+            QPushButton:hover { 
+                background-color: rgba(100, 100, 100, 0.3); 
+                border-radius: 15px; 
+            }
+        """)
+        self.prev_result_button.setVisible(False)
+        search_layout.addWidget(self.prev_result_button)
+
+        self.next_result_button = QPushButton("▼", self.search_container)
+        self.next_result_button.setMinimumHeight(30)
+        self.next_result_button.setMinimumWidth(30)
+        self.next_result_button.setMaximumWidth(30)
+        self.next_result_button.setMaximumHeight(30)
+        self.next_result_button.setFont(QFont("Exo 2", 11))
+        self.next_result_button.clicked.connect(self.go_to_next_result)
+        self.next_result_button.setStyleSheet("""
+            QPushButton { 
+                background-color: transparent; 
+                border: none; 
+            }
+            QPushButton:hover { 
+                background-color: rgba(100, 100, 100, 0.3); 
+                border-radius: 15px; 
+            }
+        """)
+        self.next_result_button.setVisible(False)
+        search_layout.addWidget(self.next_result_button)
+
+                                 
+        self.search_input = QLineEdit(self.search_container)
+        self.search_input.setPlaceholderText("Search in table...")
+        self.search_input.setMinimumHeight(30)
+        self.search_input.setFont(QFont("Exo 2", 11))
+        search_layout.addWidget(self.search_input)
+
+                                                          
+        self.search_input.returnPressed.connect(self.perform_search)
+
+                                                                         
+        self.search_input.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+        self.search_input.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.search_input.customContextMenuRequested.connect(
+            lambda pos: self.show_context_menu(self.search_input, pos))
+
+                                 
+        self.search_button = QPushButton("Find", self.search_container)
+        self.search_button.setMinimumHeight(30)
+        self.search_button.setFont(QFont("Exo 2", 11))
+        self.search_button.setMinimumWidth(70)
+        self.search_button.clicked.connect(self.perform_search)
+        search_layout.addWidget(self.search_button)
+
+                                                          
+        title_layout = QHBoxLayout()
+        title_layout.setContentsMargins(0, 0, 0, 5)
+        title_layout.addWidget(self.scan_time_label, 1)               
+        title_layout.addWidget(self.search_container, 0)                  
+        self.layout.addLayout(title_layout)
+
+                                                          
+        self.search_input.returnPressed.connect(self.perform_search)
+
+                                                          
+        self.tab_widget = QTabWidget()
+        self.layout.addWidget(self.tab_widget)
+
+                                 
+        self.lost_scores_tab = QWidget()
+        self.lost_scores_layout = QVBoxLayout(self.lost_scores_tab)
+        self.lost_scores_layout.setContentsMargins(0, 0, 0, 0)
+        self.lost_scores_layout.setSpacing(5)
+
+                               
+        self.lost_scores_view = QTableView()
+        self.lost_scores_view.setSortingEnabled(True)
+        self.lost_scores_view.horizontalHeader().setStretchLastSection(False)
+        self.lost_scores_view.verticalHeader().setDefaultSectionSize(30)              
+        self.lost_scores_view.verticalHeader().setMinimumWidth(25)                           
+        self.lost_scores_view.verticalHeader().setMaximumWidth(35)             
+
+                                                      
+        self.lost_scores_view.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Expanding
+        )
+
+        self.lost_scores_layout.addWidget(self.lost_scores_view, 1)                           
+
+                                             
+        self.parsed_top_tab = QWidget()
+        self.parsed_top_layout = QVBoxLayout(self.parsed_top_tab)
+        self.parsed_top_layout.setContentsMargins(0, 0, 0, 0)
+        self.parsed_top_layout.setSpacing(5)
+
+                              
+        self.parsed_top_view = QTableView()
+        self.parsed_top_view.setSortingEnabled(True)
+        self.parsed_top_view.horizontalHeader().setStretchLastSection(False)
+        self.parsed_top_view.verticalHeader().setDefaultSectionSize(30)
+        self.parsed_top_view.verticalHeader().setMinimumWidth(25)
+        self.parsed_top_view.verticalHeader().setMaximumWidth(35)
+
+                                                      
+        self.parsed_top_view.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Expanding
+        )
+
+        self.parsed_top_layout.addWidget(self.parsed_top_view, 1)                           
+
+                                   
+        self.top_with_lost_tab = QWidget()
+        self.top_with_lost_layout = QVBoxLayout(self.top_with_lost_tab)
+        self.top_with_lost_layout.setContentsMargins(0, 0, 0, 0)
+        self.top_with_lost_layout.setSpacing(5)
+
+                                 
+        self.top_with_lost_view = QTableView()
+        self.top_with_lost_view.setSortingEnabled(True)
+        self.top_with_lost_view.horizontalHeader().setStretchLastSection(False)
+        self.top_with_lost_view.verticalHeader().setDefaultSectionSize(30)
+        self.top_with_lost_view.verticalHeader().setMinimumWidth(25)
+        self.top_with_lost_view.verticalHeader().setMaximumWidth(35)
+
+                                                      
+        self.top_with_lost_view.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Expanding
+        )
+
+        self.top_with_lost_layout.addWidget(self.top_with_lost_view, 1)                           
+
+                               
+        self.tab_widget.addTab(self.lost_scores_tab, "Lost Scores")
+        self.tab_widget.addTab(self.parsed_top_tab, "Online Top")
+        self.tab_widget.addTab(self.top_with_lost_tab, "Potential Top")
+
+                                                         
+        self.bottom_layout = QHBoxLayout()
+        self.bottom_layout.setContentsMargins(0, 5, 0, 0)
+        self.layout.addLayout(self.bottom_layout)
+
+                                    
+        self.stats_panel = QFrame()
+        self.stats_panel.setObjectName("StatsPanel")
+        self.stats_panel.setMinimumHeight(40)
+        self.stats_panel.setMaximumHeight(50)
+        self.stats_panel.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed
+        )
+
+                                                         
+        self.stats_panel_layout = QHBoxLayout(self.stats_panel)
+        self.stats_panel_layout.setContentsMargins(10, 5, 10, 5)
+        self.stats_panel_layout.setSpacing(20)
+
+        logger.info(f"Created stats_panel_layout: {self.stats_panel_layout}")
+
+                                                                                  
+        self.bottom_layout.addWidget(self.stats_panel, 1)                       
+
+                                      
+        self.close_button = QPushButton("Close")
+        self.close_button.setMinimumWidth(120)
+        self.close_button.setMinimumHeight(40)
+        self.close_button.setFont(QFont("Exo 2", 12, QFont.Weight.Bold))
+        self.close_button.clicked.connect(self.close)
+
+        self.bottom_layout.addWidget(self.close_button, 0)                      
+
+        self.close_button.setAutoDefault(False)
+        self.close_button.setDefault(False)
+        self.search_button.setAutoDefault(True)
+        self.search_button.setDefault(True)
+
+                                                                               
+        self.lost_scores_view.setSelectionMode(QTableView.SelectionMode.ExtendedSelection)
+        self.parsed_top_view.setSelectionMode(QTableView.SelectionMode.ExtendedSelection)
+        self.top_with_lost_view.setSelectionMode(QTableView.SelectionMode.ExtendedSelection)
+
+                                               
+        self.lost_scores_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.parsed_top_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.top_with_lost_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+
+        self.lost_scores_view.customContextMenuRequested.connect(
+            lambda pos: self.show_table_context_menu(self.lost_scores_view, pos))
+        self.parsed_top_view.customContextMenuRequested.connect(
+            lambda pos: self.show_table_context_menu(self.parsed_top_view, pos))
+        self.top_with_lost_view.customContextMenuRequested.connect(
+            lambda pos: self.show_table_context_menu(self.top_with_lost_view, pos))
+
+                                                      
+        shortcut_search = QShortcut(QKeySequence("Ctrl+F"), self)
+        shortcut_search.activated.connect(self.focus_search)
+
+        shortcut_copy_lost = QShortcut(QKeySequence("Ctrl+C"), self.lost_scores_view)
+        shortcut_copy_lost.activated.connect(lambda: self.copy_selected_cells(self.lost_scores_view))
+
+        shortcut_copy_top = QShortcut(QKeySequence("Ctrl+C"), self.parsed_top_view)
+        shortcut_copy_top.activated.connect(lambda: self.copy_selected_cells(self.parsed_top_view))
+
+        shortcut_copy_potential = QShortcut(QKeySequence("Ctrl+C"), self.top_with_lost_view)
+        shortcut_copy_potential.activated.connect(lambda: self.copy_selected_cells(self.top_with_lost_view))
+
+                                                         
+        self.stats_data = {
+            "lost_scores": {},
+            "parsed_top": {},
+            "top_with_lost": {}
+        }
+
+                            
+        self.load_data()
+
+        self.tab_widget.currentChanged.connect(self.update_stats_panel)
+        self.update_stats_panel(self.tab_widget.currentIndex())
+
+        current_tab_index = self.tab_widget.currentIndex()
+        if current_tab_index == 0:
+            self.lost_scores_view.setFocus()
+        elif current_tab_index == 1:
+            self.parsed_top_view.setFocus()
+        else:
+            self.top_with_lost_view.setFocus()
+
+    def load_data(self):
+        try:
+                                  
+            self.update_scan_time()
+
+                                  
+            lost_scores_path = get_resource_path(os.path.join("csv", "lost_scores.csv"))
+            if os.path.exists(lost_scores_path):
+                lost_scores_df = pd.read_csv(lost_scores_path)
+                model = PandasTableModel(lost_scores_df)
+                self.lost_scores_view.setModel(model)
+
+                                   
+                self.setup_column_widths(self.lost_scores_view)
+
+                                             
+                self.calculate_lost_scores_stats(lost_scores_df)
+            else:
+                                                                      
+                empty_df = pd.DataFrame({"Status": ["No data found. Run scan first."]})
+                model = PandasTableModel(empty_df)
+                self.lost_scores_view.setModel(model)
+
+                                 
+            parsed_top_path = get_resource_path(os.path.join("csv", "parsed_top.csv"))
+            if os.path.exists(parsed_top_path):
+                try:
+                                          
+                    full_df = pd.read_csv(parsed_top_path)
+
+                                          
+                    stats_keywords = ['Sum weight_PP', 'Overall PP', 'Difference', 'Overall Accuracy']
+                    stats_rows = full_df[
+                        full_df.iloc[:, 0].astype(str).str.contains('|'.join(stats_keywords), case=False, na=False)]
+
+                    if not stats_rows.empty:
+                                                      
+                        first_stats_idx = stats_rows.index.min()
+
+                                              
+                        stats_df = full_df.iloc[first_stats_idx:].copy()
+                        data_df = full_df.iloc[:first_stats_idx].copy()
+
+                                               
+                        for _, row in stats_df.iterrows():
+                            if pd.notna(row.iloc[0]) and pd.notna(row.iloc[1]):
+                                self.stats_data["parsed_top"][str(row.iloc[0])] = str(row.iloc[1])
+                    else:
+                        data_df = full_df.copy()
+
+                                           
+                    model = PandasTableModel(data_df)
+                    self.parsed_top_view.setModel(model)
+
+                                       
+                    self.setup_column_widths(self.parsed_top_view)
+
+                except Exception as e:
+                    logger.error(f"Error processing parsed_top.csv: {str(e)}")
+                    empty_df = pd.DataFrame({"Error": [f"Error processing data: {str(e)}"]})
+                    model = PandasTableModel(empty_df)
+                    self.parsed_top_view.setModel(model)
+            else:
+                                                                      
+                empty_df = pd.DataFrame({"Status": ["No data found. Run scan first."]})
+                model = PandasTableModel(empty_df)
+                self.parsed_top_view.setModel(model)
+
+                                    
+            top_with_lost_path = get_resource_path(os.path.join("csv", "top_with_lost.csv"))
+            if os.path.exists(top_with_lost_path):
+                try:
+                                          
+                    full_df = pd.read_csv(top_with_lost_path)
+
+                                          
+                    stats_keywords = ['Sum weight_PP', 'Overall Potential PP', 'Difference', 'Overall Accuracy',
+                                      'Δ Overall Accuracy']
+                    stats_rows = full_df[
+                        full_df.iloc[:, 0].astype(str).str.contains('|'.join(stats_keywords), case=False, na=False)]
+
+                    if not stats_rows.empty:
+                                                      
+                        first_stats_idx = stats_rows.index.min()
+
+                                              
+                        stats_df = full_df.iloc[first_stats_idx:].copy()
+                        data_df = full_df.iloc[:first_stats_idx].copy()
+
+                                               
+                        for _, row in stats_df.iterrows():
+                            if pd.notna(row.iloc[0]) and pd.notna(row.iloc[1]):
+                                self.stats_data["top_with_lost"][str(row.iloc[0])] = str(row.iloc[1])
+                    else:
+                        data_df = full_df.copy()
+
+                                           
+                    model = PandasTableModel(data_df)
+                    self.top_with_lost_view.setModel(model)
+
+                                       
+                    self.setup_column_widths(self.top_with_lost_view)
+
+                                                               
+                    status_column_index = -1
+                    for i in range(model.columnCount()):
+                        if model.headerData(i, Qt.Orientation.Horizontal) == "Status":
+                            status_column_index = i
+                            break
+
+                    if status_column_index >= 0:
+                        self.top_with_lost_view.hideColumn(status_column_index)
+
+                except Exception as e:
+                    logger.error(f"Error processing top_with_lost.csv: {str(e)}")
+                    empty_df = pd.DataFrame({"Error": [f"Error processing data: {str(e)}"]})
+                    model = PandasTableModel(empty_df)
+                    self.top_with_lost_view.setModel(model)
+            else:
+                                                                      
+                empty_df = pd.DataFrame({"Status": ["No data found. Run scan first."]})
+                model = PandasTableModel(empty_df)
+                self.top_with_lost_view.setModel(model)
+
+                                                     
+            self.update_stats_panel(self.tab_widget.currentIndex())
+
+        except Exception as e:
+                                                               
+            logger.error(f"Error loading data: {str(e)}")
+            error_df = pd.DataFrame({"Error": [f"Error loading data: {str(e)}"]})
+            model = PandasTableModel(error_df)
+            self.lost_scores_view.setModel(model)
+            self.parsed_top_view.setModel(model)
+            self.top_with_lost_view.setModel(model)
+
+    def update_scan_time(self):
+                                               
+        try:
+            csv_files = [
+                get_resource_path(os.path.join("csv", "lost_scores.csv")),
+                get_resource_path(os.path.join("csv", "parsed_top.csv")),
+                get_resource_path(os.path.join("csv", "top_with_lost.csv"))
+            ]
+
+            newest_time = None
+            for file_path in csv_files:
+                if os.path.exists(file_path):
+                    file_time = datetime.fromtimestamp(os.path.getmtime(file_path))
+                    if newest_time is None or file_time > newest_time:
+                        newest_time = file_time
+
+            if newest_time:
+                self.scan_time_label.setText(f"Last scan: {newest_time.strftime('%Y-%m-%d %H:%M:%S')}")
+            else:
+                self.scan_time_label.setText("Last scan: Unknown")
+        except Exception as e:
+            logger.error(f"Error updating scan time: {str(e)}")
+            self.scan_time_label.setText("Last scan: Error checking time")
+
+    def setup_column_widths(self, table_view):
+                                                      
+        try:
+            header = table_view.horizontalHeader()
+            model = table_view.model()
+            if not model:
+                return
+
+                                                                      
+            for i in range(model.columnCount()):
+                header.setSectionResizeMode(i, QHeaderView.ResizeMode.Interactive)
+
+                                                                       
+            default_widths = {
+                "PP": 60,                                           
+                "Beatmap ID": 80,                                    
+                "Status": 70,                            
+                "Mods": 80,                          
+                "100": 40,                             
+                "50": 40,                             
+                "Misses": 50,                             
+                "Accuracy": 60,                               
+                "Score": 80,                    
+                "Date": 120,                                  
+                "weight_%": 70,                    
+                "weight_PP": 70,                    
+                "Score ID": 90,                    
+                "Rank": 50                                        
+            }
+
+                                                                
+            for col_idx in range(model.columnCount()):
+                col_name = model.headerData(col_idx, Qt.Orientation.Horizontal)
+                if col_name in default_widths:
+                    width = default_widths[col_name]
+                    header.resizeSection(col_idx, width)
+                                                             
+                    if col_name in ["100", "50", "Misses", "Rank", "PP", "Accuracy", "weight_%", "weight_PP"]:
+                        header.setSectionResizeMode(col_idx, QHeaderView.ResizeMode.Fixed)
+
+                                                           
+            beatmap_col_idx = -1
+            for col_idx in range(model.columnCount()):
+                col_name = model.headerData(col_idx, Qt.Orientation.Horizontal)
+                if col_name == "Beatmap":
+                    beatmap_col_idx = col_idx
+                    break
+
+            if beatmap_col_idx >= 0:
+                                                                         
+                header.setSectionResizeMode(beatmap_col_idx, QHeaderView.ResizeMode.Stretch)
+            else:
+                                                                
+                header.setStretchLastSection(True)
+
+        except Exception as e:
+            logger.error(f"Error setting column widths: {str(e)}")
+                                                     
+            try:
+                header.setStretchLastSection(True)
+            except:
+                pass
+
+    def calculate_lost_scores_stats(self, data_df):
+                                                      
+        try:
+            if data_df.empty:
+                self.stats_data["lost_scores"] = {}
+                return
+
+                                   
+            total_scores = len(data_df)
+            self.stats_data["lost_scores"]["total"] = total_scores
+
+                                   
+            if "PP" in data_df.columns and "Beatmap ID" in data_df.columns:
+                try:
+                                                       
+                    parsed_top_path = get_resource_path(os.path.join("csv", "parsed_top.csv"))
+                    if os.path.exists(parsed_top_path):
+                        top_df = pd.read_csv(parsed_top_path)
+                                                          
+                        top_df = top_df[~top_df.iloc[:, 0].astype(str).str.contains('Sum|Overall|Difference', na=False)]
+
+                                                                                   
+                        top_pp_dict = {}
+                        for _, row in top_df.iterrows():
+                            if "Beatmap ID" in top_df.columns and "PP" in top_df.columns:
+                                beatmap_id = row["Beatmap ID"]
+                                pp = row["PP"]
+                                if pd.notna(beatmap_id) and pd.notna(pp):
+                                    top_pp_dict[str(int(beatmap_id))] = float(pp)
+
+                                                                                                       
+                        pp_diffs = []
+                        for _, row in data_df.iterrows():
+                            beatmap_id = str(int(row["Beatmap ID"])) if pd.notna(row["Beatmap ID"]) else None
+                            lost_pp = float(row["PP"]) if pd.notna(row["PP"]) else 0
+
+                            if beatmap_id in top_pp_dict:
+                                current_pp = top_pp_dict[beatmap_id]
+                                pp_diff = lost_pp - current_pp
+                                pp_diffs.append(pp_diff)
+
+                        if pp_diffs:
+                            avg_pp_diff = sum(pp_diffs) / len(pp_diffs)
+                            self.stats_data["lost_scores"]["avg_pp_lost"] = avg_pp_diff
+                        else:
+                                                                     
+                            avg_pp = data_df["PP"].astype(float).mean()
+                            self.stats_data["lost_scores"]["avg_pp"] = avg_pp
+                    else:
+                                                              
+                        avg_pp = data_df["PP"].astype(float).mean()
+                        self.stats_data["lost_scores"]["avg_pp"] = avg_pp
+                except Exception as e:
+                    logger.error(f"Error calculating AVG PP LOST: {e}")
+        except Exception as e:
+            logger.error(f"Error calculating lost scores stats: {str(e)}")
+            self.stats_data["lost_scores"] = {}
+
+    def update_stats_panel(self, tab_index):
+                                                            
+        try:
+                               
+            if not hasattr(self, 'stats_panel') or not self.stats_panel:
+                logger.error("stats_panel attribute missing")
+                return
+
+                                                                  
+            if not hasattr(self, 'stats_panel_layout') or not self.stats_panel_layout:
+                logger.warning("stats_panel_layout attribute missing, getting from panel")
+                layout = self.stats_panel.layout()
+                if layout:
+                    self.stats_panel_layout = layout
+                else:
+                    logger.error("stats_panel has no layout")
+                    return
+
+                                                 
+            if not hasattr(self, 'stats_data'):
+                logger.warning("stats_data attribute missing, creating it")
+                self.stats_data = {
+                    "lost_scores": {},
+                    "parsed_top": {},
+                    "top_with_lost": {}
+                }
+
+                                 
+            self.clear_stats_panel()
+
+                                           
+            if tab_index == 0:                   
+                self.update_lost_scores_stats_panel()
+            elif tab_index == 1:                  
+                self.update_online_top_stats_panel()
+            elif tab_index == 2:                     
+                self.update_potential_top_stats_panel()
+        except Exception as e:
+            logger.error(f"Error updating stats panel: {e}")
+            try:
+                error_label = QLabel(f"Error: {str(e)}")
+                error_label.setProperty("class", "StatsLabel")
+
+                                            
+                if hasattr(self, 'stats_panel_layout') and self.stats_panel_layout:
+                    self.stats_panel_layout.addWidget(error_label)
+                    self.stats_panel_layout.addStretch()
+                elif hasattr(self, 'stats_panel') and self.stats_panel.layout():
+                    self.stats_panel.layout().addWidget(error_label)
+                    self.stats_panel.layout().addStretch()
+            except Exception as inner_e:
+                logger.error(f"Error displaying error message: {inner_e}")
+
+    def clear_stats_panel(self):
+                                          
+        try:
+                                                      
+            layout = None
+
+                                     
+            if hasattr(self, 'stats_panel_layout') and self.stats_panel_layout:
+                layout = self.stats_panel_layout
+
+                                                   
+            elif hasattr(self, 'stats_panel') and self.stats_panel.layout():
+                layout = self.stats_panel.layout()
+
+                                           
+            if not layout:
+                logger.error("Cannot clear stats panel: layout not found")
+                return
+
+                           
+            for i in reversed(range(layout.count())):
+                item = layout.itemAt(i)
+                if item and item.widget():
+                    item.widget().deleteLater()
+                elif item and item.spacerItem():
+                    layout.removeItem(item)
+        except Exception as e:
+            logger.error(f"Error clearing stats panel: {e}")
+
+    def update_lost_scores_stats_panel(self):
+                                                                
+        if not self.stats_data["lost_scores"]:
+            label = QLabel("No statistics available")
+            label.setProperty("class", "StatsLabel")
+            self.stats_panel.layout().addWidget(label)
+            self.stats_panel.layout().addStretch()
+            return
+
+        try:
+                          
+            total_scores = self.stats_data["lost_scores"].get("total", 0)
+            scores_label = QLabel(f"TOTAL: {total_scores}")
+            scores_label.setProperty("class", "StatsLabel")
+            scores_label.setFont(QFont("Exo 2", 11, QFont.Weight.Bold))
+            self.stats_panel_layout.addWidget(scores_label)
+
+                                   
+            if "avg_pp_lost" in self.stats_data["lost_scores"]:
+                avg_pp_diff = self.stats_data["lost_scores"]["avg_pp_lost"]
+                pp_label = QLabel(f"AVG PP LOST: {avg_pp_diff:.2f}")
+            elif "avg_pp" in self.stats_data["lost_scores"]:
+                avg_pp = self.stats_data["lost_scores"]["avg_pp"]
+                pp_label = QLabel(f"AVG PP: {avg_pp:.2f}")
+            else:
+                pp_label = QLabel("AVG PP: N/A")
+
+            pp_label.setProperty("class", "StatsLabel")
+            pp_label.setFont(QFont("Exo 2", 11))
+            self.stats_panel_layout.addWidget(pp_label)
+
+            self.stats_panel_layout.addStretch()
+        except Exception as e:
+            logger.error(f"Error updating lost scores stats panel: {str(e)}")
+            error_label = QLabel(f"Error: {str(e)}")
+            error_label.setProperty("class", "StatsLabel")
+            self.stats_panel_layout.addWidget(error_label)
+            self.stats_panel_layout.addStretch()
+
+    def update_online_top_stats_panel(self):
+                                                               
+        if not self.stats_data["parsed_top"]:
+            label = QLabel("No statistics available")
+            label.setProperty("class", "StatsLabel")
+            self.stats_panel_layout.addWidget(label)
+            self.stats_panel_layout.addStretch()
+            return
+
+        try:
+                                                    
+            overall_pp = self.stats_data["parsed_top"].get("Overall PP", "N/A")
+            pp_label = QLabel(f"Overall PP: {overall_pp}")
+            pp_label.setProperty("class", "StatsLabel")
+            pp_label.setFont(QFont("Exo 2", 11, QFont.Weight.Bold))
+            self.stats_panel_layout.addWidget(pp_label)
+
+            overall_acc = self.stats_data["parsed_top"].get("Overall Accuracy", "N/A")
+            acc_label = QLabel(f"Overall Accuracy: {overall_acc}")
+            acc_label.setProperty("class", "StatsLabel")
+            acc_label.setFont(QFont("Exo 2", 11))
+            self.stats_panel_layout.addWidget(acc_label)
+
+            self.stats_panel_layout.addStretch()
+        except Exception as e:
+            logger.error(f"Error updating online top stats panel: {str(e)}")
+            error_label = QLabel(f"Error: {str(e)}")
+            error_label.setProperty("class", "StatsLabel")
+            self.stats_panel_layout.addWidget(error_label)
+            self.stats_panel_layout.addStretch()
+
+    def update_potential_top_stats_panel(self):
+                                                                                  
+        if not self.stats_data["top_with_lost"] and not self.stats_data["parsed_top"]:
+            label = QLabel("No statistics available")
+            label.setProperty("class", "StatsLabel")
+            self.stats_panel_layout.addWidget(label)
+            self.stats_panel_layout.addStretch()
+            return
+
+        try:
+                                                                           
+            current_pp = self.stats_data["parsed_top"].get("Overall PP", "N/A")
+            current_pp_label = QLabel(f"Current PP: {current_pp}")
+            current_pp_label.setProperty("class", "StatsLabel")
+            current_pp_label.setFont(QFont("Exo 2", 11, QFont.Weight.Bold))
+            self.stats_panel_layout.addWidget(current_pp_label)
+
+                          
+            potential_pp = self.stats_data["top_with_lost"].get("Overall Potential PP", "N/A")
+            potential_pp_label = QLabel(f"Potential PP: {potential_pp}")
+            potential_pp_label.setProperty("class", "StatsLabel")
+            potential_pp_label.setFont(QFont("Exo 2", 11, QFont.Weight.Bold))
+            self.stats_panel_layout.addWidget(potential_pp_label)
+
+                                              
+            current_acc = self.stats_data["parsed_top"].get("Overall Accuracy", "N/A")
+            current_acc_label = QLabel(f"Current Accuracy: {current_acc}")
+            current_acc_label.setProperty("class", "StatsLabel")
+            current_acc_label.setFont(QFont("Exo 2", 11))
+            self.stats_panel_layout.addWidget(current_acc_label)
+
+                                
+            potential_acc = self.stats_data["top_with_lost"].get("Overall Accuracy", "N/A")
+            potential_acc_label = QLabel(f"Potential Accuracy: {potential_acc}")
+            potential_acc_label.setProperty("class", "StatsLabel")
+            potential_acc_label.setFont(QFont("Exo 2", 11))
+            self.stats_panel_layout.addWidget(potential_acc_label)
+
+                      
+            delta_pp = self.stats_data["top_with_lost"].get("Difference", "N/A")
+            delta_pp_color = TEXT_COLOR
+            try:
+                diff_num = float(delta_pp)
+                if diff_num > 0:
+                    delta_pp = f"+{delta_pp}"
+                    delta_pp_color = "#80FF80"               
+                elif diff_num < 0:
+                    delta_pp_color = "#FF8080"             
+            except ValueError:
+                pass
+
+            delta_pp_label = QLabel(f"Δ PP: {delta_pp}")
+            delta_pp_label.setProperty("class", "StatsLabel")
+            delta_pp_label.setFont(QFont("Exo 2", 11))
+            delta_pp_label.setStyleSheet(f"color: {delta_pp_color};")
+            self.stats_panel_layout.addWidget(delta_pp_label)
+
+                            
+            delta_acc = self.stats_data["top_with_lost"].get("Δ Overall Accuracy", "N/A")
+            delta_acc_color = TEXT_COLOR
+            if isinstance(delta_acc, str):
+                if delta_acc.startswith('+'):
+                    delta_acc_color = "#80FF80"               
+                elif delta_acc.startswith('-'):
+                    delta_acc_color = "#FF8080"             
+
+            delta_acc_label = QLabel(f"Δ Accuracy: {delta_acc}")
+            delta_acc_label.setProperty("class", "StatsLabel")
+            delta_acc_label.setFont(QFont("Exo 2", 11))
+            delta_acc_label.setStyleSheet(f"color: {delta_acc_color};")
+            self.stats_panel_layout.addWidget(delta_acc_label)
+
+            self.stats_panel_layout.addStretch()
+        except Exception as e:
+            logger.error(f"Error updating potential top stats panel: {str(e)}")
+            error_label = QLabel(f"Error: {str(e)}")
+            error_label.setProperty("class", "StatsLabel")
+            self.stats_panel_layout.addWidget(error_label)
+            self.stats_panel_layout.addStretch()
+
+    def focus_search(self):
+                                                                     
+        self.search_input.setFocus()
+        self.search_input.selectAll()
+
+    def perform_search(self):
+                                                               
+        search_text = self.search_input.text().strip().lower()
+        if not search_text:
+            self.search_count_label.setText("")
+            self.prev_result_button.setVisible(False)
+            self.next_result_button.setVisible(False)
+            self.search_results = []
+            self.current_result_index = -1
+            return
+
+                                                               
+        current_tab_index = self.tab_widget.currentIndex()
+        if current_tab_index == 0:
+            current_table = self.lost_scores_view
+        elif current_tab_index == 1:
+            current_table = self.parsed_top_view
+        else:
+            current_table = self.top_with_lost_view
+
+        model = current_table.model()
+        if not model:
+            return
+
+                                   
+        current_table.clearSelection()
+
+                                           
+        self.search_results = []
+        for row in range(model.rowCount()):
+            for col in range(model.columnCount()):
+                idx = model.index(row, col)
+                cell_value = model.data(idx)
+                if cell_value and search_text in str(cell_value).lower():
+                    self.search_results.append((row, col))
+
+                                              
+        self.update_search_ui()
+
+                                                                     
+        if self.search_results:
+            self.current_result_index = 0
+            self.highlight_current_result(current_table)
+        else:
+                                                       
+            QMessageBox.information(self, "Search Results", f"No matches found for '{search_text}'")
+            self.prev_result_button.setVisible(False)
+            self.next_result_button.setVisible(False)
+
+    def show_table_context_menu(self, table_view, position):
+                                                     
+        menu = QMenu()
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #121212;
+                color: white;
+                border: 1px solid #333333;
+                border-radius: 5px;
+                padding: 5px;
+            }
+            QMenu::item {
+                padding: 5px 15px;
+                border-radius: 3px;
+            }
+            QMenu::item:selected {
+                background-color: #333333;
+            }
+            QMenu::item:disabled {
+                color: #666666;
+            }
+        """)
+
+                                      
+        copy_action = menu.addAction("Copy")
+        copy_action.triggered.connect(lambda: self.copy_selected_cells(table_view))
+
+                                                   
+        copy_action.setEnabled(len(table_view.selectedIndexes()) > 0)
+
+                               
+        menu.addSeparator()
+
+                                        
+        select_all_action = menu.addAction("Select All")
+        select_all_action.triggered.connect(table_view.selectAll)
+
+                                                                                       
+        global_pos = table_view.mapToGlobal(position)
+        menu.exec(QPoint(global_pos.x() + 24, global_pos.y() + 32))
+
+    def copy_selected_cells(self, table_view, show_tooltip=False):
+                                                       
+        selected = table_view.selectedIndexes()
+        if not selected:
+            return
+
+                                      
+        rows = set(index.row() for index in selected)
+        cols = set(index.column() for index in selected)
+
+        min_row = min(rows)
+        max_row = max(rows)
+        min_col = min(cols)
+        max_col = max(cols)
+
+                                                 
+        table_text = []
+        for row in range(min_row, max_row + 1):
+            row_data = []
+            for col in range(min_col, max_col + 1):
+                for index in selected:
+                    if index.row() == row and index.column() == col:
+                        row_data.append(str(table_view.model().data(index)))
+                        break
+                else:
+                    row_data.append("")                                  
+            table_text.append("\t".join(row_data))
+
+                                 
+        clipboard_text = "\n".join(table_text)
+        try:
+            import pyperclip
+            pyperclip.copy(clipboard_text)
+        except ImportError:
+                                                              
+            clipboard = QApplication.clipboard()
+            clipboard.setText(clipboard_text)
+
+                                                                                     
+        if show_tooltip:
+            QToolTip.showText(
+                table_view.mapToGlobal(QPoint(0, 0)),
+                f"Copied {len(selected)} cell(s) to clipboard",
+                table_view,
+                QRect(),
+                2000                          
+            )
+
+    def show_context_menu(self, widget, position):
+        menu = QMenu()
+        menu.setStyleSheet("""
+            QMenu {
+                background-color: #121212;
+                color: white;
+                border: 1px solid #333333;
+                border-radius: 5px;
+                padding: 5px;
+            }
+            QMenu::item {
+                padding: 5px 15px;
+                border-radius: 3px;
+            }
+            QMenu::item:selected {
+                background-color: #333333;
+            }
+            QMenu::item:disabled {
+                color: #666666;
+            }
+        """)
+
+        if isinstance(widget, QLineEdit):
+            cut_action = menu.addAction("Cut")
+            cut_action.triggered.connect(widget.cut)
+            cut_action.setEnabled(widget.hasSelectedText())
+
+            copy_action = menu.addAction("Copy")
+            copy_action.triggered.connect(widget.copy)
+            copy_action.setEnabled(widget.hasSelectedText())
+
+            paste_action = menu.addAction("Paste")
+            paste_action.triggered.connect(widget.paste)
+
+            if PYPERCLIP_AVAILABLE:
+                paste_action.setEnabled(bool(pyperclip.paste()))
+            else:
+                paste_action.setEnabled(True)
+
+            menu.addSeparator()
+
+            select_all_action = menu.addAction("Select All")
+            select_all_action.triggered.connect(widget.selectAll)
+            select_all_action.setEnabled(bool(widget.text()))
+
+        if menu.actions():
+            menu.exec(QPoint(widget.mapToGlobal(position).x() + 5, widget.mapToGlobal(position).y() + 5))
+
+    def update_search_ui(self):
+                                          
+        result_count = len(self.search_results)
+
+        if result_count > 0:
+            current_pos = self.current_result_index + 1 if self.current_result_index >= 0 else 0
+            self.search_count_label.setText(f"{current_pos}/{result_count}")
+
+                                                               
+            self.prev_result_button.setVisible(result_count > 0)
+            self.next_result_button.setVisible(result_count > 0)
+        else:
+            self.search_count_label.setText("")
+            self.prev_result_button.setVisible(False)
+            self.next_result_button.setVisible(False)
+
+    def highlight_current_result(self, table_view):
+                                                                  
+        if not self.search_results or self.current_result_index < 0:
+            return
+
+        current_row, current_col = self.search_results[self.current_result_index]
+        model = table_view.model()
+        current_idx = model.index(current_row, current_col)
+
+                         
+        table_view.selectRow(current_row)
+
+                               
+        table_view.scrollTo(current_idx, QTableView.ScrollHint.PositionAtCenter)
+
+                           
+        self.update_search_ui()
+
+    def go_to_next_result(self):
+                                                      
+        if not self.search_results:
+            return
+
+                                     
+        current_tab_index = self.tab_widget.currentIndex()
+        if current_tab_index == 0:
+            current_table = self.lost_scores_view
+        elif current_tab_index == 1:
+            current_table = self.parsed_top_view
+        else:
+            current_table = self.top_with_lost_view
+
+                                                                              
+        self.current_result_index = (self.current_result_index + 1) % len(self.search_results)
+        self.highlight_current_result(current_table)
+
+    def go_to_previous_result(self):
+                                                       
+        if not self.search_results:
+            return
+
+                                     
+        current_tab_index = self.tab_widget.currentIndex()
+        if current_tab_index == 0:
+            current_table = self.lost_scores_view
+        elif current_tab_index == 1:
+            current_table = self.parsed_top_view
+        else:
+            current_table = self.top_with_lost_view
+
+                                                                              
+        self.current_result_index = (self.current_result_index - 1) % len(self.search_results)
+        self.highlight_current_result(current_table)
+
+
 class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
@@ -414,6 +1947,8 @@ class MainWindow(QWidget):
         if 'scores_count' in self.config and self.config['scores_count']:
             self.scores_count_entry.setText(str(self.config['scores_count']))
 
+        self.enable_results_button()
+
         self.threadpool = QThreadPool()
         logger.info(f"Max threads in pool: {self.threadpool.maxThreadCount()}")
 
@@ -431,6 +1966,35 @@ class MainWindow(QWidget):
                                 "To use this application, you need to provide osu! API keys.\n"
                                 "Please enter your API keys in the next dialog.")
         self.open_api_dialog()
+
+    def enable_results_button(self):
+                                                                                                        
+        try:
+            csv_files = [
+                get_resource_path(os.path.join("csv", "lost_scores.csv")),
+                get_resource_path(os.path.join("csv", "parsed_top.csv")),
+                get_resource_path(os.path.join("csv", "top_with_lost.csv"))
+            ]
+
+                                                        
+            has_data = False
+            for file_path in csv_files:
+                if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
+                    has_data = True
+                    break
+
+                                                                        
+            self.results_button.setEnabled(has_data)
+
+            if has_data:
+                logger.info("Results data found. 'See Full Results' button enabled.")
+            else:
+                logger.info("No results data found. 'See Full Results' button disabled.")
+
+        except Exception as e:
+            logger.error(f"Error checking for results files: {e}")
+                                                 
+            self.results_button.setEnabled(False)
 
     def ensure_csv_files_exist(self):
 
@@ -595,7 +2159,7 @@ class MainWindow(QWidget):
 
     def initUI(self):
 
-        window_height = 785
+        window_height = 835
         self.setGeometry(100, 100, 650, window_height)
         self.setFixedSize(650, window_height)
 
@@ -886,6 +2450,29 @@ class MainWindow(QWidget):
         """)
         log_layout.addWidget(self.log_textbox)
 
+                                             
+        self.results_button = QPushButton("See Full Results", self)
+        self.results_button.setGeometry(50, btn_y + 290, 550, 40)
+        self.results_button.setFont(self.button_font)
+        self.results_button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {FG_COLOR};
+                color: {TEXT_COLOR};
+                border: 2px solid {NORMAL_BORDER_COLOR};
+                border-radius: 5px;
+                text-align: center;
+            }}
+            QPushButton:hover {{
+                border: 2px solid {ACCENT_COLOR};
+            }}
+            QPushButton:disabled {{
+                color: #666666;
+                border: 2px solid #333333;
+            }}
+        """)
+        self.results_button.clicked.connect(self.show_results_window)
+        self.results_button.setEnabled(False)
+
         self.log_textbox.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.log_textbox.customContextMenuRequested.connect(partial(self.show_context_menu, self.log_textbox))
 
@@ -1135,6 +2722,7 @@ class MainWindow(QWidget):
         self.include_unranked_checkbox.setEnabled(False)
         self.show_lost_checkbox.setEnabled(False)
         self.clean_scan_checkbox.setEnabled(False)
+        self.results_button.setEnabled(False)
 
         self.scan_completed.clear()
         self.top_completed.clear()
@@ -1249,6 +2837,9 @@ class MainWindow(QWidget):
     def all_completed_successfully(self):
         self.append_log("All operations completed successfully!", False)
         results_path = get_resource_path("results")
+
+                                              
+        self.enable_results_button()
 
         if os.path.exists(results_path) and os.path.isdir(results_path):
             self.append_log(f"Opening results folder: {results_path}", False)
@@ -1551,30 +3142,69 @@ class MainWindow(QWidget):
                 border-radius: 3px;
             }
             QMenu::item:selected {
-                background-color: #333333;
+                background-color: #333333; /* Цвет выделения при наведении/выборе */
             }
             QMenu::item:disabled {
-                color: #666666;
+                color: #666666; /* Цвет для неактивных пунктов */
             }
         """)
 
         if isinstance(widget, QLineEdit):
             cut_action = menu.addAction("Cut")
             cut_action.triggered.connect(widget.cut)
+            cut_action.setEnabled(widget.hasSelectedText())
 
             copy_action = menu.addAction("Copy")
             copy_action.triggered.connect(widget.copy)
+            copy_action.setEnabled(widget.hasSelectedText())
 
             paste_action = menu.addAction("Paste")
             paste_action.triggered.connect(widget.paste)
+
+            if PYPERCLIP_AVAILABLE:
+                paste_action.setEnabled(bool(pyperclip.paste()))
+            else:
+                paste_action.setEnabled(True)
 
             menu.addSeparator()
 
             select_all_action = menu.addAction("Select All")
             select_all_action.triggered.connect(widget.selectAll)
+            select_all_action.setEnabled(bool(widget.text()))
+
+        elif isinstance(widget, QTextEdit):
+                                                                                 
+            copy_action = menu.addAction("Copy")
+            copy_action.triggered.connect(widget.copy)
+            copy_action.setEnabled(widget.textCursor().hasSelection())
+
+            menu.addSeparator()
+
+            select_all_action = menu.addAction("Select All")
+            select_all_action.triggered.connect(widget.selectAll)
+            select_all_action.setEnabled(bool(widget.toPlainText()))
 
         if menu.actions():
             menu.exec(widget.mapToGlobal(position))
+
+    def show_results_window(self):
+                                                                
+        try:
+                                                
+            self.results_window = ResultsWindow(self)
+
+                                                            
+            self.results_window.show()
+
+                                                                             
+            QApplication.processEvents()
+
+                                      
+            self.results_window.showMaximized()
+
+        except Exception as e:
+            logger.error(f"Error showing results window: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to open results window: {str(e)}")
 
     def disable_buttons(self, disabled=True):
         self.btn_all.setDisabled(disabled)
@@ -1683,6 +3313,7 @@ class MainWindow(QWidget):
                 QMessageBox.information(self, "Success", "API keys saved successfully!")
             else:
                 QMessageBox.critical(self, "Error", "Failed to save API keys to system keyring.")
+
 
 def create_gui():
     app = QApplication.instance()
