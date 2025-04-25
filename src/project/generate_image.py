@@ -780,7 +780,6 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
 def make_img_lost(user_id=None, user_name="", max_scores=20):
     make_img(user_id=user_id, user_name=user_name, mode="lost", max_scores=max_scores)
 
-
 def make_img_top(user_id=None, user_name="", max_scores=20, show_lost=False):
     if show_lost:
                                             

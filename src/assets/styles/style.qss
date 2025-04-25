@@ -1,0 +1,414 @@
+/* Основные цвета из backup_gui.py */
+/*
+BG_COLOR = "#251a37"
+FG_COLOR = "#302444"
+ACCENT_COLOR = "#ee4bbd"
+NORMAL_BORDER_COLOR = "#4A3F5F"
+SUBTLE_BORDER_COLOR = "#302444"
+TEXT_COLOR = "#FFFFFF"
+PLACEHOLDER_COLOR = "#A0A0A0"
+*/
+
+/* Общие стили для всего приложения */
+QWidget {
+    background-color: #251a37;
+    color: #FFFFFF;
+    font-family: "Exo 2", sans-serif;
+}
+
+/* Заголовок */
+QLabel#TitleLabel {
+    background-color: transparent;
+    font-size: 24pt;
+    font-weight: bold;
+}
+
+/* Обычные метки */
+QLabel {
+    background-color: transparent;
+    color: #FFFFFF;
+    font-size: 14pt;
+}
+
+QLabel#StatusLabel {
+    color: #FFFFFF;
+    background-color: transparent;
+    font-size: 11pt;
+    font-style: italic;
+}
+
+/* Общие стили для текстовых полей */
+QLineEdit {
+    background-color: #302444;
+    color: #FFFFFF;
+    border: 2px solid #4A3F5F;
+    border-radius: 5px;
+    padding: 5px;
+}
+
+QLineEdit:hover {
+    border: 2px solid #ee4bbd;
+}
+
+QLineEdit::placeholder {
+    color: #A0A0A0;
+}
+
+/* Стили для полей ввода в главном окне */
+#mainWindow QLineEdit {
+    font-size: 10pt;
+    font-style: italic;
+}
+
+/* Стили для полей ввода в API диалоге */
+#apiDialog QLineEdit {
+    font-size: 11pt;
+    font-weight: bold;
+    font-style: normal;
+}
+
+/* Текстовые поля внутри контейнеров */
+QFrame#dirContainer QLineEdit,
+QFrame#secretContainer QLineEdit {
+    background-color: transparent;
+    border: none;
+    padding: 5px;
+}
+
+/* Кнопки */
+QPushButton {
+    background-color: #302444;
+    color: #FFFFFF;
+    border: 2px solid #4A3F5F;
+    border-radius: 5px;
+    padding: 5px;
+    text-align: center;
+    font-size: 14pt;
+    font-weight: bold;
+}
+
+QPushButton:hover {
+    border: 2px solid #ee4bbd;
+}
+
+QPushButton:disabled {
+    color: #666666;
+    border: 2px solid #333333;
+}
+
+/* Специальные стили для кнопки просмотра */
+QPushButton#browseButton {
+    background: transparent;
+    border: none;
+}
+
+QPushButton#browseButton:hover {
+    background-color: rgba(100, 100, 100, 0.3);
+    border-radius: 15px;
+}
+
+/* Стили для кнопки просмотра пароля */
+QPushButton#showSecretBtn {
+    background: transparent;
+    border: none;
+}
+
+QPushButton#showSecretBtn:hover {
+    background-color: rgba(100, 100, 100, 0.3);
+    border-radius: 15px;
+}
+
+/* Навигационные кнопки в поиске */
+QPushButton#prevResultButton, QPushButton#nextResultButton {
+    background-color: transparent;
+    border: none;
+}
+
+QPushButton#prevResultButton:hover, QPushButton#nextResultButton:hover {
+    background-color: rgba(100, 100, 100, 0.3);
+    border-radius: 15px;
+}
+
+/* Прогресс бар */
+QProgressBar {
+    background-color: #302444;
+    color: #FFFFFF;
+    border: none;
+    border-radius: 8px;
+    text-align: center;
+}
+
+QProgressBar::chunk {
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #ee4bbd, stop:1 #9932CC);
+    border-radius: 7px;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #ee4bbd, stop:1 #9932CC);
+}
+
+/* Контейнеры - только для тех, которые в оригинале имели границы */
+QFrame#dirContainer,
+QFrame#LogContainer,
+QFrame#secretContainer {
+    background-color: #302444;
+    border: 2px solid #4A3F5F;
+    border-radius: 5px;
+}
+
+QFrame#dirContainer:hover,
+QFrame#LogContainer:hover,
+QFrame#secretContainer:hover {
+    border: 2px solid #ee4bbd;
+}
+
+/* Контейнер поиска - без границ */
+QFrame#searchContainer {
+    background-color: transparent;
+    border: none;
+}
+
+/* Текстовая область для лога */
+QTextEdit {
+    background-color: #302444;
+    color: #FFFFFF;
+    border: none;
+    font-size: 10pt;
+    font-style: italic;
+    font-family: "Exo 2";
+}
+
+/* Чекбоксы */
+QCheckBox {
+    color: #FFFFFF;
+    font-size: 14pt;
+}
+
+QCheckBox::indicator {
+    width: 16px;
+    height: 16px;
+    background-color: #302444;
+    border: 2px solid #4A3F5F;
+    border-radius: 3px;
+}
+
+QCheckBox::indicator:checked {
+    background-color: #ee4bbd;
+    border: 2px solid #ee4bbd;
+}
+
+QCheckBox::indicator:hover {
+    border: 2px solid #ee4bbd;
+}
+
+/* Диалоговые окна */
+QDialog {
+    background-color: #251a37;
+    color: #FFFFFF;
+}
+
+/* Окно результатов и поиск */
+#resultsWindow {
+    background-color: #251a37;
+}
+
+QLabel#searchCountLabel {
+    font-size: 11pt;
+}
+
+QLineEdit#searchInput {
+    font-size: 11pt;
+    padding: 5px;
+}
+
+QPushButton#searchButton {
+    font-size: 11pt;
+    padding: 5px;
+}
+
+/* Панель статистики */
+QFrame#StatsPanel {
+    background-color: #302444;
+    border: 1px solid #4A3F5F;
+    border-radius: 5px;
+    padding: 6px;
+}
+
+QLabel.StatsLabel {
+    color: #FFFFFF;
+    font-size: 11px;
+    padding: 2px;
+}
+
+QLabel.Highlight {
+    color: #ee4bbd;
+}
+
+QLabel.PositiveValue {
+    color: #80FF80;
+}
+
+QLabel.NegativeValue {
+    color: #FF8080;
+}
+
+/* Вкладки и таблицы */
+QTabWidget::pane {
+    border: 1px solid #4A3F5F;
+    background-color: #302444;
+    border-radius: 5px;
+}
+
+QTabWidget::tab-bar {
+    left: 10px;
+}
+
+QTabBar::tab {
+    background-color: #302444;
+    color: #FFFFFF;
+    padding: 8px 20px;
+    border-top-left-radius: 5px;
+    border-top-right-radius: 5px;
+    border: 1px solid #4A3F5F;
+    border-bottom: none;
+    margin-right: 5px;
+}
+
+QTabBar::tab:selected {
+    background-color: #ee4bbd;
+    color: #FFFFFF;
+}
+
+QTabBar::tab:hover {
+    border-color: #ee4bbd;
+}
+
+/* Таблица */
+QTableView {
+    background-color: #302444;
+    color: #FFFFFF;
+    gridline-color: #3A2E55;
+    border: 2px solid #4A3F5F;
+    border-radius: 5px;
+    selection-background-color: #ee4bbd;
+    selection-color: #FFFFFF;
+}
+
+QHeaderView::section {
+    background-color: #4A3F5F;
+    color: #FFFFFF;
+    padding: 4px;
+    border: none;
+    min-width: 50px;
+}
+
+QHeaderView {
+    background-color: #302444;
+}
+
+/* Полосы прокрутки */
+QScrollBar:vertical {
+    background: #302444;
+    width: 8px;
+    margin: 0px;
+}
+
+QScrollBar::handle:vertical {
+    background: #4A3F5F;
+    min-height: 20px;
+    border-radius: 4px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background: #ee4bbd;
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    background: none;
+    height: 0px;
+}
+
+QScrollBar::up-arrow:vertical, QScrollBar::down-arrow:vertical {
+    background: none;
+}
+
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+    background: none;
+}
+
+QScrollBar:horizontal {
+    background: #302444;
+    height: 8px;
+    margin: 0px;
+}
+
+QScrollBar::handle:horizontal {
+    background: #4A3F5F;
+    min-width: 20px;
+    border-radius: 4px;
+}
+
+QScrollBar::handle:horizontal:hover {
+    background: #ee4bbd;
+}
+
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    background: none;
+    width: 0px;
+}
+
+/* Контекстное меню */
+QMenu {
+    background-color: #121212;
+    color: white;
+    border: 1px solid #333333;
+    border-radius: 5px;
+    padding: 5px;
+}
+
+QMenu::item {
+    padding: 5px 15px;
+    border-radius: 3px;
+}
+
+QMenu::item:selected {
+    background-color: #333333;
+}
+
+QMenu::item:disabled {
+    color: #666666;
+}
+
+/* API диалог и его элементы */
+#apiDialog QLabel {
+    font-size: 12pt;
+}
+
+/* Подсказки и специальные тексты (более специфичный селектор должен идти после общего) */
+QLabel#clearHintLabel {
+    color: #A0A0A0;
+    font-size: 9pt;
+    font-style: normal;
+}
+
+QLabel#helpLabel {
+    font-size: 11pt;
+}
+
+/* Дополнительные тонкие настройки */
+QPushButton#btnAll {
+    font-size: 14pt;
+    font-weight: bold;
+}
+
+QPushButton#resultsButton {
+    font-size: 14pt;
+}
+
+QPushButton#closeButton {
+    font-size: 12pt;
+    font-weight: bold;
+}
+
+/* Специальный селектор для Delta Accuracy */
+QLabel[class~="delta_accuracy"],
+QLabel[property="delta_accuracy"] {
+    color: inherit;
+}

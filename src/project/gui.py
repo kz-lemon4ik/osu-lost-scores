@@ -1,4 +1,5 @@
 import os
+import sys
 import platform
 import threading
 import logging
@@ -7,13 +8,13 @@ import json
 import subprocess
 import shutil
 import pandas as pd
+import os.path
 from functools import partial
 from datetime import datetime
 from utils import get_resource_path
 from database import db_close, db_init
 from file_parser import reset_in_memory_caches
 from config import DB_FILE
-from collections import Counter
 
 from PySide6 import QtCore, QtGui
 from PySide6.QtCore import (Qt, Signal, QRunnable, QThreadPool, QObject, Slot, QPropertyAnimation, QEasingCurve,
@@ -48,17 +49,22 @@ CONFIG_PATH = get_resource_path(os.path.join("config", "gui_config.json"))
 
 os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
 
-BG_COLOR = "#251a37"
-FG_COLOR = "#302444"
-ACCENT_COLOR = "#ee4bbd"
-NORMAL_BORDER_COLOR = "#4A3F5F"
-SUBTLE_BORDER_COLOR = FG_COLOR
-TEXT_COLOR = "#FFFFFF"
-PLACEHOLDER_COLOR = "#A0A0A0"
 
-BUTTON_HOVER_STYLE = f"QPushButton {{ background-color: {FG_COLOR}; border: 1px solid {ACCENT_COLOR}; border-radius: 5px; }}"
-BUTTON_NORMAL_STYLE = ""
+def load_qss():
+                                                     
+    style_path = get_resource_path(os.path.join("assets", "styles", "style.qss"))
+    print(f"--- [DEBUG] Пытаюсь загрузить QSS из: {style_path}")             
 
+    try:
+        with open(style_path, "r", encoding="utf-8") as f:
+            qss_content = f.read()
+            print(f"--- [DEBUG] QSS файл успешно прочитан ({len(qss_content)} байт).")             
+                                                                                                    
+            return qss_content
+    except Exception as e:
+        print(f"--- [DEBUG] ОШИБКА загрузки QSS файла: {e}")                      
+                                                                                                
+        return ""
 
 class WorkerSignals(QObject):
     progress = Signal(int, int)
@@ -95,7 +101,7 @@ class Worker(QRunnable):
         self.signals.log.emit(message, update_last)
 
 
-class HoverButton(QPushButton):
+class IconButton(QPushButton):
     def __init__(self, text, normal_icon=None, hover_icon=None, parent=None):
         super().__init__(text, parent)
         self.normal_icon = normal_icon if normal_icon else QIcon()
@@ -104,22 +110,14 @@ class HoverButton(QPushButton):
         self.setMouseTracking(True)
 
     def enterEvent(self, event):
-        if self.objectName() != "BrowseButton":
-            current_style = self.styleSheet()
-            hover_style = f"QPushButton {{ background-color: {FG_COLOR}; border: 2px solid {ACCENT_COLOR}; border-radius: 5px; }}"
-            if "hover" not in current_style.lower():
-                self.setStyleSheet(current_style + hover_style)
         if self.hover_icon and not self.hover_icon.isNull():
             self.setIcon(self.hover_icon)
         super().enterEvent(event)
 
     def leaveEvent(self, event):
-        if self.objectName() != "BrowseButton":
-            pass
         if self.normal_icon and not self.normal_icon.isNull():
             self.setIcon(self.normal_icon)
         super().leaveEvent(event)
-
 
 class FolderButton(QPushButton):
     def __init__(self, normal_icon=None, hover_icon=None, parent=None):
@@ -130,16 +128,7 @@ class FolderButton(QPushButton):
         self.setIcon(self.normal_icon)
         self.setMouseTracking(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setStyleSheet("""
-            QPushButton { 
-                background: transparent; 
-                border: none; 
-            }
-            QPushButton:hover { 
-                background-color: rgba(100, 100, 100, 0.3); 
-                border-radius: 15px; 
-            }
-        """)
+        self.setObjectName("browseButton")
 
     def enterEvent(self, event):
         self.is_hovered = True
@@ -192,35 +181,20 @@ class ApiDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("API Keys Configuration")
         self.setFixedSize(440, 340)                                            
-        self.setStyleSheet(f"""
-            QDialog {{ background-color: {BG_COLOR}; color: {TEXT_COLOR}; }}
-            QLabel {{ color: {TEXT_COLOR}; }}
-            QLineEdit {{
-                background-color: {FG_COLOR};
-                color: {TEXT_COLOR};
-                border: 2px solid {NORMAL_BORDER_COLOR};
-                border-radius: 5px;
-                padding: 5px;
-            }}
-            QLineEdit:hover {{
-                border: 2px solid {ACCENT_COLOR};
-            }}
-        """)
+        self.setObjectName("apiDialog")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(15)
 
         info_label = QLabel("Enter your osu! API credentials:")
-        info_label.setFont(QFont("Exo 2", 12))
         layout.addWidget(info_label)
 
         id_layout = QVBoxLayout()
         id_layout.setSpacing(10)
         id_label = QLabel("Client ID:")
-        id_label.setFont(QFont("Exo 2", 12))
         self.id_input = QLineEdit(client_id)
-        self.id_input.setFont(QFont("Exo 2", 12))
+        self.id_input.setObjectName("idInput")
         self.id_input.setMinimumHeight(35)
         id_layout.addWidget(id_label)
         id_layout.addWidget(self.id_input)
@@ -231,53 +205,27 @@ class ApiDialog(QDialog):
         secret_layout = QVBoxLayout()
         secret_layout.setSpacing(10)
         secret_label = QLabel("Client Secret:")
-        secret_label.setFont(QFont("Exo 2", 12))
 
         self.secret_container = QFrame()
+        self.secret_container.setObjectName("secretContainer")
         self.secret_container.setMinimumHeight(40)
-        self.secret_container.setStyleSheet(f"""
-            QFrame {{
-                background-color: {FG_COLOR};
-                border: 2px solid {NORMAL_BORDER_COLOR};
-                border-radius: 5px;
-            }}
-            QFrame:hover {{
-                border: 2px solid {ACCENT_COLOR};
-            }}
-        """)
 
         self.secret_layout_container = QHBoxLayout(self.secret_container)
         self.secret_layout_container.setContentsMargins(10, 0, 10, 0)
         self.secret_layout_container.setSpacing(0)
 
         self.secret_input = QLineEdit(client_secret)
-        self.secret_input.setFont(QFont("Exo 2", 12))
+        self.secret_input.setObjectName("secretInput")
         self.secret_input.setMinimumHeight(35)
         self.secret_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.secret_input.setStyleSheet("""
-            QLineEdit {
-                background-color: transparent;
-                border: none;
-                padding: 5px;
-            }
-        """)
 
         self.show_secret_btn = FolderButton(
             QIcon(os.path.join(ICON_PATH, "eye_closed.png")),
             QIcon(os.path.join(ICON_PATH, "eye_closed_hover.png"))
         )
+        self.show_secret_btn.setObjectName("showSecretBtn")
         self.show_secret_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.show_secret_btn.setFixedSize(30, 30)
-        self.show_secret_btn.setStyleSheet("""
-            QPushButton { 
-                background: transparent; 
-                border: none; 
-            }
-            QPushButton:hover { 
-                background-color: rgba(100, 100, 100, 0.3); 
-                border-radius: 15px; 
-            }
-        """)
         self.show_secret_btn.clicked.connect(self.toggle_secret_visibility)
         self.is_secret_visible = False
 
@@ -292,15 +240,14 @@ class ApiDialog(QDialog):
 
         self.help_label = QLabel(
             '<a href="https://osu.ppy.sh/home/account/edit#oauth" style="color:#ee4bbd;">How to get API keys?</a>')
-        self.help_label.setFont(QFont("Exo 2", 11))
+        self.help_label.setObjectName("helpLabel")
         self.help_label.setOpenExternalLinks(True)
         self.help_label.setVisible(not keys_currently_exist)                                          
         layout.addWidget(self.help_label)
 
                                                            
         self.clear_hint_label = QLabel("Tip: To delete saved API keys, leave both fields empty and click 'Save'.")
-        self.clear_hint_label.setFont(QFont("Exo 2", 9))                          
-        self.clear_hint_label.setStyleSheet(f"color: #A0A0A0;")              
+        self.clear_hint_label.setObjectName("clearHintLabel")
         self.clear_hint_label.setWordWrap(True)
         self.clear_hint_label.setVisible(keys_currently_exist)                                       
         layout.addWidget(self.clear_hint_label)
@@ -309,42 +256,14 @@ class ApiDialog(QDialog):
         button_layout.setSpacing(15)
 
         self.cancel_btn = QPushButton("Cancel")
-        self.cancel_btn.setFont(QFont("Exo 2", 12))
+        self.cancel_btn.setObjectName("cancelBtn")
         self.cancel_btn.setMinimumHeight(40)
         self.cancel_btn.clicked.connect(self.reject)
 
         self.save_btn = QPushButton("Save")
-        self.save_btn.setFont(QFont("Exo 2", 12, QFont.Weight.Bold))
+        self.save_btn.setObjectName("saveBtn")
         self.save_btn.setMinimumHeight(40)
         self.save_btn.clicked.connect(self.accept)
-
-        self.save_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {FG_COLOR};
-                color: {TEXT_COLOR};
-                border: 2px solid {NORMAL_BORDER_COLOR};
-                border-radius: 5px;
-                padding: 5px;
-                text-align: center;
-            }}
-            QPushButton:hover {{
-                border: 2px solid {ACCENT_COLOR};
-            }}
-        """)
-
-        self.cancel_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {FG_COLOR};
-                color: {TEXT_COLOR};
-                border: 2px solid {NORMAL_BORDER_COLOR};
-                border-radius: 5px;
-                padding: 5px;
-                text-align: center;
-            }}
-            QPushButton:hover {{
-                border: 2px solid {ACCENT_COLOR};
-            }}
-        """)
 
         button_layout.addWidget(self.cancel_btn)
         button_layout.addWidget(self.save_btn)
@@ -377,26 +296,6 @@ class ApiDialog(QDialog):
     def show_context_menu(self, widget, position):
         menu = QMenu()
 
-        menu.setStyleSheet("""
-            QMenu {
-                background-color: #121212;
-                color: white;
-                border: 1px solid #333333;
-                border-radius: 5px;
-                padding: 5px;
-            }
-            QMenu::item {
-                padding: 5px 15px;
-                border-radius: 3px;
-            }
-            QMenu::item:selected {
-                background-color: #333333; /* Цвет выделения при наведении/выборе */
-            }
-            QMenu::item:disabled {
-                color: #666666; /* Цвет для неактивных пунктов */
-            }
-        """)
-
         if isinstance(widget, QLineEdit):
             cut_action = menu.addAction("Cut")
             cut_action.triggered.connect(widget.cut)
@@ -414,7 +313,6 @@ class ApiDialog(QDialog):
             if PYPERCLIP_AVAILABLE:
                 paste_action.setEnabled(bool(pyperclip.paste()))
             else:
-
                 paste_action.setEnabled(True)
 
             menu.addSeparator()
@@ -426,7 +324,6 @@ class ApiDialog(QDialog):
 
         if menu.actions():
             menu.exec(widget.mapToGlobal(position))
-
 
 class PandasTableModel(QAbstractTableModel):
     def __init__(self, data):
@@ -490,7 +387,7 @@ class PandasTableModel(QAbstractTableModel):
         elif role == Qt.ItemDataRole.BackgroundRole:
                                                            
             if index.row() % 2 == 0:
-                return QColor(FG_COLOR)                       
+                return QColor("#302444")                         
             else:
                 return QColor(45, 32, 62)                                  
 
@@ -512,10 +409,10 @@ class PandasTableModel(QAbstractTableModel):
                     if score_id_value == "LOST":
                                                                                       
                         if col_name == "PP" or col_name == score_id_col:
-                            return QColor(ACCENT_COLOR)
+                            return QColor("#ee4bbd")                                                                
                 except Exception:
                     pass
-            return QColor(TEXT_COLOR)                      
+            return QColor("#FFFFFF")
 
         return None
 
@@ -696,6 +593,7 @@ class ResultsWindow(QDialog):
         screen = QApplication.primaryScreen().availableGeometry()
         self.resize(int(screen.width() * 0.8), int(screen.height() * 0.8))
         self.setWindowTitle("Full Scan Results")
+        self.setObjectName("resultsWindow")
 
                                  
         logger.info("Initializing ResultsWindow")
@@ -724,127 +622,6 @@ class ResultsWindow(QDialog):
         screen = QApplication.primaryScreen().availableGeometry()
         self.resize(int(screen.width() * 0.8), int(screen.height() * 0.8))
 
-                                                        
-        self.setStyleSheet(f"""
-            QDialog {{ 
-                background-color: {BG_COLOR}; 
-                color: {TEXT_COLOR}; 
-            }}
-            QLabel {{ 
-                color: {TEXT_COLOR}; 
-            }}
-            QTabWidget::pane {{ 
-                border: 1px solid {NORMAL_BORDER_COLOR}; 
-                background-color: {FG_COLOR}; 
-                border-radius: 5px; 
-            }}
-            QTabWidget::tab-bar {{ 
-                left: 10px; 
-            }}
-            QTabBar::tab {{ 
-                background-color: {FG_COLOR}; 
-                color: {TEXT_COLOR}; 
-                padding: 8px 20px; 
-                border-top-left-radius: 5px; 
-                border-top-right-radius: 5px; 
-                border: 1px solid {NORMAL_BORDER_COLOR}; 
-                border-bottom: none; 
-                margin-right: 5px; 
-            }}
-            QTabBar::tab:selected {{ 
-                background-color: {ACCENT_COLOR}; 
-                color: {TEXT_COLOR}; 
-            }}
-            QTabBar::tab:hover {{ 
-                border-color: {ACCENT_COLOR}; 
-            }}
-            QTableView {{ 
-                background-color: {FG_COLOR}; 
-                color: {TEXT_COLOR}; 
-                gridline-color: #3A2E55; 
-                border: 2px solid {NORMAL_BORDER_COLOR}; 
-                border-radius: 5px; 
-                selection-background-color: {ACCENT_COLOR}; 
-                selection-color: {TEXT_COLOR}; 
-            }}
-            QHeaderView::section {{ 
-                background-color: {NORMAL_BORDER_COLOR}; 
-                color: {TEXT_COLOR}; 
-                padding: 4px; 
-                border: none; 
-                min-width: 50px;  /* Reduced minimum width */
-            }}
-            QHeaderView {{ 
-                background-color: {FG_COLOR}; 
-            }}
-            QPushButton {{ 
-                background-color: {FG_COLOR}; 
-                color: {TEXT_COLOR}; 
-                border: 2px solid {NORMAL_BORDER_COLOR}; 
-                border-radius: 5px; 
-                padding: 8px 16px; 
-                text-align: center; 
-            }}
-            QPushButton:hover {{ 
-                border: 2px solid {ACCENT_COLOR}; 
-            }}
-            QScrollBar:vertical {{ 
-                background: {FG_COLOR}; 
-                width: 8px; 
-                margin: 0px; 
-            }}
-            QScrollBar::handle:vertical {{ 
-                background: {NORMAL_BORDER_COLOR}; 
-                min-height: 20px; 
-                border-radius: 4px; 
-            }}
-            QScrollBar::handle:vertical:hover {{ 
-                background: {ACCENT_COLOR}; 
-            }}
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ 
-                background: none; 
-                height: 0px; 
-            }}
-            QScrollBar:horizontal {{ 
-                background: {FG_COLOR}; 
-                height: 8px; 
-                margin: 0px; 
-            }}
-            QScrollBar::handle:horizontal {{ 
-                background: {NORMAL_BORDER_COLOR}; 
-                min-width: 20px; 
-                border-radius: 4px; 
-            }}
-            QScrollBar::handle:horizontal:hover {{ 
-                background: {ACCENT_COLOR}; 
-            }}
-            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ 
-                background: none; 
-                width: 0px; 
-            }}
-            /* Statistics panel styling */
-            QFrame#StatsPanel {{ 
-                background-color: {FG_COLOR};
-                border: 1px solid {NORMAL_BORDER_COLOR};
-                border-radius: 5px;
-                padding: 6px;
-            }}
-            QLabel.StatsLabel {{ 
-                color: {TEXT_COLOR};
-                font-size: 11px;
-                padding: 2px;
-            }}
-            QLabel.Highlight {{
-                color: {ACCENT_COLOR};
-            }}
-            QLabel.PositiveValue {{
-                color: #80FF80;
-            }}
-            QLabel.NegativeValue {{
-                color: #FF8080;
-            }}
-        """)
-
                      
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(20, 20, 20, 20)
@@ -852,42 +629,12 @@ class ResultsWindow(QDialog):
 
                                
         self.scan_time_label = QLabel("Last scan: Unknown")
-        self.scan_time_label.setFont(QFont("Exo 2", 12, QFont.Weight.Bold))
 
                                   
         self.search_container = QFrame(self)
+        self.search_container.setObjectName("searchContainer")
         self.search_container.setMinimumWidth(350)
         self.search_container.setMaximumHeight(40)
-        self.search_container.setStyleSheet(f"""
-            QFrame {{
-                background-color: transparent;
-                border: none;
-            }}
-            QLineEdit {{
-                background-color: {FG_COLOR};
-                color: {TEXT_COLOR};
-                border: 2px solid {NORMAL_BORDER_COLOR};
-                border-radius: 5px;
-                padding: 5px;
-            }}
-            QLineEdit:hover {{
-                border: 2px solid {ACCENT_COLOR};
-            }}
-            QPushButton {{
-                background-color: {FG_COLOR};
-                color: {TEXT_COLOR};
-                border: 2px solid {NORMAL_BORDER_COLOR};
-                border-radius: 5px;
-                padding: 5px;
-                text-align: center;
-            }}
-            QPushButton:hover {{
-                border: 2px solid {ACCENT_COLOR};
-            }}
-            QLabel {{
-                color: {TEXT_COLOR};
-            }}
-        """)
 
                                                                   
         search_layout = QHBoxLayout(self.search_container)
@@ -896,57 +643,39 @@ class ResultsWindow(QDialog):
 
                                                
         self.search_count_label = QLabel("", self.search_container)
-        self.search_count_label.setFont(QFont("Exo 2", 11))
+        self.search_count_label.setObjectName("searchCountLabel")
         self.search_count_label.setMinimumWidth(60)
         self.search_count_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         search_layout.addWidget(self.search_count_label)
 
                                                    
         self.prev_result_button = QPushButton("▲", self.search_container)
+        self.prev_result_button.setObjectName("prevResultButton")
         self.prev_result_button.setMinimumHeight(30)
         self.prev_result_button.setMinimumWidth(30)
         self.prev_result_button.setMaximumWidth(30)
         self.prev_result_button.setMaximumHeight(30)
-        self.prev_result_button.setFont(QFont("Exo 2", 11))
         self.prev_result_button.clicked.connect(self.go_to_previous_result)
-        self.prev_result_button.setStyleSheet("""
-            QPushButton { 
-                background-color: transparent; 
-                border: none; 
-            }
-            QPushButton:hover { 
-                background-color: rgba(100, 100, 100, 0.3); 
-                border-radius: 15px; 
-            }
-        """)
+
         self.prev_result_button.setVisible(False)
         search_layout.addWidget(self.prev_result_button)
 
         self.next_result_button = QPushButton("▼", self.search_container)
+        self.next_result_button.setObjectName("nextResultButton")
         self.next_result_button.setMinimumHeight(30)
         self.next_result_button.setMinimumWidth(30)
         self.next_result_button.setMaximumWidth(30)
         self.next_result_button.setMaximumHeight(30)
-        self.next_result_button.setFont(QFont("Exo 2", 11))
         self.next_result_button.clicked.connect(self.go_to_next_result)
-        self.next_result_button.setStyleSheet("""
-            QPushButton { 
-                background-color: transparent; 
-                border: none; 
-            }
-            QPushButton:hover { 
-                background-color: rgba(100, 100, 100, 0.3); 
-                border-radius: 15px; 
-            }
-        """)
         self.next_result_button.setVisible(False)
         search_layout.addWidget(self.next_result_button)
 
                                  
         self.search_input = QLineEdit(self.search_container)
+        self.search_input.setObjectName("searchInput")
         self.search_input.setPlaceholderText("Search in table...")
         self.search_input.setMinimumHeight(30)
-        self.search_input.setFont(QFont("Exo 2", 11))
+
         search_layout.addWidget(self.search_input)
 
                                                           
@@ -961,10 +690,11 @@ class ResultsWindow(QDialog):
 
                                  
         self.search_button = QPushButton("Find", self.search_container)
+        self.search_button.setObjectName("searchButton")
         self.search_button.setMinimumHeight(30)
-        self.search_button.setFont(QFont("Exo 2", 11))
         self.search_button.setMinimumWidth(70)
         self.search_button.clicked.connect(self.perform_search)
+
         search_layout.addWidget(self.search_button)
 
                                                           
@@ -1079,9 +809,9 @@ class ResultsWindow(QDialog):
 
                                       
         self.close_button = QPushButton("Close")
+        self.close_button.setObjectName("closeButton")
         self.close_button.setMinimumWidth(120)
         self.close_button.setMinimumHeight(40)
-        self.close_button.setFont(QFont("Exo 2", 12, QFont.Weight.Bold))
         self.close_button.clicked.connect(self.close)
 
         self.bottom_layout.addWidget(self.close_button, 0)                      
@@ -1517,9 +1247,9 @@ class ResultsWindow(QDialog):
         try:
                           
             total_scores = self.stats_data["lost_scores"].get("total", 0)
+            total_scores = self.stats_data["lost_scores"].get("total", 0)
             scores_label = QLabel(f"TOTAL: {total_scores}")
-            scores_label.setProperty("class", "StatsLabel")
-            scores_label.setFont(QFont("Exo 2", 11, QFont.Weight.Bold))
+            scores_label.setProperty("class", "StatsLabel Bold")                                             
             self.stats_panel_layout.addWidget(scores_label)
 
                                    
@@ -1533,7 +1263,6 @@ class ResultsWindow(QDialog):
                 pp_label = QLabel("AVG PP: N/A")
 
             pp_label.setProperty("class", "StatsLabel")
-            pp_label.setFont(QFont("Exo 2", 11))
             self.stats_panel_layout.addWidget(pp_label)
 
             self.stats_panel_layout.addStretch()
@@ -1558,13 +1287,11 @@ class ResultsWindow(QDialog):
             overall_pp = self.stats_data["parsed_top"].get("Overall PP", "N/A")
             pp_label = QLabel(f"Overall PP: {overall_pp}")
             pp_label.setProperty("class", "StatsLabel")
-            pp_label.setFont(QFont("Exo 2", 11, QFont.Weight.Bold))
             self.stats_panel_layout.addWidget(pp_label)
 
             overall_acc = self.stats_data["parsed_top"].get("Overall Accuracy", "N/A")
             acc_label = QLabel(f"Overall Accuracy: {overall_acc}")
             acc_label.setProperty("class", "StatsLabel")
-            acc_label.setFont(QFont("Exo 2", 11))
             self.stats_panel_layout.addWidget(acc_label)
 
             self.stats_panel_layout.addStretch()
@@ -1588,64 +1315,59 @@ class ResultsWindow(QDialog):
                                                                            
             current_pp = self.stats_data["parsed_top"].get("Overall PP", "N/A")
             current_pp_label = QLabel(f"Current PP: {current_pp}")
-            current_pp_label.setProperty("class", "StatsLabel")
-            current_pp_label.setFont(QFont("Exo 2", 11, QFont.Weight.Bold))
+            current_pp_label.setProperty("class", "StatsLabel Bold")                                             
             self.stats_panel_layout.addWidget(current_pp_label)
 
                           
             potential_pp = self.stats_data["top_with_lost"].get("Overall Potential PP", "N/A")
             potential_pp_label = QLabel(f"Potential PP: {potential_pp}")
-            potential_pp_label.setProperty("class", "StatsLabel")
-            potential_pp_label.setFont(QFont("Exo 2", 11, QFont.Weight.Bold))
+            potential_pp_label.setProperty("class", "StatsLabel Bold")                        
+
             self.stats_panel_layout.addWidget(potential_pp_label)
 
                                               
             current_acc = self.stats_data["parsed_top"].get("Overall Accuracy", "N/A")
             current_acc_label = QLabel(f"Current Accuracy: {current_acc}")
             current_acc_label.setProperty("class", "StatsLabel")
-            current_acc_label.setFont(QFont("Exo 2", 11))
             self.stats_panel_layout.addWidget(current_acc_label)
 
                                 
             potential_acc = self.stats_data["top_with_lost"].get("Overall Accuracy", "N/A")
             potential_acc_label = QLabel(f"Potential Accuracy: {potential_acc}")
             potential_acc_label.setProperty("class", "StatsLabel")
-            potential_acc_label.setFont(QFont("Exo 2", 11))
             self.stats_panel_layout.addWidget(potential_acc_label)
 
                       
             delta_pp = self.stats_data["top_with_lost"].get("Difference", "N/A")
-            delta_pp_color = TEXT_COLOR
             try:
                 diff_num = float(delta_pp)
                 if diff_num > 0:
                     delta_pp = f"+{delta_pp}"
-                    delta_pp_color = "#80FF80"               
+                    delta_pp_label = QLabel(f"Δ PP: {delta_pp}")
+                    delta_pp_label.setProperty("class", "StatsLabel PositiveValue")
                 elif diff_num < 0:
-                    delta_pp_color = "#FF8080"             
+                    delta_pp_label = QLabel(f"Δ PP: {delta_pp}")
+                    delta_pp_label.setProperty("class", "StatsLabel NegativeValue")
+                else:
+                    delta_pp_label = QLabel(f"Δ PP: {delta_pp}")
+                    delta_pp_label.setProperty("class", "StatsLabel")
             except ValueError:
-                pass
+                delta_pp_label = QLabel(f"Δ PP: {delta_pp}")
+                delta_pp_label.setProperty("class", "StatsLabel")
 
-            delta_pp_label = QLabel(f"Δ PP: {delta_pp}")
-            delta_pp_label.setProperty("class", "StatsLabel")
-            delta_pp_label.setFont(QFont("Exo 2", 11))
-            delta_pp_label.setStyleSheet(f"color: {delta_pp_color};")
             self.stats_panel_layout.addWidget(delta_pp_label)
 
                             
             delta_acc = self.stats_data["top_with_lost"].get("Δ Overall Accuracy", "N/A")
-            delta_acc_color = TEXT_COLOR
+            delta_acc_class = "StatsLabel"
             if isinstance(delta_acc, str):
                 if delta_acc.startswith('+'):
-                    delta_acc_color = "#80FF80"               
+                    delta_acc_class = "StatsLabel PositiveValue"
                 elif delta_acc.startswith('-'):
-                    delta_acc_color = "#FF8080"             
+                    delta_acc_class = "StatsLabel NegativeValue"
 
             delta_acc_label = QLabel(f"Δ Accuracy: {delta_acc}")
-            delta_acc_label.setProperty("class", "StatsLabel")
-            delta_acc_label.setFont(QFont("Exo 2", 11))
-            delta_acc_label.setStyleSheet(f"color: {delta_acc_color};")
-            self.stats_panel_layout.addWidget(delta_acc_label)
+            delta_acc_label.setProperty("class", delta_acc_class)
 
             self.stats_panel_layout.addStretch()
         except Exception as e:
@@ -1712,25 +1434,6 @@ class ResultsWindow(QDialog):
     def show_table_context_menu(self, table_view, position):
                                                      
         menu = QMenu()
-        menu.setStyleSheet("""
-            QMenu {
-                background-color: #121212;
-                color: white;
-                border: 1px solid #333333;
-                border-radius: 5px;
-                padding: 5px;
-            }
-            QMenu::item {
-                padding: 5px 15px;
-                border-radius: 3px;
-            }
-            QMenu::item:selected {
-                background-color: #333333;
-            }
-            QMenu::item:disabled {
-                color: #666666;
-            }
-        """)
 
                                       
         copy_action = menu.addAction("Copy")
@@ -1800,25 +1503,6 @@ class ResultsWindow(QDialog):
 
     def show_context_menu(self, widget, position):
         menu = QMenu()
-        menu.setStyleSheet("""
-            QMenu {
-                background-color: #121212;
-                color: white;
-                border: 1px solid #333333;
-                border-radius: 5px;
-                padding: 5px;
-            }
-            QMenu::item {
-                padding: 5px 15px;
-                border-radius: 3px;
-            }
-            QMenu::item:selected {
-                background-color: #333333;
-            }
-            QMenu::item:disabled {
-                color: #666666;
-            }
-        """)
 
         if isinstance(widget, QLineEdit):
             cut_action = menu.addAction("Cut")
@@ -1923,6 +1607,7 @@ class MainWindow(QWidget):
         self.setWindowTitle("osu! Lost Scores Analyzer")
         self.setGeometry(100, 100, 650, 500)
         self.setFixedSize(650, 500)
+        self.setObjectName("mainWindow")
 
         self.scan_completed = threading.Event()
         self.top_completed = threading.Event()
@@ -1931,11 +1616,10 @@ class MainWindow(QWidget):
         self.overall_progress = 0
         self.current_task = "Ready to start"
 
-        self.load_fonts()
         self.load_icons()
-        self.load_background()
 
         self.initUI()
+        self.load_background()
 
         self.config = {}
         self.load_config()
@@ -2088,32 +1772,6 @@ class MainWindow(QWidget):
 
         event.accept()
 
-    def load_fonts(self):
-
-        font_db = QFontDatabase()
-        fonts_loaded = 0
-        if os.path.isdir(FONT_PATH):
-            for filename in os.listdir(FONT_PATH):
-                if filename.lower().endswith((".ttf", ".otf")):
-                    font_id = font_db.addApplicationFont(os.path.join(FONT_PATH, filename))
-                    if font_id != -1:
-                        fonts_loaded += 1
-                    else:
-                        print(f" -> Error loading font: {filename}")
-            if fonts_loaded > 0:
-                print(f"Loaded {fonts_loaded} local fonts.")
-            else:
-                print(f"Local fonts in {FONT_PATH} not loaded.")
-        else:
-            print(f"Font folder not found: {FONT_PATH}")
-
-        self.title_font = QFont("Exo 2", 24, QFont.Weight.Bold)
-        self.button_font = QFont("Exo 2", 14, QFont.Weight.Bold)
-        self.label_font = QFont("Exo 2", 14)
-        self.entry_font = QFont("Exo 2", 10, weight=QFont.Weight.Normal, italic=True)
-        self.log_font = QFont("Exo 2", 10)
-        self.log_font.setItalic(True)
-
     def load_icons(self):
         self.icons = {}
         icon_files_qt = {
@@ -2130,7 +1788,7 @@ class MainWindow(QWidget):
                     self.icons[name][state] = QIcon()
 
     def load_background(self):
-
+        BACKGROUND_IMAGE_PATH = get_resource_path(os.path.join("assets", "background", "bg.png"))
         self.background_pixmap = None
         if os.path.exists(BACKGROUND_IMAGE_PATH):
             try:
@@ -2147,14 +1805,13 @@ class MainWindow(QWidget):
             print(f"Background file not found: {BACKGROUND_IMAGE_PATH}")
 
     def paintEvent(self, event):
-
         painter = QPainter(self)
-        if self.background_pixmap:
+        if hasattr(self, 'background_pixmap') and self.background_pixmap:
             scaled_pixmap = self.background_pixmap.scaled(self.size(), Qt.AspectRatioMode.IgnoreAspectRatio,
                                                           Qt.TransformationMode.SmoothTransformation)
             painter.drawPixmap(self.rect(), scaled_pixmap)
         else:
-            painter.fillRect(self.rect(), QColor(BG_COLOR))
+            painter.fillRect(self.rect(), QColor("#251a37"))
         painter.end()
 
     def initUI(self):
@@ -2168,7 +1825,6 @@ class MainWindow(QWidget):
         self.title_label = QLabel(self)
         self.title_label.setGeometry(50, 20, 550, 50)
         self.title_label.setObjectName("TitleLabel")
-        self.title_label.setFont(self.title_font)
         self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.title_label.setText(
             '<span style="color: #ee4bbd;">osu!</span><span style="color: white;"> Lost Scores Analyzer</span> 🍋')
@@ -2176,32 +1832,16 @@ class MainWindow(QWidget):
 
         dir_label = QLabel("osu! Game Directory", self)
         dir_label.setGeometry(50, 90, 550, 30)
-        dir_label.setFont(self.label_font)
+        dir_label.setObjectName("dirLabel")
 
         dir_container = QFrame(self)
         dir_container.setGeometry(50, 125, 550, 40)
-        dir_container.setStyleSheet(f"""
-            QFrame {{
-                background-color: {FG_COLOR};
-                border: 2px solid {NORMAL_BORDER_COLOR};
-                border-radius: 5px;
-            }}
-            QFrame:hover {{
-                border: 2px solid {ACCENT_COLOR};
-            }}
-        """)
+        dir_container.setObjectName("dirContainer")
 
         self.game_entry = QLineEdit(dir_container)
         self.game_entry.setGeometry(10, 0, 500, 40)
-        self.game_entry.setFont(self.entry_font)
+        self.game_entry.setObjectName("gameEntry")
         self.game_entry.setPlaceholderText("Path to your osu! installation folder...")
-        self.game_entry.setStyleSheet("""
-            QLineEdit {
-                background-color: transparent;
-                border: none;
-                padding: 5px;
-            }
-        """)
 
         self.browse_button = FolderButton(self.icons.get("folder", {}).get("normal"),
                                           self.icons.get("folder", {}).get("hover"), dir_container)
@@ -2211,133 +1851,40 @@ class MainWindow(QWidget):
 
         url_label = QLabel("Username (or ID / URL)", self)
         url_label.setGeometry(50, 180, 550, 30)
-        url_label.setFont(self.label_font)
+        url_label.setObjectName("urlLabel")
 
         self.profile_entry = QLineEdit(self)
         self.profile_entry.setGeometry(50, 215, 550, 40)
-        self.profile_entry.setFont(self.entry_font)
+        self.profile_entry.setObjectName("profileEntry")
         self.profile_entry.setPlaceholderText("e.g., https://osu.ppy.sh/users/2")
-        self.profile_entry.setStyleSheet(f"""
-            QLineEdit {{
-                background-color: {FG_COLOR};
-                color: {TEXT_COLOR};
-                border: 2px solid {NORMAL_BORDER_COLOR};
-                border-radius: 5px;
-                padding: 5px;
-            }}
-            QLineEdit:hover {{
-                border: 2px solid {ACCENT_COLOR};
-            }}
-        """)
 
         scores_label = QLabel("Number of scores to display", self)
         scores_label.setGeometry(50, 270, 550, 30)
-        scores_label.setFont(self.label_font)
+        scores_label.setObjectName("scoresLabel")
 
         self.scores_count_entry = QLineEdit(self)
+
         self.scores_count_entry.setGeometry(50, 305, 350, 40)
-        self.api_button = HoverButton("API Keys", None, None, self)
+        self.scores_count_entry.setObjectName("scoresCountEntry")
+        self.api_button = QPushButton("API Keys", self)
         self.api_button.setGeometry(410, 305, 190, 40)
-        self.api_button.setFont(self.button_font)
-        self.api_button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {FG_COLOR};
-                color: {TEXT_COLOR};
-                border: 2px solid {ACCENT_COLOR};
-                border-radius: 5px;
-                text-align: center;
-            }}
-            QPushButton:hover {{
-                border: 2px solid {ACCENT_COLOR};
-                background-color: {FG_COLOR};
-            }}
-        """)
+        self.api_button.setObjectName("apiButton")
         self.api_button.clicked.connect(self.open_api_dialog)
         checkbox_y = 365
 
         self.include_unranked_checkbox = QCheckBox("Include unranked/loved beatmaps", self)
         self.include_unranked_checkbox.setGeometry(50, checkbox_y, 550, 25)
-        self.include_unranked_checkbox.setFont(self.label_font)
-        self.include_unranked_checkbox.setStyleSheet(f"""
-            QCheckBox {{
-                color: {TEXT_COLOR};
-            }}
-            QCheckBox::indicator {{
-                width: 16px;
-                height: 16px;
-                background-color: {FG_COLOR};
-                border: 2px solid {NORMAL_BORDER_COLOR};
-                border-radius: 3px;
-            }}
-            QCheckBox::indicator:checked {{
-                background-color: {ACCENT_COLOR};
-                border: 2px solid {ACCENT_COLOR};
-            }}
-            QCheckBox::indicator:hover {{
-                border: 2px solid {ACCENT_COLOR};
-            }}
-        """)
+        self.include_unranked_checkbox.setObjectName("includeUnrankedCheckbox")
 
         self.show_lost_checkbox = QCheckBox("Show at least one lost score", self)
         self.show_lost_checkbox.setGeometry(50, checkbox_y + 35, 550, 25)
-        self.show_lost_checkbox.setFont(self.label_font)
-        self.show_lost_checkbox.setStyleSheet(f"""
-            QCheckBox {{
-                color: {TEXT_COLOR};
-            }}
-            QCheckBox::indicator {{
-                width: 16px;
-                height: 16px;
-                background-color: {FG_COLOR};
-                border: 2px solid {NORMAL_BORDER_COLOR};
-                border-radius: 3px;
-            }}
-            QCheckBox::indicator:checked {{
-                background-color: {ACCENT_COLOR};
-                border: 2px solid {ACCENT_COLOR};
-            }}
-            QCheckBox::indicator:hover {{
-                border: 2px solid {ACCENT_COLOR};
-            }}
-        """)
+        self.show_lost_checkbox.setObjectName("showLostCheckbox")
 
         self.clean_scan_checkbox = QCheckBox("Perform clean scan (reset cache)", self)
         self.clean_scan_checkbox.setGeometry(50, checkbox_y + 70, 550, 25)
-        self.clean_scan_checkbox.setFont(self.label_font)
-        self.clean_scan_checkbox.setStyleSheet(f"""
-            QCheckBox {{
-                color: {TEXT_COLOR};
-            }}
-            QCheckBox::indicator {{
-                width: 16px;
-                height: 16px;
-                background-color: {FG_COLOR};
-                border: 2px solid {NORMAL_BORDER_COLOR};
-                border-radius: 3px;
-            }}
-            QCheckBox::indicator:checked {{
-                background-color: {ACCENT_COLOR};
-                border: 2px solid {ACCENT_COLOR};
-            }}
-            QCheckBox::indicator:hover {{
-                border: 2px solid {ACCENT_COLOR};
-            }}
-        """)
+        self.clean_scan_checkbox.setObjectName("cleanScanCheckbox")
 
-        self.scores_count_entry.setFont(self.entry_font)
         self.scores_count_entry.setPlaceholderText("For example, 10")
-        self.scores_count_entry.setStyleSheet(f"""
-            QLineEdit {{
-                background-color: {FG_COLOR};
-                color: {TEXT_COLOR};
-                border: 2px solid {NORMAL_BORDER_COLOR};
-                border-radius: 5px;
-                padding: 5px;
-            }}
-            QLineEdit:hover {{
-                border: 2px solid {ACCENT_COLOR};
-            }}
-        """)
 
         validator = QtGui.QIntValidator(1, 100, self)
         self.scores_count_entry.setValidator(validator)
@@ -2356,120 +1903,45 @@ class MainWindow(QWidget):
 
         btn_all_width = 550
         btn_y = 470
-        self.btn_all = HoverButton("Start Scan", None, None, self)
+        self.btn_all = QPushButton("Start Scan", self)
         self.btn_all.setGeometry(50, btn_y, 550, 50)
-        self.btn_all.setFont(self.button_font)
-
-        self.btn_all.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {FG_COLOR};
-                color: {TEXT_COLOR};
-                border: 2px solid {NORMAL_BORDER_COLOR};
-                border-radius: 5px;
-                text-align: center;
-            }}
-            QPushButton:hover {{
-                border: 2px solid {ACCENT_COLOR};
-            }}
-        """)
-
-        self.api_button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {FG_COLOR};
-                color: {TEXT_COLOR};
-                border: 2px solid {NORMAL_BORDER_COLOR};
-                border-radius: 5px;
-                text-align: center;
-            }}
-            QPushButton:hover {{
-                border: 2px solid {ACCENT_COLOR};
-            }}
-        """)
+        self.btn_all.setObjectName("btnAll")
         self.btn_all.clicked.connect(self.start_all_processes)
 
         self.progress_bar = AnimatedProgressBar(self)
         self.progress_bar.setGeometry(50, btn_y + 65, 550, 20)
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
-        self.progress_bar.setStyleSheet(f"""
-            QProgressBar {{
-                background-color: {FG_COLOR}; 
-                color: {TEXT_COLOR};
-                border: none;
-                border-radius: 8px;
-                text-align: center;
-            }}
-            QProgressBar::chunk {{
-                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {ACCENT_COLOR}, stop:1 #9932CC);
-                border-radius: 7px;
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {ACCENT_COLOR}, stop:1 #9932CC);
-            }}
-        """)
+        self.progress_bar.setObjectName("progressBar")
 
         self.status_label = QLabel(self.current_task, self)
         self.status_label.setGeometry(50, btn_y + 90, 550, 25)
         self.status_label.setObjectName("StatusLabel")
-        status_font = QFont("Exo 2", 11)
-        status_font.setItalic(True)
-        self.status_label.setFont(status_font)
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.status_label.setStyleSheet(f"QLabel#StatusLabel {{ color: {TEXT_COLOR}; background-color: transparent; }}")
 
         log_label = QLabel("Log", self)
         log_label.setGeometry(50, btn_y + 130, 550, 25)
-        log_label.setFont(self.label_font)
+        log_label.setObjectName("logLabel")
 
         log_container = QFrame(self)
         log_container.setGeometry(50, btn_y + 160, 550, 120)
         log_container.setObjectName("LogContainer")
         log_container.setFrameShape(QFrame.Shape.NoFrame)
         log_container.setAutoFillBackground(True)
-        log_container.setStyleSheet(f"""
-            QFrame#LogContainer {{
-                background-color: {FG_COLOR};
-                border: 2px solid {NORMAL_BORDER_COLOR};
-                border-radius: 5px;
-            }}
-            QFrame#LogContainer:hover {{
-                border: 2px solid {ACCENT_COLOR};
-            }}
-        """)
 
         log_layout = QVBoxLayout(log_container)
         log_layout.setContentsMargins(5, 5, 5, 5)
 
         self.log_textbox = QTextEdit(log_container)
-        self.log_textbox.setFont(self.log_font)
+        self.log_textbox.setObjectName("logTextbox")
         self.log_textbox.setReadOnly(True)
-        self.log_textbox.setStyleSheet(f"""
-            QTextEdit {{ 
-                background-color: {FG_COLOR}; 
-                color: {TEXT_COLOR};
-                border: none; 
-            }}
-        """)
+
         log_layout.addWidget(self.log_textbox)
 
                                              
         self.results_button = QPushButton("See Full Results", self)
         self.results_button.setGeometry(50, btn_y + 290, 550, 40)
-        self.results_button.setFont(self.button_font)
-        self.results_button.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {FG_COLOR};
-                color: {TEXT_COLOR};
-                border: 2px solid {NORMAL_BORDER_COLOR};
-                border-radius: 5px;
-                text-align: center;
-            }}
-            QPushButton:hover {{
-                border: 2px solid {ACCENT_COLOR};
-            }}
-            QPushButton:disabled {{
-                color: #666666;
-                border: 2px solid #333333;
-            }}
-        """)
+        self.results_button.setObjectName("resultsButton")
         self.results_button.clicked.connect(self.show_results_window)
         self.results_button.setEnabled(False)
 
@@ -2485,42 +1957,6 @@ class MainWindow(QWidget):
         self.scores_count_entry.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.scores_count_entry.customContextMenuRequested.connect(
             partial(self.show_context_menu, self.scores_count_entry))
-
-        self.setStyleSheet(self.get_stylesheet())
-
-    def get_stylesheet(self):
-        return f"""
-            QWidget {{ background-color: transparent; color: {TEXT_COLOR}; }}
-            QLabel {{ background-color: transparent; color: {TEXT_COLOR}; }}
-            QLabel#TitleLabel {{ background-color: transparent; }}
-
-            /* Стили для скроллбара */
-            QScrollBar:vertical {{ 
-                border: none; 
-                background: {FG_COLOR}; 
-                width: 8px; 
-                margin: 0; 
-            }}
-            QScrollBar::handle:vertical {{ 
-                background: {NORMAL_BORDER_COLOR}; 
-                min-height: 20px; 
-                border-radius: 4px; 
-            }}
-            QScrollBar::handle:vertical:hover {{ 
-                background: {ACCENT_COLOR}; 
-            }}
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ 
-                border: none; 
-                background: none; 
-                height: 0px; 
-            }}
-            QScrollBar::up-arrow:vertical, QScrollBar::down-arrow:vertical {{ 
-                background: none; 
-            }}
-            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ 
-                background: none; 
-            }}
-        """
 
     @Slot(str, bool)
     def append_log(self, message, update_last):
@@ -3129,25 +2565,6 @@ class MainWindow(QWidget):
 
     def show_context_menu(self, widget, position):
         menu = QMenu()
-        menu.setStyleSheet("""
-            QMenu {
-                background-color: #121212;
-                color: white;
-                border: 1px solid #333333;
-                border-radius: 5px;
-                padding: 5px;
-            }
-            QMenu::item {
-                padding: 5px 15px;
-                border-radius: 3px;
-            }
-            QMenu::item:selected {
-                background-color: #333333; /* Цвет выделения при наведении/выборе */
-            }
-            QMenu::item:disabled {
-                color: #666666; /* Цвет для неактивных пунктов */
-            }
-        """)
 
         if isinstance(widget, QLineEdit):
             cut_action = menu.addAction("Cut")
@@ -3317,10 +2734,55 @@ class MainWindow(QWidget):
 
 def create_gui():
     app = QApplication.instance()
+    if app is None:                                                  
+         app = QApplication(sys.argv)
+
+                      
+    font_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "fonts")
+    if os.path.isdir(font_path):
+        font_db = QFontDatabase()
+        fonts_loaded = 0
+        for filename in os.listdir(font_path):
+            if filename.lower().endswith((".ttf", ".otf")):
+                font_id = font_db.addApplicationFont(os.path.join(font_path, filename))
+                if font_id != -1:
+                    fonts_loaded += 1
+        if fonts_loaded > 0:
+            logger.info(f"Loaded {fonts_loaded} local fonts")
+
+                         
+    qss = load_qss()
+    if qss:
+        app.setStyleSheet(qss)
+        print("--- [DEBUG] QSS стили УСПЕШНО применены к QApplication.")             
+                                                                                                
+    else:
+        print("--- [DEBUG] QSS стили НЕ БЫЛИ применены (содержимое пустое или ошибка загрузки).")                              
+                                                                                                      
+
     window = MainWindow()
     window.show()
     return window
 
 
 if __name__ == "__main__":
-    create_gui()
+    app = QApplication(sys.argv)
+
+                      
+    font_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "fonts")
+    if os.path.isdir(font_path):
+        font_db = QFontDatabase()
+        for filename in os.listdir(font_path):
+            if filename.lower().endswith((".ttf", ".otf")):
+                font_db.addApplicationFont(os.path.join(font_path, filename))
+
+                         
+    qss = load_qss()
+    if qss:
+        app.setStyleSheet(qss)
+        print("--- [DEBUG] QSS стили УСПЕШНО применены к QApplication (из __main__).")             
+    else:
+        print("--- [DEBUG] QSS стили НЕ БЫЛИ применены (из __main__).")             
+
+    window = create_gui()
+    sys.exit(app.exec())
