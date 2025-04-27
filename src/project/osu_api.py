@@ -50,8 +50,10 @@ def retry_request(func, max_retries=3, backoff_factor=0.5):
             try:
                 return func(*args, **kwargs)
             except requests.exceptions.RequestException as e:
-                wait_time = backoff_factor * (2 ** retries)
-                logger.warning(f"Retry {retries + 1}/{max_retries} after error: {e}. Waiting {wait_time}s")
+                wait_time = backoff_factor * (2**retries)
+                logger.warning(
+                    f"Retry {retries + 1}/{max_retries} after error: {e}. Waiting {wait_time}s"
+                )
                 time.sleep(wait_time)
                 retries += 1
 
@@ -79,13 +81,15 @@ def token_osu():
         "client_id": client_id,
         "client_secret": client_secret,
         "grant_type": "client_credentials",
-        "scope": "public"
+        "scope": "public",
     }
 
     try:
         resp = session.post(url, data=data)
         if resp.status_code == 401:
-            logger.error("Invalid API credentials. Check your Client ID and Client Secret.")
+            logger.error(
+                "Invalid API credentials. Check your Client ID and Client Secret."
+            )
             logger.error("Server response: %s", resp.text)
             return None
 
@@ -107,16 +111,16 @@ def token_osu():
 def user_osu(identifier, lookup_key, token):
     wait_osu()
     url = f"https://osu.ppy.sh/api/v2/users/{identifier}"
-    params = {
-        'key': lookup_key
-    }
+    params = {"key": lookup_key}
     logger.info("GET user: %s with params %s", url, params)
     headers = {"Authorization": f"Bearer {token}"}
 
     try:
         resp = session.get(url, headers=headers, params=params)
         if resp.status_code == 404:
-            logger.error("User '%s' (lookup type: %s) not found.", identifier, lookup_key)
+            logger.error(
+                "User '%s' (lookup type: %s) not found.", identifier, lookup_key
+            )
             return None
         resp.raise_for_status()
         return resp.json()
@@ -135,12 +139,17 @@ def top_osu(token, user_id, limit=200):
 
     for offset in range(0, limit, page_size):
         url = f"https://osu.ppy.sh/api/v2/users/{user_id}/scores/best"
-        logger.info("GET top: %s (offset=%d, limit=%d)", url, offset, min(page_size, limit - offset))
+        logger.info(
+            "GET top: %s (offset=%d, limit=%d)",
+            url,
+            offset,
+            min(page_size, limit - offset),
+        )
         headers = {"Authorization": f"Bearer {token}"}
         params = {
             "limit": min(page_size, limit - offset),
             "offset": offset,
-            "include": "beatmap"
+            "include": "beatmap",
         }
 
         wait_osu()
@@ -161,10 +170,16 @@ def top_osu(token, user_id, limit=200):
                 break
 
         except requests.exceptions.HTTPError as e:
-            logger.error("HTTP error when requesting top scores for user %s: %s", user_id, e)
+            logger.error(
+                "HTTP error when requesting top scores for user %s: %s", user_id, e
+            )
             raise
         except Exception as e:
-            logger.error("Unexpected error when requesting top scores for user %s: %s", user_id, e)
+            logger.error(
+                "Unexpected error when requesting top scores for user %s: %s",
+                user_id,
+                e,
+            )
             raise
 
     return all_scores
@@ -204,7 +219,7 @@ def map_osu(beatmap_id, token):
             "title": bset.get("title", ""),
             "version": data.get("version", ""),
             "creator": bset.get("creator", ""),
-            "hit_objects": hobj
+            "hit_objects": hobj,
         }
     except requests.exceptions.HTTPError as e:
         logger.error("HTTP error when requesting beatmap data %s: %s", beatmap_id, e)
@@ -212,7 +227,9 @@ def map_osu(beatmap_id, token):
             time.sleep(5)
         raise
     except Exception as e:
-        logger.error("Unexpected error when requesting beatmap data %s: %s", beatmap_id, e)
+        logger.error(
+            "Unexpected error when requesting beatmap data %s: %s", beatmap_id, e
+        )
         raise
 
 
@@ -230,7 +247,7 @@ def lookup_osu(checksum):
         headers = {
             "Authorization": f"Bearer {token}",
             "Accept": "application/json",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
         params = {"checksum": checksum}
 
@@ -249,12 +266,16 @@ def lookup_osu(checksum):
 
         return data.get("id")
     except requests.exceptions.HTTPError as e:
-        logger.error("HTTP error when looking up beatmap by checksum %s: %s", checksum, e)
+        logger.error(
+            "HTTP error when looking up beatmap by checksum %s: %s", checksum, e
+        )
         if "429" in str(e):
             time.sleep(5)
         raise
     except Exception as e:
-        logger.error("Unexpected error when looking up beatmap by checksum %s: %s", checksum, e)
+        logger.error(
+            "Unexpected error when looking up beatmap by checksum %s: %s", checksum, e
+        )
         raise
 
 
@@ -263,7 +284,9 @@ def save_keys_to_keyring(client_id, client_secret):
         if client_id and client_secret:
             keyring.set_password(KEYRING_SERVICE, CLIENT_ID_KEY, client_id)
             keyring.set_password(KEYRING_SERVICE, CLIENT_SECRET_KEY, client_secret)
-            logger.info("API keys saved to system keyring (CLIENT_ID: %s...)", client_id[:4])
+            logger.info(
+                "API keys saved to system keyring (CLIENT_ID: %s...)", client_id[:4]
+            )
             return True
         else:
             logger.warning("Cannot save empty API keys")
@@ -279,7 +302,10 @@ def get_keys_from_keyring():
         client_secret = keyring.get_password(KEYRING_SERVICE, CLIENT_SECRET_KEY)
 
         if client_id and client_secret:
-            logger.info("API keys retrieved from system keyring (CLIENT_ID: %s...)", client_id[:4])
+            logger.info(
+                "API keys retrieved from system keyring (CLIENT_ID: %s...)",
+                client_id[:4],
+            )
         else:
             logger.warning("API keys not found in system keyring")
 

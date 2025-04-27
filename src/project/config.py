@@ -11,7 +11,10 @@ if not dotenv_path or not os.path.exists(dotenv_path):
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     dotenv_path = get_resource_path(os.path.join("..", ".env"))
     dotenv_path = os.path.abspath(dotenv_path)
-    logger.warning("DOTENV_PATH not set or file doesn't exist, using: %s", mask_path_for_log(dotenv_path))
+    logger.info(
+        "DOTENV_PATH not set or file doesn't exist, using: %s",
+        mask_path_for_log(dotenv_path),
+    )
 
 if os.path.exists(dotenv_path):
     logger.info("Loading .env from: %s", mask_path_for_log(dotenv_path))
@@ -26,6 +29,7 @@ cutoff_env = os.environ.get("CUTOFF_DATE", "1729728000")
 try:
     CUTOFF_DATE = int(cutoff_env)
 except ValueError:
-
-    logger.warning("Could not convert CUTOFF_DATE '%s' to number, using default value", cutoff_env)
+    logger.warning(
+        "Could not convert CUTOFF_DATE '%s' to number, using default value", cutoff_env
+    )
     CUTOFF_DATE = 1729728000

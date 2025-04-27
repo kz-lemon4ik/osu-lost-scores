@@ -17,13 +17,51 @@ from file_parser import reset_in_memory_caches
 from config import DB_FILE
 
 from PySide6 import QtCore, QtGui
-from PySide6.QtCore import (Qt, Signal, QRunnable, QThreadPool, QObject, Slot, QPropertyAnimation, QEasingCurve,
-                            QAbstractTableModel, QModelIndex, QSize, QPoint, QRect, QTimer)
-from PySide6.QtGui import QPixmap, QPainter, QFontDatabase, QIcon, QFont, QColor, QShortcut, QKeySequence, QCursor
+from PySide6.QtCore import (
+    Qt,
+    Signal,
+    QRunnable,
+    QThreadPool,
+    QObject,
+    Slot,
+    QPropertyAnimation,
+    QEasingCurve,
+    QAbstractTableModel,
+    QModelIndex,
+    QSize,
+    QPoint,
+    QRect,
+)
+from PySide6.QtGui import (
+    QPixmap,
+    QPainter,
+    QFontDatabase,
+    QIcon,
+    QColor,
+    QShortcut,
+    QKeySequence,
+)
 from PySide6.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
-    QPushButton, QProgressBar, QTextEdit, QFileDialog, QMessageBox, QMenu, QFrame,
-    QDialog, QCheckBox, QHeaderView, QTabWidget, QTableView, QGridLayout, QSizePolicy, QToolTip
+    QApplication,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QProgressBar,
+    QTextEdit,
+    QFileDialog,
+    QMessageBox,
+    QMenu,
+    QFrame,
+    QDialog,
+    QCheckBox,
+    QHeaderView,
+    QTabWidget,
+    QTableView,
+    QSizePolicy,
+    QToolTip,
 )
 
 try:
@@ -32,7 +70,8 @@ try:
     PYPERCLIP_AVAILABLE = True
 except ImportError:
     print(
-        "WARNING: pyperclip not found (pip install pyperclip). Copy/paste may not work correctly.")
+        "WARNING: pyperclip not found (pip install pyperclip). Copy/paste may not work correctly."
+    )
     PYPERCLIP_AVAILABLE = False
 
 import generate_image as img_mod
@@ -44,7 +83,9 @@ BASE_SRC_PATH = get_resource_path("")
 ICON_PATH = get_resource_path(os.path.join("assets", "icons"))
 FONT_PATH = get_resource_path(os.path.join("assets", "fonts"))
 BACKGROUND_FOLDER_PATH = get_resource_path(os.path.join("assets", "background"))
-BACKGROUND_IMAGE_PATH = get_resource_path(os.path.join("assets", "background", "bg.png"))
+BACKGROUND_IMAGE_PATH = get_resource_path(
+    os.path.join("assets", "background", "bg.png")
+)
 CONFIG_PATH = get_resource_path(os.path.join("config", "gui_config.json"))
 
 os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
@@ -52,7 +93,10 @@ os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
 
 def load_qss():
     style_path = get_resource_path(os.path.join("assets", "styles", "style.qss"))
-    logger.debug("Attempting to load QSS from: %s", mask_path_for_log(os.path.normpath(style_path)))
+    logger.debug(
+        "Attempting to load QSS from: %s",
+        mask_path_for_log(os.path.normpath(style_path)),
+    )
 
     try:
         with open(style_path, "r", encoding="utf-8") as f:
@@ -80,10 +124,10 @@ class Worker(QRunnable):
         self.args = args
         self.kwargs = kwargs
         self.signals = WorkerSignals()
-        if 'progress_callback' in self.fn.__code__.co_varnames:
-            self.kwargs['progress_callback'] = partial(self.emit_progress)
-        if 'gui_log' in self.fn.__code__.co_varnames:
-            self.kwargs['gui_log'] = partial(self.emit_log)
+        if "progress_callback" in self.fn.__code__.co_varnames:
+            self.kwargs["progress_callback"] = partial(self.emit_progress)
+        if "gui_log" in self.fn.__code__.co_varnames:
+            self.kwargs["gui_log"] = partial(self.emit_log)
 
     @Slot()
     def run(self):
@@ -179,7 +223,9 @@ class AnimatedProgressBar(QProgressBar):
 
 
 class ApiDialog(QDialog):
-    def __init__(self, parent=None, client_id="", client_secret="", keys_currently_exist=False):
+    def __init__(
+        self, parent=None, client_id="", client_secret="", keys_currently_exist=False
+    ):
         super().__init__(parent)
         self.setWindowTitle("API Keys Configuration")
         self.setFixedSize(440, 340)
@@ -223,7 +269,7 @@ class ApiDialog(QDialog):
 
         self.show_secret_btn = FolderButton(
             QIcon(os.path.join(ICON_PATH, "eye_closed.png")),
-            QIcon(os.path.join(ICON_PATH, "eye_closed_hover.png"))
+            QIcon(os.path.join(ICON_PATH, "eye_closed_hover.png")),
         )
         self.show_secret_btn.setObjectName("showSecretBtn")
         self.show_secret_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -241,13 +287,16 @@ class ApiDialog(QDialog):
         layout.addSpacing(15)
 
         self.help_label = QLabel(
-            '<a href="https://osu.ppy.sh/home/account/edit#oauth" style="color:#ee4bbd;">How to get API keys?</a>')
+            '<a href="https://osu.ppy.sh/home/account/edit#oauth" style="color:#ee4bbd;">How to get API keys?</a>'
+        )
         self.help_label.setObjectName("helpLabel")
         self.help_label.setOpenExternalLinks(True)
         self.help_label.setVisible(not keys_currently_exist)
         layout.addWidget(self.help_label)
 
-        self.clear_hint_label = QLabel("Tip: To delete saved API keys, leave both fields empty and click 'Save'.")
+        self.clear_hint_label = QLabel(
+            "Tip: To delete saved API keys, leave both fields empty and click 'Save'."
+        )
         self.clear_hint_label.setObjectName("clearHintLabel")
         self.clear_hint_label.setWordWrap(True)
         self.clear_hint_label.setVisible(keys_currently_exist)
@@ -271,22 +320,34 @@ class ApiDialog(QDialog):
         layout.addLayout(button_layout)
 
         self.id_input.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.id_input.customContextMenuRequested.connect(lambda pos: self.show_context_menu(self.id_input, pos))
+        self.id_input.customContextMenuRequested.connect(
+            lambda pos: self.show_context_menu(self.id_input, pos)
+        )
 
         self.secret_input.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.secret_input.customContextMenuRequested.connect(lambda pos: self.show_context_menu(self.secret_input, pos))
+        self.secret_input.customContextMenuRequested.connect(
+            lambda pos: self.show_context_menu(self.secret_input, pos)
+        )
 
     def toggle_secret_visibility(self):
         self.is_secret_visible = not self.is_secret_visible
 
         if self.is_secret_visible:
             self.secret_input.setEchoMode(QLineEdit.EchoMode.Normal)
-            self.show_secret_btn.normal_icon = QIcon(os.path.join(ICON_PATH, "eye_open.png"))
-            self.show_secret_btn.hover_icon = QIcon(os.path.join(ICON_PATH, "eye_open_hover.png"))
+            self.show_secret_btn.normal_icon = QIcon(
+                os.path.join(ICON_PATH, "eye_open.png")
+            )
+            self.show_secret_btn.hover_icon = QIcon(
+                os.path.join(ICON_PATH, "eye_open_hover.png")
+            )
         else:
             self.secret_input.setEchoMode(QLineEdit.EchoMode.Password)
-            self.show_secret_btn.normal_icon = QIcon(os.path.join(ICON_PATH, "eye_closed.png"))
-            self.show_secret_btn.hover_icon = QIcon(os.path.join(ICON_PATH, "eye_closed_hover.png"))
+            self.show_secret_btn.normal_icon = QIcon(
+                os.path.join(ICON_PATH, "eye_closed.png")
+            )
+            self.show_secret_btn.hover_icon = QIcon(
+                os.path.join(ICON_PATH, "eye_closed_hover.png")
+            )
 
         if self.show_secret_btn.is_hovered:
             self.show_secret_btn.setIcon(self.show_secret_btn.hover_icon)
@@ -369,7 +430,6 @@ class PandasTableModel(QAbstractTableModel):
                 return str(value)
 
             if isinstance(value, (float, int)):
-
                 if col_name in ["100", "50", "Misses"]:
                     return str(int(value)) if pd.notna(value) else ""
 
@@ -381,29 +441,29 @@ class PandasTableModel(QAbstractTableModel):
             return str(value)
 
         elif role == Qt.ItemDataRole.BackgroundRole:
-
             if index.row() % 2 == 0:
                 return QColor("#302444")
             else:
                 return QColor(45, 32, 62)
 
         elif role == Qt.ItemDataRole.TextAlignmentRole:
-
             value = self._data.iloc[index.row(), index.column()]
             if isinstance(value, (int, float)):
                 return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
             return Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
 
         elif role == Qt.ItemDataRole.ForegroundRole:
-
             col_name = self._data.columns[index.column()]
             score_id_col = "Score ID" if "Score ID" in self._data.columns else None
 
             if score_id_col:
                 try:
-                    score_id_value = str(self._data.iloc[index.row(), self._data.columns.get_loc(score_id_col)])
+                    score_id_value = str(
+                        self._data.iloc[
+                            index.row(), self._data.columns.get_loc(score_id_col)
+                        ]
+                    )
                     if score_id_value == "LOST":
-
                         if col_name == "PP" or col_name == score_id_col:
                             return QColor("#ee4bbd")
                 except Exception:
@@ -413,22 +473,29 @@ class PandasTableModel(QAbstractTableModel):
         return None
 
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
-
-        if orientation == Qt.Orientation.Horizontal and role == Qt.ItemDataRole.DisplayRole:
+        if (
+            orientation == Qt.Orientation.Horizontal
+            and role == Qt.ItemDataRole.DisplayRole
+        ):
             if section < len(self._data.columns):
                 return str(self._data.columns[section])
             return str(section)
 
-        if orientation == Qt.Orientation.Vertical and role == Qt.ItemDataRole.DisplayRole:
+        if (
+            orientation == Qt.Orientation.Vertical
+            and role == Qt.ItemDataRole.DisplayRole
+        ):
             return str(section + 1)
 
-        if orientation == Qt.Orientation.Vertical and role == Qt.ItemDataRole.SizeHintRole:
+        if (
+            orientation == Qt.Orientation.Vertical
+            and role == Qt.ItemDataRole.SizeHintRole
+        ):
             return QSize(25, 25)
 
         return None
 
     def sort(self, column, order):
-
         try:
             if column >= len(self._data.columns):
                 return
@@ -439,7 +506,6 @@ class PandasTableModel(QAbstractTableModel):
             self.layoutAboutToBeChanged.emit()
 
             if col_name == "Mods":
-
                 temp_df = self._data.copy()
 
                 def mod_sort_key(mod_str):
@@ -462,13 +528,16 @@ class PandasTableModel(QAbstractTableModel):
                     return (mod_count, mod_text)
 
                 temp_df["mod_sort_key"] = temp_df[col_name].apply(mod_sort_key)
-                self._data = temp_df.sort_values("mod_sort_key", ascending=ascending).drop("mod_sort_key", axis=1)
+                self._data = temp_df.sort_values(
+                    "mod_sort_key", ascending=ascending
+                ).drop("mod_sort_key", axis=1)
 
             elif col_name == "Rank":
-
                 rank_order = {
-                    "XH": 0, "SSH": 0,
-                    "X": 1, "SS": 1,
+                    "XH": 0,
+                    "SSH": 0,
+                    "X": 1,
+                    "SS": 1,
                     "SH": 2,
                     "S": 3,
                     "A": 4,
@@ -483,34 +552,35 @@ class PandasTableModel(QAbstractTableModel):
                 temp_df["rank_sort_key"] = temp_df[col_name].apply(
                     lambda r: rank_order.get(str(r).upper(), 9) if pd.notna(r) else 9
                 )
-                self._data = temp_df.sort_values("rank_sort_key", ascending=ascending).drop("rank_sort_key", axis=1)
+                self._data = temp_df.sort_values(
+                    "rank_sort_key", ascending=ascending
+                ).drop("rank_sort_key", axis=1)
 
             elif col_name == "Score ID":
-
                 temp_df = self._data.copy()
 
                 def score_id_sort_key(id_str):
                     if str(id_str) == "LOST":
-                        return 0 if not ascending else float('inf')
+                        return 0 if not ascending else float("inf")
                     try:
                         return int(float(id_str))
                     except (ValueError, TypeError):
                         return id_str
 
                 temp_df["id_sort_key"] = temp_df[col_name].apply(score_id_sort_key)
-                self._data = temp_df.sort_values("id_sort_key", ascending=ascending).drop("id_sort_key", axis=1)
+                self._data = temp_df.sort_values(
+                    "id_sort_key", ascending=ascending
+                ).drop("id_sort_key", axis=1)
 
             elif col_name == "Date":
-
                 try:
-
                     temp_df = self._data.copy()
 
                     date_formats = [
                         "%d-%m-%Y %H:%M:%S",
                         "%d-%m-%Y",
                         "%Y-%m-%d %H:%M:%S",
-                        "%Y-%m-%d"
+                        "%Y-%m-%d",
                     ]
 
                     def parse_date_safe(date_str):
@@ -518,7 +588,7 @@ class PandasTableModel(QAbstractTableModel):
                             return pd.NaT
 
                         date_str = str(date_str).strip()
-                        if date_str.endswith('...'):
+                        if date_str.endswith("..."):
                             date_str = date_str[:-3].strip()
 
                         for fmt in date_formats:
@@ -528,35 +598,42 @@ class PandasTableModel(QAbstractTableModel):
                                 continue
 
                         try:
-                            return pd.to_datetime(date_str, errors='coerce')
-                        except:
+                            return pd.to_datetime(date_str, errors="coerce")
+                        except Exception as e:
+                            logger.debug(f"Unexpected error parsing date: {e}")
                             return pd.NaT
 
                     temp_df["date_sort_key"] = temp_df[col_name].apply(parse_date_safe)
-                    self._data = temp_df.sort_values("date_sort_key", ascending=ascending, na_position='last').drop(
-                        "date_sort_key", axis=1)
+                    self._data = temp_df.sort_values(
+                        "date_sort_key", ascending=ascending, na_position="last"
+                    ).drop("date_sort_key", axis=1)
                 except Exception as e:
                     logger.error(f"Error sorting dates: {e}")
 
-                    self._data = self._data.sort_values(col_name, ascending=ascending, na_position='last')
+                    self._data = self._data.sort_values(
+                        col_name, ascending=ascending, na_position="last"
+                    )
 
             elif col_name in ["100", "50", "Misses"]:
-
-                self._data[col_name] = pd.to_numeric(self._data[col_name], errors='coerce')
-                self._data = self._data.sort_values(col_name, ascending=ascending, na_position='last')
+                self._data[col_name] = pd.to_numeric(
+                    self._data[col_name], errors="coerce"
+                )
+                self._data = self._data.sort_values(
+                    col_name, ascending=ascending, na_position="last"
+                )
 
             else:
-
                 try:
-
-                    temp_series = pd.to_numeric(self._data[col_name], errors='coerce')
+                    temp_series = pd.to_numeric(self._data[col_name], errors="coerce")
 
                     if not temp_series.isna().all():
                         self._data[col_name] = temp_series.fillna(self._data[col_name])
                 except Exception as e:
                     logger.debug(f"Column {col_name} is not numeric: {e}")
 
-                self._data = self._data.sort_values(col_name, ascending=ascending, na_position='last')
+                self._data = self._data.sort_values(
+                    col_name, ascending=ascending, na_position="last"
+                )
 
             self.layoutChanged.emit()
         except Exception as e:
@@ -568,10 +645,10 @@ class ResultsWindow(QDialog):
         super().__init__(parent)
 
         self.setWindowFlags(
-            Qt.WindowType.Window |
-            Qt.WindowType.WindowSystemMenuHint |
-            Qt.WindowType.WindowMinMaxButtonsHint |
-            Qt.WindowType.WindowCloseButtonHint
+            Qt.WindowType.Window
+            | Qt.WindowType.WindowSystemMenuHint
+            | Qt.WindowType.WindowMinMaxButtonsHint
+            | Qt.WindowType.WindowCloseButtonHint
         )
 
         screen = QApplication.primaryScreen().availableGeometry()
@@ -581,11 +658,7 @@ class ResultsWindow(QDialog):
 
         logger.info("Initializing ResultsWindow")
 
-        self.stats_data = {
-            "lost_scores": {},
-            "parsed_top": {},
-            "top_with_lost": {}
-        }
+        self.stats_data = {"lost_scores": {}, "parsed_top": {}, "top_with_lost": {}}
 
         self.search_results = []
         self.current_result_index = -1
@@ -593,10 +666,10 @@ class ResultsWindow(QDialog):
         logger.info(f"Created stats_data dictionary: {self.stats_data}")
 
         self.setWindowFlags(
-            Qt.WindowType.Dialog |
-            Qt.WindowType.WindowSystemMenuHint |
-            Qt.WindowType.WindowMinMaxButtonsHint |
-            Qt.WindowType.WindowCloseButtonHint
+            Qt.WindowType.Dialog
+            | Qt.WindowType.WindowSystemMenuHint
+            | Qt.WindowType.WindowMinMaxButtonsHint
+            | Qt.WindowType.WindowCloseButtonHint
         )
 
         screen = QApplication.primaryScreen().availableGeometry()
@@ -657,7 +730,8 @@ class ResultsWindow(QDialog):
 
         self.search_input.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.search_input.customContextMenuRequested.connect(
-            lambda pos: self.show_context_menu(self.search_input, pos))
+            lambda pos: self.show_context_menu(self.search_input, pos)
+        )
 
         self.search_button = QPushButton("Find", self.search_container)
         self.search_button.setObjectName("searchButton")
@@ -691,8 +765,7 @@ class ResultsWindow(QDialog):
         self.lost_scores_view.verticalHeader().setMaximumWidth(35)
 
         self.lost_scores_view.setSizePolicy(
-            QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Expanding
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
 
         self.lost_scores_layout.addWidget(self.lost_scores_view, 1)
@@ -710,8 +783,7 @@ class ResultsWindow(QDialog):
         self.parsed_top_view.verticalHeader().setMaximumWidth(35)
 
         self.parsed_top_view.setSizePolicy(
-            QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Expanding
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
 
         self.parsed_top_layout.addWidget(self.parsed_top_view, 1)
@@ -729,8 +801,7 @@ class ResultsWindow(QDialog):
         self.top_with_lost_view.verticalHeader().setMaximumWidth(35)
 
         self.top_with_lost_view.setSizePolicy(
-            QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Expanding
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
 
         self.top_with_lost_layout.addWidget(self.top_with_lost_view, 1)
@@ -748,8 +819,7 @@ class ResultsWindow(QDialog):
         self.stats_panel.setMinimumHeight(40)
         self.stats_panel.setMaximumHeight(50)
         self.stats_panel.setSizePolicy(
-            QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Fixed
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
 
         self.stats_panel_layout = QHBoxLayout(self.stats_panel)
@@ -773,38 +843,57 @@ class ResultsWindow(QDialog):
         self.search_button.setAutoDefault(True)
         self.search_button.setDefault(True)
 
-        self.lost_scores_view.setSelectionMode(QTableView.SelectionMode.ExtendedSelection)
-        self.parsed_top_view.setSelectionMode(QTableView.SelectionMode.ExtendedSelection)
-        self.top_with_lost_view.setSelectionMode(QTableView.SelectionMode.ExtendedSelection)
+        self.lost_scores_view.setSelectionMode(
+            QTableView.SelectionMode.ExtendedSelection
+        )
+        self.parsed_top_view.setSelectionMode(
+            QTableView.SelectionMode.ExtendedSelection
+        )
+        self.top_with_lost_view.setSelectionMode(
+            QTableView.SelectionMode.ExtendedSelection
+        )
 
-        self.lost_scores_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.parsed_top_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.top_with_lost_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.lost_scores_view.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu
+        )
+        self.parsed_top_view.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu
+        )
+        self.top_with_lost_view.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu
+        )
 
         self.lost_scores_view.customContextMenuRequested.connect(
-            lambda pos: self.show_table_context_menu(self.lost_scores_view, pos))
+            lambda pos: self.show_table_context_menu(self.lost_scores_view, pos)
+        )
         self.parsed_top_view.customContextMenuRequested.connect(
-            lambda pos: self.show_table_context_menu(self.parsed_top_view, pos))
+            lambda pos: self.show_table_context_menu(self.parsed_top_view, pos)
+        )
         self.top_with_lost_view.customContextMenuRequested.connect(
-            lambda pos: self.show_table_context_menu(self.top_with_lost_view, pos))
+            lambda pos: self.show_table_context_menu(self.top_with_lost_view, pos)
+        )
 
         shortcut_search = QShortcut(QKeySequence("Ctrl+F"), self)
         shortcut_search.activated.connect(self.focus_search)
 
         shortcut_copy_lost = QShortcut(QKeySequence("Ctrl+C"), self.lost_scores_view)
-        shortcut_copy_lost.activated.connect(lambda: self.copy_selected_cells(self.lost_scores_view))
+        shortcut_copy_lost.activated.connect(
+            lambda: self.copy_selected_cells(self.lost_scores_view)
+        )
 
         shortcut_copy_top = QShortcut(QKeySequence("Ctrl+C"), self.parsed_top_view)
-        shortcut_copy_top.activated.connect(lambda: self.copy_selected_cells(self.parsed_top_view))
+        shortcut_copy_top.activated.connect(
+            lambda: self.copy_selected_cells(self.parsed_top_view)
+        )
 
-        shortcut_copy_potential = QShortcut(QKeySequence("Ctrl+C"), self.top_with_lost_view)
-        shortcut_copy_potential.activated.connect(lambda: self.copy_selected_cells(self.top_with_lost_view))
+        shortcut_copy_potential = QShortcut(
+            QKeySequence("Ctrl+C"), self.top_with_lost_view
+        )
+        shortcut_copy_potential.activated.connect(
+            lambda: self.copy_selected_cells(self.top_with_lost_view)
+        )
 
-        self.stats_data = {
-            "lost_scores": {},
-            "parsed_top": {},
-            "top_with_lost": {}
-        }
+        self.stats_data = {"lost_scores": {}, "parsed_top": {}, "top_with_lost": {}}
 
         self.load_data()
 
@@ -821,7 +910,6 @@ class ResultsWindow(QDialog):
 
     def load_data(self):
         try:
-
             self.update_scan_time()
 
             lost_scores_path = get_resource_path(os.path.join("csv", "lost_scores.csv"))
@@ -834,7 +922,6 @@ class ResultsWindow(QDialog):
 
                 self.calculate_lost_scores_stats(lost_scores_df)
             else:
-
                 empty_df = pd.DataFrame({"Status": ["No data found. Run scan first."]})
                 model = PandasTableModel(empty_df)
                 self.lost_scores_view.setModel(model)
@@ -842,15 +929,21 @@ class ResultsWindow(QDialog):
             parsed_top_path = get_resource_path(os.path.join("csv", "parsed_top.csv"))
             if os.path.exists(parsed_top_path):
                 try:
-
                     full_df = pd.read_csv(parsed_top_path)
 
-                    stats_keywords = ['Sum weight_PP', 'Overall PP', 'Difference', 'Overall Accuracy']
+                    stats_keywords = [
+                        "Sum weight_PP",
+                        "Overall PP",
+                        "Difference",
+                        "Overall Accuracy",
+                    ]
                     stats_rows = full_df[
-                        full_df.iloc[:, 0].astype(str).str.contains('|'.join(stats_keywords), case=False, na=False)]
+                        full_df.iloc[:, 0]
+                        .astype(str)
+                        .str.contains("|".join(stats_keywords), case=False, na=False)
+                    ]
 
                     if not stats_rows.empty:
-
                         first_stats_idx = stats_rows.index.min()
 
                         stats_df = full_df.iloc[first_stats_idx:].copy()
@@ -858,7 +951,9 @@ class ResultsWindow(QDialog):
 
                         for _, row in stats_df.iterrows():
                             if pd.notna(row.iloc[0]) and pd.notna(row.iloc[1]):
-                                self.stats_data["parsed_top"][str(row.iloc[0])] = str(row.iloc[1])
+                                self.stats_data["parsed_top"][str(row.iloc[0])] = str(
+                                    row.iloc[1]
+                                )
                     else:
                         data_df = full_df.copy()
 
@@ -869,28 +964,37 @@ class ResultsWindow(QDialog):
 
                 except Exception as e:
                     logger.error(f"Error processing parsed_top.csv: {str(e)}")
-                    empty_df = pd.DataFrame({"Error": [f"Error processing data: {str(e)}"]})
+                    empty_df = pd.DataFrame(
+                        {"Error": [f"Error processing data: {str(e)}"]}
+                    )
                     model = PandasTableModel(empty_df)
                     self.parsed_top_view.setModel(model)
             else:
-
                 empty_df = pd.DataFrame({"Status": ["No data found. Run scan first."]})
                 model = PandasTableModel(empty_df)
                 self.parsed_top_view.setModel(model)
 
-            top_with_lost_path = get_resource_path(os.path.join("csv", "top_with_lost.csv"))
+            top_with_lost_path = get_resource_path(
+                os.path.join("csv", "top_with_lost.csv")
+            )
             if os.path.exists(top_with_lost_path):
                 try:
-
                     full_df = pd.read_csv(top_with_lost_path)
 
-                    stats_keywords = ['Sum weight_PP', 'Overall Potential PP', 'Difference', 'Overall Accuracy',
-                                      'Δ Overall Accuracy']
+                    stats_keywords = [
+                        "Sum weight_PP",
+                        "Overall Potential PP",
+                        "Difference",
+                        "Overall Accuracy",
+                        "Δ Overall Accuracy",
+                    ]
                     stats_rows = full_df[
-                        full_df.iloc[:, 0].astype(str).str.contains('|'.join(stats_keywords), case=False, na=False)]
+                        full_df.iloc[:, 0]
+                        .astype(str)
+                        .str.contains("|".join(stats_keywords), case=False, na=False)
+                    ]
 
                     if not stats_rows.empty:
-
                         first_stats_idx = stats_rows.index.min()
 
                         stats_df = full_df.iloc[first_stats_idx:].copy()
@@ -898,7 +1002,9 @@ class ResultsWindow(QDialog):
 
                         for _, row in stats_df.iterrows():
                             if pd.notna(row.iloc[0]) and pd.notna(row.iloc[1]):
-                                self.stats_data["top_with_lost"][str(row.iloc[0])] = str(row.iloc[1])
+                                self.stats_data["top_with_lost"][str(row.iloc[0])] = (
+                                    str(row.iloc[1])
+                                )
                     else:
                         data_df = full_df.copy()
 
@@ -918,11 +1024,12 @@ class ResultsWindow(QDialog):
 
                 except Exception as e:
                     logger.error(f"Error processing top_with_lost.csv: {str(e)}")
-                    empty_df = pd.DataFrame({"Error": [f"Error processing data: {str(e)}"]})
+                    empty_df = pd.DataFrame(
+                        {"Error": [f"Error processing data: {str(e)}"]}
+                    )
                     model = PandasTableModel(empty_df)
                     self.top_with_lost_view.setModel(model)
             else:
-
                 empty_df = pd.DataFrame({"Status": ["No data found. Run scan first."]})
                 model = PandasTableModel(empty_df)
                 self.top_with_lost_view.setModel(model)
@@ -930,7 +1037,6 @@ class ResultsWindow(QDialog):
             self.update_stats_panel(self.tab_widget.currentIndex())
 
         except Exception as e:
-
             logger.error(f"Error loading data: {str(e)}")
             error_df = pd.DataFrame({"Error": [f"Error loading data: {str(e)}"]})
             model = PandasTableModel(error_df)
@@ -939,12 +1045,11 @@ class ResultsWindow(QDialog):
             self.top_with_lost_view.setModel(model)
 
     def update_scan_time(self):
-
         try:
             csv_files = [
                 get_resource_path(os.path.join("csv", "lost_scores.csv")),
                 get_resource_path(os.path.join("csv", "parsed_top.csv")),
-                get_resource_path(os.path.join("csv", "top_with_lost.csv"))
+                get_resource_path(os.path.join("csv", "top_with_lost.csv")),
             ]
 
             newest_time = None
@@ -955,7 +1060,9 @@ class ResultsWindow(QDialog):
                         newest_time = file_time
 
             if newest_time:
-                self.scan_time_label.setText(f"Last scan: {newest_time.strftime('%Y-%m-%d %H:%M:%S')}")
+                self.scan_time_label.setText(
+                    f"Last scan: {newest_time.strftime('%Y-%m-%d %H:%M:%S')}"
+                )
             else:
                 self.scan_time_label.setText("Last scan: Unknown")
         except Exception as e:
@@ -963,7 +1070,6 @@ class ResultsWindow(QDialog):
             self.scan_time_label.setText("Last scan: Error checking time")
 
     def setup_column_widths(self, table_view):
-
         try:
             header = table_view.horizontalHeader()
             model = table_view.model()
@@ -987,7 +1093,7 @@ class ResultsWindow(QDialog):
                 "weight_%": 70,
                 "weight_PP": 70,
                 "Score ID": 90,
-                "Rank": 50
+                "Rank": 50,
             }
 
             for col_idx in range(model.columnCount()):
@@ -996,8 +1102,19 @@ class ResultsWindow(QDialog):
                     width = default_widths[col_name]
                     header.resizeSection(col_idx, width)
 
-                    if col_name in ["100", "50", "Misses", "Rank", "PP", "Accuracy", "weight_%", "weight_PP"]:
-                        header.setSectionResizeMode(col_idx, QHeaderView.ResizeMode.Fixed)
+                    if col_name in [
+                        "100",
+                        "50",
+                        "Misses",
+                        "Rank",
+                        "PP",
+                        "Accuracy",
+                        "weight_%",
+                        "weight_PP",
+                    ]:
+                        header.setSectionResizeMode(
+                            col_idx, QHeaderView.ResizeMode.Fixed
+                        )
 
             beatmap_col_idx = -1
             for col_idx in range(model.columnCount()):
@@ -1007,10 +1124,10 @@ class ResultsWindow(QDialog):
                     break
 
             if beatmap_col_idx >= 0:
-
-                header.setSectionResizeMode(beatmap_col_idx, QHeaderView.ResizeMode.Stretch)
+                header.setSectionResizeMode(
+                    beatmap_col_idx, QHeaderView.ResizeMode.Stretch
+                )
             else:
-
                 header.setStretchLastSection(True)
 
         except Exception as e:
@@ -1018,11 +1135,10 @@ class ResultsWindow(QDialog):
 
             try:
                 header.setStretchLastSection(True)
-            except:
-                pass
+            except Exception as e:
+                logger.debug(f"Error setting header stretch: {e}")
 
     def calculate_lost_scores_stats(self, data_df):
-
         try:
             if data_df.empty:
                 self.stats_data["lost_scores"] = {}
@@ -1033,16 +1149,24 @@ class ResultsWindow(QDialog):
 
             if "PP" in data_df.columns and "Beatmap ID" in data_df.columns:
                 try:
-
-                    parsed_top_path = get_resource_path(os.path.join("csv", "parsed_top.csv"))
+                    parsed_top_path = get_resource_path(
+                        os.path.join("csv", "parsed_top.csv")
+                    )
                     if os.path.exists(parsed_top_path):
                         top_df = pd.read_csv(parsed_top_path)
 
-                        top_df = top_df[~top_df.iloc[:, 0].astype(str).str.contains('Sum|Overall|Difference', na=False)]
+                        top_df = top_df[
+                            ~top_df.iloc[:, 0]
+                            .astype(str)
+                            .str.contains("Sum|Overall|Difference", na=False)
+                        ]
 
                         top_pp_dict = {}
                         for _, row in top_df.iterrows():
-                            if "Beatmap ID" in top_df.columns and "PP" in top_df.columns:
+                            if (
+                                "Beatmap ID" in top_df.columns
+                                and "PP" in top_df.columns
+                            ):
                                 beatmap_id = row["Beatmap ID"]
                                 pp = row["PP"]
                                 if pd.notna(beatmap_id) and pd.notna(pp):
@@ -1050,7 +1174,11 @@ class ResultsWindow(QDialog):
 
                         pp_diffs = []
                         for _, row in data_df.iterrows():
-                            beatmap_id = str(int(row["Beatmap ID"])) if pd.notna(row["Beatmap ID"]) else None
+                            beatmap_id = (
+                                str(int(row["Beatmap ID"]))
+                                if pd.notna(row["Beatmap ID"])
+                                else None
+                            )
                             lost_pp = float(row["PP"]) if pd.notna(row["PP"]) else 0
 
                             if beatmap_id in top_pp_dict:
@@ -1062,11 +1190,9 @@ class ResultsWindow(QDialog):
                             avg_pp_diff = sum(pp_diffs) / len(pp_diffs)
                             self.stats_data["lost_scores"]["avg_pp_lost"] = avg_pp_diff
                         else:
-
                             avg_pp = data_df["PP"].astype(float).mean()
                             self.stats_data["lost_scores"]["avg_pp"] = avg_pp
                     else:
-
                         avg_pp = data_df["PP"].astype(float).mean()
                         self.stats_data["lost_scores"]["avg_pp"] = avg_pp
                 except Exception as e:
@@ -1076,15 +1202,15 @@ class ResultsWindow(QDialog):
             self.stats_data["lost_scores"] = {}
 
     def update_stats_panel(self, tab_index):
-
         try:
-
-            if not hasattr(self, 'stats_panel') or not self.stats_panel:
+            if not hasattr(self, "stats_panel") or not self.stats_panel:
                 logger.error("stats_panel attribute missing")
                 return
 
-            if not hasattr(self, 'stats_panel_layout') or not self.stats_panel_layout:
-                logger.warning("stats_panel_layout attribute missing, getting from panel")
+            if not hasattr(self, "stats_panel_layout") or not self.stats_panel_layout:
+                logger.warning(
+                    "stats_panel_layout attribute missing, getting from panel"
+                )
                 layout = self.stats_panel.layout()
                 if layout:
                     self.stats_panel_layout = layout
@@ -1092,12 +1218,12 @@ class ResultsWindow(QDialog):
                     logger.error("stats_panel has no layout")
                     return
 
-            if not hasattr(self, 'stats_data'):
+            if not hasattr(self, "stats_data"):
                 logger.warning("stats_data attribute missing, creating it")
                 self.stats_data = {
                     "lost_scores": {},
                     "parsed_top": {},
-                    "top_with_lost": {}
+                    "top_with_lost": {},
                 }
 
             self.clear_stats_panel()
@@ -1114,26 +1240,23 @@ class ResultsWindow(QDialog):
                 error_label = QLabel(f"Error: {str(e)}")
                 error_label.setProperty("class", "StatsLabel")
 
-                if hasattr(self, 'stats_panel_layout') and self.stats_panel_layout:
+                if hasattr(self, "stats_panel_layout") and self.stats_panel_layout:
                     self.stats_panel_layout.addWidget(error_label)
                     self.stats_panel_layout.addStretch()
-                elif hasattr(self, 'stats_panel') and self.stats_panel.layout():
+                elif hasattr(self, "stats_panel") and self.stats_panel.layout():
                     self.stats_panel.layout().addWidget(error_label)
                     self.stats_panel.layout().addStretch()
             except Exception as inner_e:
                 logger.error(f"Error displaying error message: {inner_e}")
 
     def clear_stats_panel(self):
-
         try:
-
             layout = None
 
-            if hasattr(self, 'stats_panel_layout') and self.stats_panel_layout:
+            if hasattr(self, "stats_panel_layout") and self.stats_panel_layout:
                 layout = self.stats_panel_layout
 
-
-            elif hasattr(self, 'stats_panel') and self.stats_panel.layout():
+            elif hasattr(self, "stats_panel") and self.stats_panel.layout():
                 layout = self.stats_panel.layout()
 
             if not layout:
@@ -1150,7 +1273,6 @@ class ResultsWindow(QDialog):
             logger.error(f"Error clearing stats panel: {e}")
 
     def update_lost_scores_stats_panel(self):
-
         if not self.stats_data["lost_scores"]:
             label = QLabel("No statistics available")
             label.setProperty("class", "StatsLabel")
@@ -1159,7 +1281,6 @@ class ResultsWindow(QDialog):
             return
 
         try:
-
             total_scores = self.stats_data["lost_scores"].get("total", 0)
             total_scores = self.stats_data["lost_scores"].get("total", 0)
             scores_label = QLabel(f"TOTAL: {total_scores}")
@@ -1187,7 +1308,6 @@ class ResultsWindow(QDialog):
             self.stats_panel_layout.addStretch()
 
     def update_online_top_stats_panel(self):
-
         if not self.stats_data["parsed_top"]:
             label = QLabel("No statistics available")
             label.setProperty("class", "StatsLabel")
@@ -1196,7 +1316,6 @@ class ResultsWindow(QDialog):
             return
 
         try:
-
             overall_pp = self.stats_data["parsed_top"].get("Overall PP", "N/A")
             pp_label = QLabel(f"Overall PP: {overall_pp}")
             pp_label.setProperty("class", "StatsLabel")
@@ -1216,7 +1335,6 @@ class ResultsWindow(QDialog):
             self.stats_panel_layout.addStretch()
 
     def update_potential_top_stats_panel(self):
-
         if not self.stats_data["top_with_lost"] and not self.stats_data["parsed_top"]:
             label = QLabel("No statistics available")
             label.setProperty("class", "StatsLabel")
@@ -1225,13 +1343,14 @@ class ResultsWindow(QDialog):
             return
 
         try:
-
             current_pp = self.stats_data["parsed_top"].get("Overall PP", "N/A")
             current_pp_label = QLabel(f"Current PP: {current_pp}")
             current_pp_label.setProperty("class", "StatsLabel Bold")
             self.stats_panel_layout.addWidget(current_pp_label)
 
-            potential_pp = self.stats_data["top_with_lost"].get("Overall Potential PP", "N/A")
+            potential_pp = self.stats_data["top_with_lost"].get(
+                "Overall Potential PP", "N/A"
+            )
             potential_pp_label = QLabel(f"Potential PP: {potential_pp}")
             potential_pp_label.setProperty("class", "StatsLabel Bold")
 
@@ -1242,7 +1361,9 @@ class ResultsWindow(QDialog):
             current_acc_label.setProperty("class", "StatsLabel")
             self.stats_panel_layout.addWidget(current_acc_label)
 
-            potential_acc = self.stats_data["top_with_lost"].get("Overall Accuracy", "N/A")
+            potential_acc = self.stats_data["top_with_lost"].get(
+                "Overall Accuracy", "N/A"
+            )
             potential_acc_label = QLabel(f"Potential Accuracy: {potential_acc}")
             potential_acc_label.setProperty("class", "StatsLabel")
             self.stats_panel_layout.addWidget(potential_acc_label)
@@ -1267,14 +1388,16 @@ class ResultsWindow(QDialog):
             self.stats_panel_layout.addWidget(delta_pp_label)
 
                             
-            delta_acc = self.stats_data["top_with_lost"].get("Δ Overall Accuracy", "N/A")
+            delta_acc = self.stats_data["top_with_lost"].get(
+                "Δ Overall Accuracy", "N/A"
+            )
             delta_acc_label = QLabel(f"Δ Accuracy: {delta_acc}")
 
                                                                  
             if isinstance(delta_acc, str):
-                if delta_acc.startswith('+'):
+                if delta_acc.startswith("+"):
                     delta_acc_label.setProperty("class", "StatsLabel PositiveValue")
-                elif delta_acc.startswith('-'):
+                elif delta_acc.startswith("-"):
                     delta_acc_label.setProperty("class", "StatsLabel NegativeValue")
                 else:
                     delta_acc_label.setProperty("class", "StatsLabel")
@@ -1292,12 +1415,10 @@ class ResultsWindow(QDialog):
             self.stats_panel_layout.addStretch()
 
     def focus_search(self):
-
         self.search_input.setFocus()
         self.search_input.selectAll()
 
     def perform_search(self):
-
         search_text = self.search_input.text().strip().lower()
         if not search_text:
             self.search_count_label.setText("")
@@ -1335,13 +1456,13 @@ class ResultsWindow(QDialog):
             self.current_result_index = 0
             self.highlight_current_result(current_table)
         else:
-
-            QMessageBox.information(self, "Search Results", f"No matches found for '{search_text}'")
+            QMessageBox.information(
+                self, "Search Results", f"No matches found for '{search_text}'"
+            )
             self.prev_result_button.setVisible(False)
             self.next_result_button.setVisible(False)
 
     def show_table_context_menu(self, table_view, position):
-
         menu = QMenu()
 
         copy_action = menu.addAction("Copy")
@@ -1358,7 +1479,6 @@ class ResultsWindow(QDialog):
         menu.exec(QPoint(global_pos.x() + 24, global_pos.y() + 32))
 
     def copy_selected_cells(self, table_view, show_tooltip=False):
-
         selected = table_view.selectedIndexes()
         if not selected:
             return
@@ -1386,9 +1506,9 @@ class ResultsWindow(QDialog):
         clipboard_text = "\n".join(table_text)
         try:
             import pyperclip
+
             pyperclip.copy(clipboard_text)
         except ImportError:
-
             clipboard = QApplication.clipboard()
             clipboard.setText(clipboard_text)
 
@@ -1398,7 +1518,7 @@ class ResultsWindow(QDialog):
                 f"Copied {len(selected)} cell(s) to clipboard",
                 table_view,
                 QRect(),
-                2000
+                2000,
             )
 
     def show_context_menu(self, widget, position):
@@ -1428,14 +1548,20 @@ class ResultsWindow(QDialog):
             select_all_action.setEnabled(bool(widget.text()))
 
         if menu.actions():
-            menu.exec(QPoint(widget.mapToGlobal(position).x() + 5, widget.mapToGlobal(position).y() + 5))
+            menu.exec(
+                QPoint(
+                    widget.mapToGlobal(position).x() + 5,
+                    widget.mapToGlobal(position).y() + 5,
+                )
+            )
 
     def update_search_ui(self):
-
         result_count = len(self.search_results)
 
         if result_count > 0:
-            current_pos = self.current_result_index + 1 if self.current_result_index >= 0 else 0
+            current_pos = (
+                self.current_result_index + 1 if self.current_result_index >= 0 else 0
+            )
             self.search_count_label.setText(f"{current_pos}/{result_count}")
 
             self.prev_result_button.setVisible(result_count > 0)
@@ -1446,7 +1572,6 @@ class ResultsWindow(QDialog):
             self.next_result_button.setVisible(False)
 
     def highlight_current_result(self, table_view):
-
         if not self.search_results or self.current_result_index < 0:
             return
 
@@ -1461,7 +1586,6 @@ class ResultsWindow(QDialog):
         self.update_search_ui()
 
     def go_to_next_result(self):
-
         if not self.search_results:
             return
 
@@ -1473,11 +1597,12 @@ class ResultsWindow(QDialog):
         else:
             current_table = self.top_with_lost_view
 
-        self.current_result_index = (self.current_result_index + 1) % len(self.search_results)
+        self.current_result_index = (self.current_result_index + 1) % len(
+            self.search_results
+        )
         self.highlight_current_result(current_table)
 
     def go_to_previous_result(self):
-
         if not self.search_results:
             return
 
@@ -1489,7 +1614,9 @@ class ResultsWindow(QDialog):
         else:
             current_table = self.top_with_lost_view
 
-        self.current_result_index = (self.current_result_index - 1) % len(self.search_results)
+        self.current_result_index = (self.current_result_index - 1) % len(
+            self.search_results
+        )
         self.highlight_current_result(current_table)
 
 
@@ -1516,12 +1643,12 @@ class MainWindow(QWidget):
         self.config = {}
         self.load_config()
 
-        if 'osu_path' in self.config and self.config['osu_path']:
-            self.game_entry.setText(self.config['osu_path'])
-        if 'username' in self.config and self.config['username']:
-            self.profile_entry.setText(self.config['username'])
-        if 'scores_count' in self.config and self.config['scores_count']:
-            self.scores_count_entry.setText(str(self.config['scores_count']))
+        if "osu_path" in self.config and self.config["osu_path"]:
+            self.game_entry.setText(self.config["osu_path"])
+        if "username" in self.config and self.config["username"]:
+            self.profile_entry.setText(self.config["username"])
+        if "scores_count" in self.config and self.config["scores_count"]:
+            self.scores_count_entry.setText(str(self.config["scores_count"]))
 
         self.enable_results_button()
 
@@ -1531,16 +1658,20 @@ class MainWindow(QWidget):
         self._try_auto_detect_osu_path()
 
         from osu_api import get_keys_from_keyring
+
         client_id, client_secret = get_keys_from_keyring()
 
         if not client_id or not client_secret:
             QtCore.QTimer.singleShot(500, self.show_first_run_api_dialog)
 
     def show_first_run_api_dialog(self):
-        QMessageBox.information(self, "API Keys Required",
-                                "Welcome to osu! Lost Scores Analyzer!\n\n"
-                                "To use this application, you need to provide osu! API keys.\n"
-                                "Please enter your API keys in the next dialog.")
+        QMessageBox.information(
+            self,
+            "API Keys Required",
+            "Welcome to osu! Lost Scores Analyzer!\n\n"
+            "To use this application, you need to provide osu! API keys.\n"
+            "Please enter your API keys in the next dialog.",
+        )
         self.open_api_dialog()
 
     def enable_results_button(self):
@@ -1548,7 +1679,7 @@ class MainWindow(QWidget):
             csv_files = [
                 get_resource_path(os.path.join("csv", "lost_scores.csv")),
                 get_resource_path(os.path.join("csv", "parsed_top.csv")),
-                get_resource_path(os.path.join("csv", "top_with_lost.csv"))
+                get_resource_path(os.path.join("csv", "top_with_lost.csv")),
             ]
 
             has_data = False
@@ -1562,7 +1693,9 @@ class MainWindow(QWidget):
             if has_data:
                 logger.debug("Results data found. 'See Full Results' button enabled.")
             else:
-                logger.debug("No results data found. 'See Full Results' button disabled.")
+                logger.debug(
+                    "No results data found. 'See Full Results' button disabled."
+                )
 
         except Exception as e:
             logger.error(f"Error checking for results files: {e}")
@@ -1570,7 +1703,6 @@ class MainWindow(QWidget):
             self.results_button.setEnabled(False)
 
     def ensure_csv_files_exist(self):
-
         csv_dir = get_resource_path("csv")
         os.makedirs(csv_dir, exist_ok=True)
 
@@ -1578,7 +1710,9 @@ class MainWindow(QWidget):
         if not os.path.exists(lost_scores_path):
             try:
                 with open(lost_scores_path, "w", encoding="utf-8") as f:
-                    f.write("PP,Beatmap ID,Beatmap,Mods,100,50,Misses,Accuracy,Score,Date,Rank\n")
+                    f.write(
+                        "PP,Beatmap ID,Beatmap,Mods,100,50,Misses,Accuracy,Score,Date,Rank\n"
+                    )
                 self.append_log("Created empty file lost_scores.csv", False)
             except Exception as e:
                 self.append_log(f"Error creating lost_scores.csv: {e}", False)
@@ -1588,7 +1722,8 @@ class MainWindow(QWidget):
             try:
                 with open(parsed_top_path, "w", encoding="utf-8") as f:
                     f.write(
-                        "PP,Beatmap ID,Beatmap,Mods,100,50,Misses,Accuracy,Score,Date,weight_%,weight_PP,Score ID,Rank\n")
+                        "PP,Beatmap ID,Beatmap,Mods,100,50,Misses,Accuracy,Score,Date,weight_%,weight_PP,Score ID,Rank\n"
+                    )
                 self.append_log("Created empty file parsed_top.csv", False)
             except Exception as e:
                 self.append_log(f"Error creating parsed_top.csv: {e}", False)
@@ -1598,62 +1733,65 @@ class MainWindow(QWidget):
             try:
                 with open(top_with_lost_path, "w", encoding="utf-8") as f:
                     f.write(
-                        "PP,Beatmap ID,Status,Beatmap,Mods,100,50,Misses,Accuracy,Score,Date,Rank,weight_%,weight_PP,Score ID\n")
+                        "PP,Beatmap ID,Status,Beatmap,Mods,100,50,Misses,Accuracy,Score,Date,Rank,weight_%,weight_PP,Score ID\n"
+                    )
                 self.append_log("Created empty file top_with_lost.csv", False)
             except Exception as e:
                 self.append_log(f"Error creating top_with_lost.csv: {e}", False)
 
     def load_config(self):
-
         self.config = {}
         try:
             if os.path.exists(CONFIG_PATH):
-                with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
+                with open(CONFIG_PATH, "r", encoding="utf-8") as f:
                     self.config = json.load(f)
-                logger.info("Configuration loaded from %s", mask_path_for_log(CONFIG_PATH))
+                logger.info(
+                    "Configuration loaded from %s", mask_path_for_log(CONFIG_PATH)
+                )
 
         except Exception as e:
             logger.error(f"Error loading configuration: {e}")
             self.config = {}
 
-        if 'include_unranked' in self.config:
-            self.include_unranked_checkbox.setChecked(self.config['include_unranked'])
-        if 'show_lost' in self.config:
-            self.show_lost_checkbox.setChecked(self.config['show_lost'])
-        if 'clean_scan' in self.config:
-            self.clean_scan_checkbox.setChecked(self.config['clean_scan'])
+        if "include_unranked" in self.config:
+            self.include_unranked_checkbox.setChecked(self.config["include_unranked"])
+        if "show_lost" in self.config:
+            self.show_lost_checkbox.setChecked(self.config["show_lost"])
+        if "clean_scan" in self.config:
+            self.clean_scan_checkbox.setChecked(self.config["clean_scan"])
 
     def save_config(self):
-
         try:
-
-            self.config['osu_path'] = self.game_entry.text().strip()
-            self.config['username'] = self.profile_entry.text().strip()
+            self.config["osu_path"] = self.game_entry.text().strip()
+            self.config["username"] = self.profile_entry.text().strip()
 
             scores_count = self.scores_count_entry.text().strip()
             if scores_count:
                 try:
-                    self.config['scores_count'] = int(scores_count)
+                    self.config["scores_count"] = int(scores_count)
                 except ValueError:
-                    self.config['scores_count'] = 10
+                    self.config["scores_count"] = 10
 
-            self.config['include_unranked'] = self.include_unranked_checkbox.isChecked()
-            self.config['show_lost'] = self.show_lost_checkbox.isChecked()
-            self.config['clean_scan'] = self.clean_scan_checkbox.isChecked()
+            self.config["include_unranked"] = self.include_unranked_checkbox.isChecked()
+            self.config["show_lost"] = self.show_lost_checkbox.isChecked()
+            self.config["clean_scan"] = self.clean_scan_checkbox.isChecked()
 
-            with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
+            with open(CONFIG_PATH, "w", encoding="utf-8") as f:
                 json.dump(self.config, f, indent=4)
 
-            logger.info("Configuration saved to %s", mask_path_for_log(os.path.normpath(CONFIG_PATH)))
+            logger.info(
+                "Configuration saved to %s",
+                mask_path_for_log(os.path.normpath(CONFIG_PATH)),
+            )
         except Exception as e:
             logger.error("Error saving configuration: %s", e)
 
     def closeEvent(self, event):
-
         self.save_config()
 
         try:
             from database import db_close
+
             db_close()
         except Exception as e:
             logger.error(f"Error closing database connection: {e}")
@@ -1676,35 +1814,44 @@ class MainWindow(QWidget):
                     self.icons[name][state] = QIcon()
 
     def load_background(self):
-        BACKGROUND_IMAGE_PATH = get_resource_path(os.path.join("assets", "background", "bg.png"))
+        BACKGROUND_IMAGE_PATH = get_resource_path(
+            os.path.join("assets", "background", "bg.png")
+        )
         self.background_pixmap = None
         if os.path.exists(BACKGROUND_IMAGE_PATH):
             try:
                 self.background_pixmap = QPixmap(BACKGROUND_IMAGE_PATH)
                 if self.background_pixmap.isNull():
                     self.background_pixmap = None
-                    logger.warning("Failed to load background: %s",
-                                   mask_path_for_log(os.path.normpath(BACKGROUND_IMAGE_PATH)))
+                    logger.warning(
+                        "Failed to load background: %s",
+                        mask_path_for_log(os.path.normpath(BACKGROUND_IMAGE_PATH)),
+                    )
                 else:
                     logger.info("Background image loaded.")
             except Exception as e:
                 logger.error("Error loading background: %s", e)
                 self.background_pixmap = None
         else:
-            logger.warning("Background file not found: %s", mask_path_for_log(os.path.normpath(BACKGROUND_IMAGE_PATH)))
+            logger.warning(
+                "Background file not found: %s",
+                mask_path_for_log(os.path.normpath(BACKGROUND_IMAGE_PATH)),
+            )
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        if hasattr(self, 'background_pixmap') and self.background_pixmap:
-            scaled_pixmap = self.background_pixmap.scaled(self.size(), Qt.AspectRatioMode.IgnoreAspectRatio,
-                                                          Qt.TransformationMode.SmoothTransformation)
+        if hasattr(self, "background_pixmap") and self.background_pixmap:
+            scaled_pixmap = self.background_pixmap.scaled(
+                self.size(),
+                Qt.AspectRatioMode.IgnoreAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
             painter.drawPixmap(self.rect(), scaled_pixmap)
         else:
             painter.fillRect(self.rect(), QColor("#251a37"))
         painter.end()
 
     def initUI(self):
-
         window_height = 835
         self.setGeometry(100, 100, 650, window_height)
         self.setFixedSize(650, window_height)
@@ -1716,7 +1863,8 @@ class MainWindow(QWidget):
         self.title_label.setObjectName("TitleLabel")
         self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.title_label.setText(
-            '<span style="color: #ee4bbd;">osu!</span><span style="color: white;"> Lost Scores Analyzer</span> 🍋')
+            '<span style="color: #ee4bbd;">osu!</span><span style="color: white;"> Lost Scores Analyzer</span> 🍋'
+        )
         self.title_label.setTextFormat(Qt.TextFormat.RichText)
 
         dir_label = QLabel("osu! Game Directory", self)
@@ -1732,8 +1880,11 @@ class MainWindow(QWidget):
         self.game_entry.setObjectName("gameEntry")
         self.game_entry.setPlaceholderText("Path to your osu! installation folder...")
 
-        self.browse_button = FolderButton(self.icons.get("folder", {}).get("normal"),
-                                          self.icons.get("folder", {}).get("hover"), dir_container)
+        self.browse_button = FolderButton(
+            self.icons.get("folder", {}).get("normal"),
+            self.icons.get("folder", {}).get("hover"),
+            dir_container,
+        )
 
         self.browse_button.setGeometry(510, 5, 30, 30)
         self.browse_button.clicked.connect(self.browse_directory)
@@ -1761,7 +1912,9 @@ class MainWindow(QWidget):
         self.api_button.clicked.connect(self.open_api_dialog)
         checkbox_y = 365
 
-        self.include_unranked_checkbox = QCheckBox("Include unranked/loved beatmaps", self)
+        self.include_unranked_checkbox = QCheckBox(
+            "Include unranked/loved beatmaps", self
+        )
         self.include_unranked_checkbox.setGeometry(50, checkbox_y, 550, 25)
         self.include_unranked_checkbox.setObjectName("includeUnrankedCheckbox")
 
@@ -1790,7 +1943,6 @@ class MainWindow(QWidget):
         self.action_img.setGeometry(0, 0, 0, 0)
         self.action_img.clicked.connect(self.start_img)
 
-        btn_all_width = 550
         btn_y = 470
         self.btn_all = QPushButton("Start Scan", self)
         self.btn_all.setGeometry(50, btn_y, 550, 50)
@@ -1834,17 +1986,26 @@ class MainWindow(QWidget):
         self.results_button.setEnabled(False)
 
         self.log_textbox.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.log_textbox.customContextMenuRequested.connect(partial(self.show_context_menu, self.log_textbox))
+        self.log_textbox.customContextMenuRequested.connect(
+            partial(self.show_context_menu, self.log_textbox)
+        )
 
         self.game_entry.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.game_entry.customContextMenuRequested.connect(partial(self.show_context_menu, self.game_entry))
+        self.game_entry.customContextMenuRequested.connect(
+            partial(self.show_context_menu, self.game_entry)
+        )
 
         self.profile_entry.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.profile_entry.customContextMenuRequested.connect(partial(self.show_context_menu, self.profile_entry))
+        self.profile_entry.customContextMenuRequested.connect(
+            partial(self.show_context_menu, self.profile_entry)
+        )
 
-        self.scores_count_entry.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.scores_count_entry.setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu
+        )
         self.scores_count_entry.customContextMenuRequested.connect(
-            partial(self.show_context_menu, self.scores_count_entry))
+            partial(self.show_context_menu, self.scores_count_entry)
+        )
 
     @Slot(str, bool)
     def append_log(self, message, update_last):
@@ -1874,7 +2035,7 @@ class MainWindow(QWidget):
                     "opened",
                     "button",
                     "selected",
-                    "loaded"
+                    "loaded",
                 ]
 
                 if any(marker in message.lower() for marker in gui_log_messages):
@@ -1883,19 +2044,19 @@ class MainWindow(QWidget):
                     logger.info(message)
 
         except Exception as e:
-            logger.error("Exception inside append_log when processing message '%s': %s", message, e)
+            logger.error(
+                "Exception inside append_log when processing message '%s': %s",
+                message,
+                e,
+            )
 
     @Slot(int, int)
     def update_progress_bar(self, current, total):
-
         if self.scan_completed.is_set() and not self.top_completed.is_set():
-
             progress = 30 + int((current / total) * 30) if total > 0 else 30
         elif self.scan_completed.is_set() and self.top_completed.is_set():
-
             progress = 60 + int((current / total) * 40) if total > 0 else 60
         else:
-
             progress = int((current / total) * 30) if total > 0 else 0
 
         self.overall_progress = progress
@@ -1928,7 +2089,9 @@ class MainWindow(QWidget):
         self.enable_all_button()
 
     def browse_directory(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select osu! Game Directory", "")
+        folder = QFileDialog.getExistingDirectory(
+            self, "Select osu! Game Directory", ""
+        )
         if folder:
             self.game_entry.setText(folder.replace("/", os.sep))
             self.append_log(f"Selected folder: {mask_path_for_log(folder)}", False)
@@ -1936,27 +2099,36 @@ class MainWindow(QWidget):
             self.save_config()
 
     def start_all_processes(self):
-
         game_dir = self.game_entry.text().strip()
         user_input = self.profile_entry.text().strip()
 
         if not game_dir or not user_input:
-            QMessageBox.warning(self, "Error", "Please specify osu! folder and profile input (URL/ID/Username).")
+            QMessageBox.warning(
+                self,
+                "Error",
+                "Please specify osu! folder and profile input (URL/ID/Username).",
+            )
             return
 
         if not os.path.isdir(game_dir):
-            QMessageBox.warning(self, "Error", f"Specified directory doesn't exist: {game_dir}")
+            QMessageBox.warning(
+                self, "Error", f"Specified directory doesn't exist: {game_dir}"
+            )
             return
 
         songs_dir = os.path.join(game_dir, "Songs")
         replays_dir = os.path.join(game_dir, "Data", "r")
 
         if not os.path.isdir(songs_dir):
-            QMessageBox.warning(self, "Error", f"Songs directory not found: {songs_dir}")
+            QMessageBox.warning(
+                self, "Error", f"Songs directory not found: {songs_dir}"
+            )
             return
 
         if not os.path.isdir(replays_dir):
-            QMessageBox.warning(self, "Error", f"Replays directory not found: {replays_dir}")
+            QMessageBox.warning(
+                self, "Error", f"Replays directory not found: {replays_dir}"
+            )
             return
 
         self.has_error = False
@@ -1976,35 +2148,45 @@ class MainWindow(QWidget):
                     except Exception as e:
                         self.append_log(f"Failed to delete database file: {e}", False)
 
-                project_root = get_resource_path("..")
                 folders_to_clean = [
                     get_resource_path("cache"),
                     get_resource_path("maps"),
                     get_resource_path("results"),
                     get_resource_path("csv"),
-                    get_resource_path("assets/images")
+                    get_resource_path("assets/images"),
                 ]
-                logger.debug(f"Folders to clean absolute paths: {mask_path_for_log(folders_to_clean)}")
+                logger.debug(
+                    f"Folders to clean absolute paths: {mask_path_for_log(folders_to_clean)}"
+                )
 
                 for folder in folders_to_clean:
                     abs_folder_path = os.path.abspath(folder)
                     if os.path.exists(abs_folder_path):
-                        self.append_log(f"Deleting folder: {mask_path_for_log(abs_folder_path)}", False)
+                        self.append_log(
+                            f"Deleting folder: {mask_path_for_log(abs_folder_path)}",
+                            False,
+                        )
                         try:
                             shutil.rmtree(abs_folder_path)
                         except OSError as e:
-                            logger.error(f"Error removing directory {abs_folder_path}: {e}")
+                            logger.error(
+                                f"Error removing directory {abs_folder_path}: {e}"
+                            )
 
                             if os.path.isdir(abs_folder_path):
                                 for item in os.listdir(abs_folder_path):
                                     item_path = os.path.join(abs_folder_path, item)
                                     try:
-                                        if os.path.isfile(item_path) or os.path.islink(item_path):
+                                        if os.path.isfile(item_path) or os.path.islink(
+                                            item_path
+                                        ):
                                             os.unlink(item_path)
                                         elif os.path.isdir(item_path):
                                             shutil.rmtree(item_path)
                                     except Exception as ex_inner:
-                                        logger.error(f"Failed to delete item {mask_path_for_log(item_path)}: {ex_inner}")
+                                        logger.error(
+                                            f"Failed to delete item {mask_path_for_log(item_path)}: {ex_inner}"
+                                        )
 
                                         raise e from ex_inner
                             else:
@@ -2012,13 +2194,18 @@ class MainWindow(QWidget):
 
                         if not os.path.exists(abs_folder_path):
                             os.makedirs(abs_folder_path, exist_ok=True)
-                            self.append_log(f"Folder recreated: {abs_folder_path}", False)
+                            self.append_log(
+                                f"Folder recreated: {abs_folder_path}", False
+                            )
                     else:
-
                         os.makedirs(abs_folder_path, exist_ok=True)
-                        self.append_log(f"Folder created (did not exist): {abs_folder_path}", False)
+                        self.append_log(
+                            f"Folder created (did not exist): {abs_folder_path}", False
+                        )
 
-                self.append_log("Re-initializing database connection after cleaning...", False)
+                self.append_log(
+                    "Re-initializing database connection after cleaning...", False
+                )
                 db_init()
                 logger.info("Database re-initialized after cache cleaning.")
 
@@ -2032,10 +2219,14 @@ class MainWindow(QWidget):
                 self.append_log(f"Error clearing cache: {e}", False)
 
                 try:
-                    self.append_log("Attempting DB re-initialization after cache error...", False)
+                    self.append_log(
+                        "Attempting DB re-initialization after cache error...", False
+                    )
                     db_init()
                 except Exception as db_err:
-                    self.append_log(f"Failed to re-initialize DB after cache error: {db_err}", False)
+                    self.append_log(
+                        f"Failed to re-initialize DB after cache error: {db_err}", False
+                    )
 
                 self.enable_all_button()
                 return
@@ -2069,25 +2260,22 @@ class MainWindow(QWidget):
         threading.Thread(target=self._run_sequence, daemon=True).start()
 
     def _run_sequence(self):
-
         try:
-
             QtCore.QMetaObject.invokeMethod(
-                self.action_scan, "click",
-                QtCore.Qt.ConnectionType.QueuedConnection
+                self.action_scan, "click", QtCore.Qt.ConnectionType.QueuedConnection
             )
 
             max_wait_time = 3600
             wait_start = time.time()
 
             while not self.scan_completed.is_set():
-
                 if time.time() - wait_start > max_wait_time:
                     logger.error("Maximum wait time exceeded for replay scanning")
                     QtCore.QMetaObject.invokeMethod(
-                        self, "task_error",
+                        self,
+                        "task_error",
                         QtCore.Qt.ConnectionType.QueuedConnection,
-                        QtCore.Q_ARG(str, "Scan timeout exceeded")
+                        QtCore.Q_ARG(str, "Scan timeout exceeded"),
                     )
                     return
 
@@ -2098,19 +2286,21 @@ class MainWindow(QWidget):
                 return
 
             QtCore.QMetaObject.invokeMethod(
-                self.action_top, "click",
-                QtCore.Qt.ConnectionType.QueuedConnection
+                self.action_top, "click", QtCore.Qt.ConnectionType.QueuedConnection
             )
 
             wait_start = time.time()
 
             while not self.top_completed.is_set():
                 if time.time() - wait_start > max_wait_time:
-                    logger.error("Maximum wait time exceeded for potential top creation")
+                    logger.error(
+                        "Maximum wait time exceeded for potential top creation"
+                    )
                     QtCore.QMetaObject.invokeMethod(
-                        self, "task_error",
+                        self,
+                        "task_error",
                         QtCore.Qt.ConnectionType.QueuedConnection,
-                        QtCore.Q_ARG(str, "Top creation timeout exceeded")
+                        QtCore.Q_ARG(str, "Top creation timeout exceeded"),
                     )
                     return
                 time.sleep(0.1)
@@ -2120,8 +2310,7 @@ class MainWindow(QWidget):
                 return
 
             QtCore.QMetaObject.invokeMethod(
-                self.action_img, "click",
-                QtCore.Qt.ConnectionType.QueuedConnection
+                self.action_img, "click", QtCore.Qt.ConnectionType.QueuedConnection
             )
 
             wait_start = time.time()
@@ -2130,34 +2319,34 @@ class MainWindow(QWidget):
                 if time.time() - wait_start > max_wait_time:
                     logger.error("Maximum wait time exceeded for image creation")
                     QtCore.QMetaObject.invokeMethod(
-                        self, "task_error",
+                        self,
+                        "task_error",
                         QtCore.Qt.ConnectionType.QueuedConnection,
-                        QtCore.Q_ARG(str, "Image creation timeout exceeded")
+                        QtCore.Q_ARG(str, "Image creation timeout exceeded"),
                     )
                     return
                 time.sleep(0.1)
 
             if not self.has_error:
                 QtCore.QMetaObject.invokeMethod(
-                    self, "all_completed_successfully",
-                    QtCore.Qt.ConnectionType.QueuedConnection
+                    self,
+                    "all_completed_successfully",
+                    QtCore.Qt.ConnectionType.QueuedConnection,
                 )
         except Exception as e:
             logger.error(f"Sequential launch error: {e}")
             QtCore.QMetaObject.invokeMethod(
-                self, "task_error",
+                self,
+                "task_error",
                 QtCore.Qt.ConnectionType.QueuedConnection,
-                QtCore.Q_ARG(str, f"Sequential launch error: {e}")
+                QtCore.Q_ARG(str, f"Sequential launch error: {e}"),
             )
         finally:
-
             QtCore.QMetaObject.invokeMethod(
-                self, "enable_all_button",
-                QtCore.Qt.ConnectionType.QueuedConnection
+                self, "enable_all_button", QtCore.Qt.ConnectionType.QueuedConnection
             )
 
     def open_folder(self, path):
-
         if platform.system() == "Windows":
             os.startfile(path)
         elif platform.system() == "Darwin":
@@ -2173,18 +2362,25 @@ class MainWindow(QWidget):
         self.enable_results_button()
 
         if os.path.exists(results_path) and os.path.isdir(results_path):
-            self.append_log(f"Opening results folder: {mask_path_for_log(results_path)}", False)
+            self.append_log(
+                f"Opening results folder: {mask_path_for_log(results_path)}", False
+            )
             self.open_folder(results_path)
         else:
-            self.append_log(f"Results folder not found: {mask_path_for_log(results_path)}", False)
+            self.append_log(
+                f"Results folder not found: {mask_path_for_log(results_path)}", False
+            )
 
-        QMessageBox.information(self, "Done", "Analysis completed! You can find results in the 'results' folder.")
+        QMessageBox.information(
+            self,
+            "Done",
+            "Analysis completed! You can find results in the 'results' folder.",
+        )
         self.save_config()
         self.enable_all_button()
 
     @Slot()
     def enable_all_button(self):
-
         self.btn_all.setDisabled(False)
         self.browse_button.setDisabled(False)
         self.api_button.setDisabled(False)
@@ -2199,7 +2395,11 @@ class MainWindow(QWidget):
         game_dir = self.game_entry.text().strip()
         user_input = self.profile_entry.text().strip()
         if not game_dir or not user_input:
-            QMessageBox.warning(self, "Error", "Please specify osu! folder and profile input (URL/ID/Username).")
+            QMessageBox.warning(
+                self,
+                "Error",
+                "Please specify osu! folder and profile input (URL/ID/Username).",
+            )
             self.scan_completed.set()
             return
 
@@ -2212,7 +2412,13 @@ class MainWindow(QWidget):
         self.progress_bar.setValue(0)
 
         include_unranked = self.include_unranked_checkbox.isChecked()
-        worker = Worker(scan_replays, game_dir, identifier, lookup_key, include_unranked=include_unranked)
+        worker = Worker(
+            scan_replays,
+            game_dir,
+            identifier,
+            lookup_key,
+            include_unranked=include_unranked,
+        )
         worker.signals.progress.connect(self.update_progress_bar)
         worker.signals.log.connect(self.append_log)
         worker.signals.finished.connect(self.task_finished)
@@ -2223,7 +2429,11 @@ class MainWindow(QWidget):
         game_dir = self.game_entry.text().strip()
         user_input = self.profile_entry.text().strip()
         if not game_dir or not user_input:
-            QMessageBox.warning(self, "Error", "Please specify osu! folder and profile input (URL/ID/Username).")
+            QMessageBox.warning(
+                self,
+                "Error",
+                "Please specify osu! folder and profile input (URL/ID/Username).",
+            )
             self.top_completed.set()
             return
 
@@ -2263,7 +2473,9 @@ class MainWindow(QWidget):
         show_lost = self.show_lost_checkbox.isChecked()
 
         if not user_input:
-            QMessageBox.warning(self, "Error", "Please specify profile input (URL/ID/Username).")
+            QMessageBox.warning(
+                self, "Error", "Please specify profile input (URL/ID/Username)."
+            )
             self.img_completed.set()
             return
 
@@ -2286,20 +2498,19 @@ class MainWindow(QWidget):
 
         def task(user_id_or_name, key_type, num_scores, show_lost_flag):
             try:
-
                 QtCore.QMetaObject.invokeMethod(
                     self,
                     "update_progress_bar",
                     QtCore.Qt.ConnectionType.QueuedConnection,
                     QtCore.Q_ARG(int, 65),
-                    QtCore.Q_ARG(int, 100)
+                    QtCore.Q_ARG(int, 100),
                 )
 
                 QtCore.QMetaObject.invokeMethod(
                     self,
                     "update_task",
                     QtCore.Qt.ConnectionType.QueuedConnection,
-                    QtCore.Q_ARG(str, "Getting API token...")
+                    QtCore.Q_ARG(str, "Getting API token..."),
                 )
 
                 token = img_mod.get_token_osu()
@@ -2311,14 +2522,14 @@ class MainWindow(QWidget):
                     "update_progress_bar",
                     QtCore.Qt.ConnectionType.QueuedConnection,
                     QtCore.Q_ARG(int, 70),
-                    QtCore.Q_ARG(int, 100)
+                    QtCore.Q_ARG(int, 100),
                 )
 
                 QtCore.QMetaObject.invokeMethod(
                     self,
                     "update_task",
                     QtCore.Qt.ConnectionType.QueuedConnection,
-                    QtCore.Q_ARG(str, "Getting user data...")
+                    QtCore.Q_ARG(str, "Getting user data..."),
                 )
 
                 user_data = img_mod.get_user_osu(user_id_or_name, key_type, token)
@@ -2328,7 +2539,7 @@ class MainWindow(QWidget):
                         self,
                         "img_error",
                         QtCore.Qt.ConnectionType.QueuedConnection,
-                        QtCore.Q_ARG(str, error_msg)
+                        QtCore.Q_ARG(str, error_msg),
                     )
                     return
 
@@ -2337,7 +2548,7 @@ class MainWindow(QWidget):
                     "update_progress_bar",
                     QtCore.Qt.ConnectionType.QueuedConnection,
                     QtCore.Q_ARG(int, 75),
-                    QtCore.Q_ARG(int, 100)
+                    QtCore.Q_ARG(int, 100),
                 )
 
                 uid = user_data["id"]
@@ -2350,45 +2561,50 @@ class MainWindow(QWidget):
                     "append_log",
                     QtCore.Qt.ConnectionType.QueuedConnection,
                     QtCore.Q_ARG(str, log_message),
-                    QtCore.Q_ARG(bool, False)
+                    QtCore.Q_ARG(bool, False),
                 )
 
                 QtCore.QMetaObject.invokeMethod(
                     self,
                     "update_task",
                     QtCore.Qt.ConnectionType.QueuedConnection,
-                    QtCore.Q_ARG(str, "Creating lost scores image...")
+                    QtCore.Q_ARG(str, "Creating lost scores image..."),
                 )
 
-                img_mod.make_img_lost(user_id=uid, user_name=uname, max_scores=num_scores)
+                img_mod.make_img_lost(
+                    user_id=uid, user_name=uname, max_scores=num_scores
+                )
                 QtCore.QMetaObject.invokeMethod(
                     self,
                     "update_progress_bar",
                     QtCore.Qt.ConnectionType.QueuedConnection,
                     QtCore.Q_ARG(int, 85),
-                    QtCore.Q_ARG(int, 100)
+                    QtCore.Q_ARG(int, 100),
                 )
 
                 QtCore.QMetaObject.invokeMethod(
                     self,
                     "update_task",
                     QtCore.Qt.ConnectionType.QueuedConnection,
-                    QtCore.Q_ARG(str, "Creating potential top image...")
+                    QtCore.Q_ARG(str, "Creating potential top image..."),
                 )
 
-                img_mod.make_img_top(user_id=uid, user_name=uname, max_scores=num_scores, show_lost=show_lost_flag)
+                img_mod.make_img_top(
+                    user_id=uid,
+                    user_name=uname,
+                    max_scores=num_scores,
+                    show_lost=show_lost_flag,
+                )
                 QtCore.QMetaObject.invokeMethod(
                     self,
                     "update_progress_bar",
                     QtCore.Qt.ConnectionType.QueuedConnection,
                     QtCore.Q_ARG(int, 100),
-                    QtCore.Q_ARG(int, 100)
+                    QtCore.Q_ARG(int, 100),
                 )
 
                 QtCore.QMetaObject.invokeMethod(
-                    self,
-                    "img_finished",
-                    QtCore.Qt.ConnectionType.QueuedConnection
+                    self, "img_finished", QtCore.Qt.ConnectionType.QueuedConnection
                 )
 
             except Exception as e:
@@ -2397,14 +2613,17 @@ class MainWindow(QWidget):
                     self,
                     "img_error",
                     QtCore.Qt.ConnectionType.QueuedConnection,
-                    QtCore.Q_ARG(str, error_message)
+                    QtCore.Q_ARG(str, error_message),
                 )
 
-        threading.Thread(target=task, args=(identifier, lookup_key, scores_count, show_lost), daemon=True).start()
+        threading.Thread(
+            target=task,
+            args=(identifier, lookup_key, scores_count, show_lost),
+            daemon=True,
+        ).start()
 
     @Slot(str)
     def update_task(self, task_message):
-
         self.current_task = task_message
         self.status_label.setText(task_message)
 
@@ -2419,8 +2638,11 @@ class MainWindow(QWidget):
     @Slot(str)
     def img_error(self, error_message):
         self.append_log(f"Error generating images: {error_message}", False)
-        QMessageBox.critical(self, "Error generating images",
-                             f"Failed to create images.\n{error_message}")
+        QMessageBox.critical(
+            self,
+            "Error generating images",
+            f"Failed to create images.\n{error_message}",
+        )
         self.progress_bar.setValue(60)
         self.current_task = "Error generating images"
         self.status_label.setText(self.current_task)
@@ -2428,12 +2650,12 @@ class MainWindow(QWidget):
 
     def _parse_user_input(self, user_input):
         identifier = user_input
-        lookup_key = 'username'
+        lookup_key = "username"
 
-        if user_input.startswith(('http://', 'https://')):
+        if user_input.startswith(("http://", "https://")):
             try:
-                parts = user_input.strip('/').split('/')
-                if len(parts) >= 2 and parts[-2] == 'users':
+                parts = user_input.strip("/").split("/")
+                if len(parts) >= 2 and parts[-2] == "users":
                     identifier = parts[-1]
                 elif len(parts) >= 1 and parts[-1].isdigit():
                     identifier = parts[-1]
@@ -2445,16 +2667,16 @@ class MainWindow(QWidget):
                 return None, None
 
             if identifier.isdigit():
-                lookup_key = 'id'
+                lookup_key = "id"
             else:
-                lookup_key = 'username'
+                lookup_key = "username"
 
         elif user_input.isdigit():
             identifier = user_input
-            lookup_key = 'id'
+            lookup_key = "id"
         else:
             identifier = user_input
-            lookup_key = 'username'
+            lookup_key = "username"
 
         return identifier, lookup_key
 
@@ -2485,7 +2707,6 @@ class MainWindow(QWidget):
             select_all_action.setEnabled(bool(widget.text()))
 
         elif isinstance(widget, QTextEdit):
-
             copy_action = menu.addAction("Copy")
             copy_action.triggered.connect(widget.copy)
             copy_action.setEnabled(widget.textCursor().hasSelection())
@@ -2500,9 +2721,7 @@ class MainWindow(QWidget):
             menu.exec(widget.mapToGlobal(position))
 
     def show_results_window(self):
-
         try:
-
             self.results_window = ResultsWindow(self)
 
             self.results_window.show()
@@ -2513,7 +2732,9 @@ class MainWindow(QWidget):
 
         except Exception as e:
             logger.error(f"Error showing results window: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to open results window: {str(e)}")
+            QMessageBox.critical(
+                self, "Error", f"Failed to open results window: {str(e)}"
+            )
 
     def disable_buttons(self, disabled=True):
         self.btn_all.setDisabled(disabled)
@@ -2526,45 +2747,56 @@ class MainWindow(QWidget):
         self.clean_scan_checkbox.setEnabled(not disabled)
 
     def _try_auto_detect_osu_path(self):
-
-        if 'osu_path' in self.config and self.config['osu_path']:
-            saved_path = self.config['osu_path']
+        if "osu_path" in self.config and self.config["osu_path"]:
+            saved_path = self.config["osu_path"]
             if os.path.isdir(saved_path):
                 self.game_entry.setText(saved_path.replace("/", os.sep))
-                self.append_log(f"Loaded path from configuration: {mask_path_for_log(saved_path)}", False)
+                self.append_log(
+                    f"Loaded path from configuration: {mask_path_for_log(saved_path)}",
+                    False,
+                )
                 return
 
         potential_paths = []
 
         if platform.system() == "Windows":
-            local_app_data = os.getenv('LOCALAPPDATA')
+            local_app_data = os.getenv("LOCALAPPDATA")
             if local_app_data:
-                potential_paths.append(os.path.join(local_app_data, 'osu!'))
+                potential_paths.append(os.path.join(local_app_data, "osu!"))
 
-            for drive in ['C:', 'D:', 'E:', 'F:']:
+            for drive in ["C:", "D:", "E:", "F:"]:
                 try:
                     if os.path.exists(f"{drive}\\Users"):
                         for username in os.listdir(f"{drive}\\Users"):
-                            user_appdata = f"{drive}\\Users\\{username}\\AppData\\Local\\osu!"
+                            user_appdata = (
+                                f"{drive}\\Users\\{username}\\AppData\\Local\\osu!"
+                            )
                             if os.path.isdir(user_appdata):
                                 potential_paths.append(user_appdata)
                 except Exception:
-
                     pass
 
         for path in potential_paths:
             if os.path.isdir(path):
                 self.game_entry.setText(path.replace("/", os.sep))
-                self.append_log(f"osu! folder automatically found: {mask_path_for_log(path)}", False)
+                self.append_log(
+                    f"osu! folder automatically found: {mask_path_for_log(path)}", False
+                )
 
-                self.config['osu_path'] = path
+                self.config["osu_path"] = path
                 self.save_config()
                 return
 
-        self.append_log("osu! folder not found automatically. Please specify path manually.", False)
+        self.append_log(
+            "osu! folder not found automatically. Please specify path manually.", False
+        )
 
     def open_api_dialog(self):
-        from osu_api import get_keys_from_keyring, save_keys_to_keyring, delete_keys_from_keyring
+        from osu_api import (
+            get_keys_from_keyring,
+            save_keys_to_keyring,
+            delete_keys_from_keyring,
+        )
 
         current_client_id, current_client_secret = get_keys_from_keyring()
         keys_existed_before_dialog = bool(current_client_id and current_client_secret)
@@ -2573,7 +2805,7 @@ class MainWindow(QWidget):
             self,
             current_client_id or "",
             current_client_secret or "",
-            keys_currently_exist=keys_existed_before_dialog
+            keys_currently_exist=keys_existed_before_dialog,
         )
         result = dialog.exec()
 
@@ -2582,27 +2814,31 @@ class MainWindow(QWidget):
             client_secret = dialog.secret_input.text().strip()
 
             if not client_id and not client_secret:
-
                 if keys_existed_before_dialog:
                     reply = QMessageBox.question(
                         self,
                         "Remove API Keys",
                         "You left both fields empty. Do you want to delete the saved API keys?",
                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                        QMessageBox.StandardButton.No
+                        QMessageBox.StandardButton.No,
                     )
 
                     if reply == QMessageBox.StandardButton.Yes:
                         if delete_keys_from_keyring():
-                            QMessageBox.information(self, "Success", "API keys have been removed successfully.")
+                            QMessageBox.information(
+                                self,
+                                "Success",
+                                "API keys have been removed successfully.",
+                            )
                         else:
-                            QMessageBox.critical(self, "Error", "Failed to remove API keys.")
+                            QMessageBox.critical(
+                                self, "Error", "Failed to remove API keys."
+                            )
                 else:
-
                     QMessageBox.warning(
                         self,
                         "Empty API Keys",
-                        "API keys cannot be empty. Please enter valid Client ID and Client Secret."
+                        "API keys cannot be empty. Please enter valid Client ID and Client Secret.",
                     )
                 return
 
@@ -2610,14 +2846,16 @@ class MainWindow(QWidget):
                 QMessageBox.warning(
                     self,
                     "Incomplete API Keys",
-                    "Both Client ID and Client Secret are required."
+                    "Both Client ID and Client Secret are required.",
                 )
                 return
 
             if save_keys_to_keyring(client_id, client_secret):
                 QMessageBox.information(self, "Success", "API keys saved successfully!")
             else:
-                QMessageBox.critical(self, "Error", "Failed to save API keys to system keyring.")
+                QMessageBox.critical(
+                    self, "Error", "Failed to save API keys to system keyring."
+                )
 
 
 def create_gui():
@@ -2625,7 +2863,9 @@ def create_gui():
     if app is None:
         app = QApplication(sys.argv)
 
-    font_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "fonts")
+    font_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "fonts"
+    )
     if os.path.isdir(font_path):
         font_db = QFontDatabase()
         fonts_loaded = 0
@@ -2653,7 +2893,9 @@ def create_gui():
 if __name__ == "__main__":
     app = QApplication(sys.argv)
 
-    font_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "fonts")
+    font_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "..", "assets", "fonts"
+    )
     if os.path.isdir(font_path):
         font_db = QFontDatabase()
         for filename in os.listdir(font_path):

@@ -47,7 +47,10 @@ class DatabaseManager:
                         """)
 
                     self._initialized = True
-                    logger.info("Database initialized: %s", mask_path_for_log(os.path.normpath(DB_FILE)))
+                    logger.info(
+                        "Database initialized: %s",
+                        mask_path_for_log(os.path.normpath(DB_FILE)),
+                    )
                 except Exception as e:
                     logger.error("Error initializing database: %s", e)
                     raise
@@ -84,12 +87,15 @@ def db_save(bid, status, artist, title, version, creator, objs):
     try:
         conn = db_manager.get_connection()
         with conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO beatmap_info (
                     beatmap_id, status, artist, title, version, creator, hit_objects
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (str(bid), status, artist, title, version, creator, objs))
+            """,
+                (str(bid), status, artist, title, version, creator, objs),
+            )
     except Exception as e:
         logger.error("Error saving data to database: %s", e)
 
@@ -98,11 +104,14 @@ def db_get(bid):
     try:
         conn = db_manager.get_connection()
         cursor = conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT status, artist, title, version, creator, hit_objects
             FROM beatmap_info
             WHERE beatmap_id=?
-        """, (str(bid),))
+        """,
+            (str(bid),),
+        )
         row = cursor.fetchone()
         cursor.close()
 
@@ -113,7 +122,7 @@ def db_get(bid):
                 "title": row[2],
                 "version": row[3],
                 "creator": row[4],
-                "hit_objects": row[5]
+                "hit_objects": row[5],
             }
         return None
     except Exception as e:
