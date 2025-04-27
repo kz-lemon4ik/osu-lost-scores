@@ -10,7 +10,7 @@ from database import db_init, db_get, db_save
 from osu_api import token_osu, user_osu, top_osu
 from file_parser import find_osu, proc_osr, calc_acc, sort_mods
 from config import CUTOFF_DATE
-from utils import get_resource_path
+from utils import get_resource_path, mask_path_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -217,8 +217,8 @@ def scan_replays(game_dir, user_identifier, lookup_key, progress_callback=None, 
         gui_log("Initializing...", update_last=True)
 
     if not os.path.isdir(game_dir):
-        error_msg = f"Game directory does not exist: {game_dir}"
-        logger.error("Game directory does not exist: %s", game_dir)
+        error_msg = f"Game directory does not exist: {mask_path_for_log(game_dir)}"
+        logger.error("Game directory does not exist: %s", mask_path_for_log(game_dir))
         if gui_log:
             gui_log(error_msg, False)
         raise ValueError(error_msg)
@@ -226,16 +226,20 @@ def scan_replays(game_dir, user_identifier, lookup_key, progress_callback=None, 
     songs = os.path.join(game_dir, "Songs")
     replays = os.path.join(game_dir, "Data", "r")
 
+                                                                    
+    from file_parser import set_osu_base_path
+    set_osu_base_path(game_dir)
+
     if not os.path.isdir(songs):
-        error_msg = f"Songs directory not found: {songs}"
-        logger.error("Songs directory not found: %s", songs)
+        error_msg = f"Songs directory not found: {mask_path_for_log(songs)}"
+        logger.error("Songs directory not found: %s", mask_path_for_log(songs))
         if gui_log:
             gui_log(error_msg, False)
         raise ValueError(error_msg)
 
     if not os.path.isdir(replays):
-        error_msg = f"Replays directory not found: {replays}"
-        logger.error("Replays directory not found: %s", replays)
+        error_msg = f"Replays directory not found: {mask_path_for_log(replays)}"
+        logger.error("Replays directory not found: %s", mask_path_for_log(replays))
         if gui_log:
             gui_log(error_msg, False)
         raise ValueError(error_msg)
@@ -542,10 +546,10 @@ def scan_replays(game_dir, user_identifier, lookup_key, progress_callback=None, 
                 gui_log(f"File lost_scores.csv saved.", update_last=True)
                 break
             except PermissionError:
-                logger.warning("File %s is busy, retrying in 0.5 sec.", out_file)
+                logger.warning("File %s is busy, retrying in 0.5 sec.", mask_path_for_log(out_file))
                 time.sleep(0.5)
             except Exception as e:
-                logger.exception("Error writing %s: %s", out_file, e)
+                logger.exception("Error writing %s: %s", mask_path_for_log(out_file), e)
                 break
     else:
         logger.info("Empty: lost scores not written.")

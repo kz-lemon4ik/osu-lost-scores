@@ -11,7 +11,7 @@ import pandas as pd
 import os.path
 from functools import partial
 from datetime import datetime
-from utils import get_resource_path
+from utils import get_resource_path, mask_path_for_log
 from database import db_close, db_init
 from file_parser import reset_in_memory_caches
 from config import DB_FILE
@@ -52,7 +52,7 @@ os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
 
 def load_qss():
     style_path = get_resource_path(os.path.join("assets", "styles", "style.qss"))
-    logger.debug("Attempting to load QSS from: %s", os.path.normpath(style_path))
+    logger.debug("Attempting to load QSS from: %s", mask_path_for_log(os.path.normpath(style_path)))
 
     try:
         with open(style_path, "r", encoding="utf-8") as f:
@@ -1610,7 +1610,7 @@ class MainWindow(QWidget):
             if os.path.exists(CONFIG_PATH):
                 with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
                     self.config = json.load(f)
-                logger.info(f"Configuration loaded from {CONFIG_PATH}")
+                logger.info("Configuration loaded from %s", mask_path_for_log(CONFIG_PATH))
 
         except Exception as e:
             logger.error(f"Error loading configuration: {e}")
@@ -1644,7 +1644,7 @@ class MainWindow(QWidget):
             with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
                 json.dump(self.config, f, indent=4)
 
-            logger.info("Configuration saved to %s", os.path.normpath(CONFIG_PATH))
+            logger.info("Configuration saved to %s", mask_path_for_log(os.path.normpath(CONFIG_PATH)))
         except Exception as e:
             logger.error("Error saving configuration: %s", e)
 
@@ -1672,7 +1672,7 @@ class MainWindow(QWidget):
                 if os.path.exists(path):
                     self.icons[name][state] = QIcon(path)
                 else:
-                    logger.warning(f"Icon file not found: {path}")
+                    logger.warning(f"Icon file not found: {mask_path_for_log(path)}")
                     self.icons[name][state] = QIcon()
 
     def load_background(self):
@@ -1683,14 +1683,15 @@ class MainWindow(QWidget):
                 self.background_pixmap = QPixmap(BACKGROUND_IMAGE_PATH)
                 if self.background_pixmap.isNull():
                     self.background_pixmap = None
-                    logger.warning("Failed to load background: %s", os.path.normpath(BACKGROUND_IMAGE_PATH))
+                    logger.warning("Failed to load background: %s",
+                                   mask_path_for_log(os.path.normpath(BACKGROUND_IMAGE_PATH)))
                 else:
                     logger.info("Background image loaded.")
             except Exception as e:
                 logger.error("Error loading background: %s", e)
                 self.background_pixmap = None
         else:
-            logger.warning("Background file not found: %s", os.path.normpath(BACKGROUND_IMAGE_PATH))
+            logger.warning("Background file not found: %s", mask_path_for_log(os.path.normpath(BACKGROUND_IMAGE_PATH)))
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -1902,7 +1903,7 @@ class MainWindow(QWidget):
 
     @Slot()
     def task_finished(self):
-        print("Background task completed.")
+        logger.info("Background task completed.")
 
         if not self.scan_completed.is_set():
             self.progress_bar.setValue(30)
@@ -1930,7 +1931,7 @@ class MainWindow(QWidget):
         folder = QFileDialog.getExistingDirectory(self, "Select osu! Game Directory", "")
         if folder:
             self.game_entry.setText(folder.replace("/", os.sep))
-            self.append_log(f"Selected folder: {folder}", False)
+            self.append_log(f"Selected folder: {mask_path_for_log(folder)}", False)
 
             self.save_config()
 
@@ -1983,12 +1984,12 @@ class MainWindow(QWidget):
                     get_resource_path("csv"),
                     get_resource_path("assets/images")
                 ]
-                logger.debug(f"Folders to clean absolute paths: {folders_to_clean}")
+                logger.debug(f"Folders to clean absolute paths: {mask_path_for_log(folders_to_clean)}")
 
                 for folder in folders_to_clean:
                     abs_folder_path = os.path.abspath(folder)
                     if os.path.exists(abs_folder_path):
-                        self.append_log(f"Deleting folder: {abs_folder_path}", False)
+                        self.append_log(f"Deleting folder: {mask_path_for_log(abs_folder_path)}", False)
                         try:
                             shutil.rmtree(abs_folder_path)
                         except OSError as e:
@@ -2003,7 +2004,7 @@ class MainWindow(QWidget):
                                         elif os.path.isdir(item_path):
                                             shutil.rmtree(item_path)
                                     except Exception as ex_inner:
-                                        logger.error(f"Failed to delete item {item_path}: {ex_inner}")
+                                        logger.error(f"Failed to delete item {mask_path_for_log(item_path)}: {ex_inner}")
 
                                         raise e from ex_inner
                             else:
@@ -2172,10 +2173,10 @@ class MainWindow(QWidget):
         self.enable_results_button()
 
         if os.path.exists(results_path) and os.path.isdir(results_path):
-            self.append_log(f"Opening results folder: {results_path}", False)
+            self.append_log(f"Opening results folder: {mask_path_for_log(results_path)}", False)
             self.open_folder(results_path)
         else:
-            self.append_log(f"Results folder not found: {results_path}", False)
+            self.append_log(f"Results folder not found: {mask_path_for_log(results_path)}", False)
 
         QMessageBox.information(self, "Done", "Analysis completed! You can find results in the 'results' folder.")
         self.save_config()
@@ -2530,7 +2531,7 @@ class MainWindow(QWidget):
             saved_path = self.config['osu_path']
             if os.path.isdir(saved_path):
                 self.game_entry.setText(saved_path.replace("/", os.sep))
-                self.append_log(f"Loaded path from configuration: {saved_path}", False)
+                self.append_log(f"Loaded path from configuration: {mask_path_for_log(saved_path)}", False)
                 return
 
         potential_paths = []
@@ -2554,7 +2555,7 @@ class MainWindow(QWidget):
         for path in potential_paths:
             if os.path.isdir(path):
                 self.game_entry.setText(path.replace("/", os.sep))
-                self.append_log(f"osu! folder automatically found: {path}", False)
+                self.append_log(f"osu! folder automatically found: {mask_path_for_log(path)}", False)
 
                 self.config['osu_path'] = path
                 self.save_config()

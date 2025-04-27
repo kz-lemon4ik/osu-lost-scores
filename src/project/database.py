@@ -3,10 +3,9 @@ import os
 import logging
 import threading
 from config import DB_FILE
+from utils import mask_path_for_log, get_resource_path
 
 if not os.path.isabs(DB_FILE):
-    from utils import get_resource_path
-
     DB_FILE = get_resource_path(DB_FILE.replace("../", ""))
 
 logger = logging.getLogger(__name__)
@@ -48,7 +47,7 @@ class DatabaseManager:
                         """)
 
                     self._initialized = True
-                    logger.info("Database initialized: %s", os.path.normpath(DB_FILE))
+                    logger.info("Database initialized: %s", mask_path_for_log(os.path.normpath(DB_FILE)))
                 except Exception as e:
                     logger.error("Error initializing database: %s", e)
                     raise

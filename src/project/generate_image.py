@@ -6,7 +6,7 @@ import re
 import datetime
 import logging
 from database import db_get
-from utils import get_resource_path
+from utils import get_resource_path, mask_path_for_log
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +79,7 @@ def create_placeholder_image(filename, username, message):
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
     img.save(out_path)
-    logger.info("Placeholder image saved to %s", os.path.normpath(out_path))
+    logger.info("Placeholder image saved to %s", mask_path_for_log(os.path.normpath(out_path)))
 
 
 def get_token_osu():
@@ -248,19 +248,19 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
         with open(csv_path, "r", encoding="utf-8") as f:
             all_rows = list(csv.DictReader(f))
     except FileNotFoundError:
-        logger.error(f"CSV file not found: {csv_path}")
-        print(f"Error: CSV file not found: {csv_path}")
+        logger.error(f"CSV file not found: {mask_path_for_log(csv_path)}")
+        print(f"Error: CSV file not found: {mask_path_for_log(csv_path)}")
         create_placeholder_image(os.path.basename(out_path), user_name,
-                                 f"CSV file not found: {os.path.basename(csv_path)}")
+                                 f"CSV file not found: {os.path.basename(mask_path_for_log(csv_path))}")
         return
     except Exception as csv_err:
-        logger.error(f"Error reading CSV file {csv_path}: {csv_err}")
-        print(f"Error: Failed to read CSV file: {csv_path}")
+        logger.error(f"Error reading CSV file {mask_path_for_log(csv_path)}: {csv_err}")
+        print(f"Error: Failed to read CSV file: {mask_path_for_log(csv_path)}")
         create_placeholder_image(os.path.basename(out_path), user_name, f"Error reading CSV file: {str(csv_err)}")
         return
 
     if not all_rows:
-        logger.info(f"No data in CSV file {csv_path} for image creation")
+        logger.info(f"No data in CSV file {mask_path_for_log(csv_path)} for image creation")
         create_placeholder_image(os.path.basename(out_path), user_name, f"No data to display in {mode} mode")
         return
 
@@ -392,9 +392,9 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
             base.paste(avatar_img_raw, (av_x, av_y), avatar_img_raw)
             avatar_drawn = True
         except FileNotFoundError:
-            logger.warning(f"Avatar file {avatar_path} not found after download attempt.")
+            logger.warning(f"Avatar file {mask_path_for_log(avatar_path)} not found after download attempt.")
         except Exception as img_err:
-            logger.warning(f"Error processing avatar {avatar_path}: {img_err}.")
+            logger.warning(f"Error processing avatar {mask_path_for_log(avatar_path)}: {img_err}.")
 
     if not avatar_drawn:
         logger.warning(f"Using placeholder for avatar user_id {user_id}.")
@@ -510,7 +510,7 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
             try:
                 c_img = Image.open(cover_file).convert("RGBA").resize((cover_w, cover_h_))
             except Exception as cover_err:
-                logger.warning(f"Failed to open cover {cover_file}: {cover_err}")
+                logger.warning(f"Failed to open cover {mask_path_for_log(cover_file)}: {cover_err}")
                 c_img = None
         elif cover_url and beatmap_id:
 
@@ -551,7 +551,7 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
                 g_img_resized = g_img.resize((nw, nh), Image.Resampling.LANCZOS)
                 base.paste(g_img_resized, (card_x + 10, center_line - nh // 2), g_img_resized)
             except Exception as grade_err:
-                logger.warning(f"Error processing grade icon {grade_icon_path}: {grade_err}")
+                logger.warning(f"Error processing grade icon {mask_path_for_log(grade_icon_path)}: {grade_err}")
                 d_card.text((card_x + 10, center_line - 8), grade, font=SUBTITLE_FONT, fill=COLOR_WHITE)
         else:
             d_card.text((card_x + 10, center_line - 8), grade, font=SUBTITLE_FONT, fill=COLOR_WHITE)
@@ -650,7 +650,7 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
                         base.paste(mod_img_resized, (int(mod_x_cur), center_line - nh // 2), mod_img_resized)
                         mod_x_cur -= 5
                     except Exception as mod_err:
-                        logger.warning(f"Error processing mod icon {path_}: {mod_err}")
+                        logger.warning(f"Error processing mod icon {mask_path_for_log(path_)}: {mod_err}")
                 else:
                     try:
                         box_m = d_card.textbbox((0, 0), m_, font=SMALL_FONT)
@@ -774,7 +774,7 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
         base = base.crop((0, 0, width, final_height))
 
     base.save(out_path)
-    logger.info("Image saved to %s", os.path.normpath(out_path))
+    logger.info("Image saved to %s", mask_path_for_log(os.path.normpath(out_path)))
 
 
 def make_img_lost(user_id=None, user_name="", max_scores=20):

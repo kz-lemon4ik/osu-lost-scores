@@ -1,7 +1,8 @@
 import logging
 import os
 import sys
-from utils import get_resource_path
+
+from utils import get_resource_path, mask_path_for_log
 
 env_path = get_resource_path(os.path.join("..", ".env"))
 os.environ["DOTENV_PATH"] = env_path
@@ -29,8 +30,8 @@ console_handler = logging.StreamHandler()
 console_handler.setFormatter(log_formatter)
 root_logger.addHandler(console_handler)
 
-logging.info("Logging configured. Output to console and file %s", os.path.normpath(LOG_FILENAME))
-logging.info("Path to .env file: %s", os.path.normpath(env_path))
+logging.info("Logging configured. Output to console and file %s", mask_path_for_log(os.path.normpath(LOG_FILENAME)))
+logging.info("Path to .env file: %s", mask_path_for_log(os.path.normpath(env_path)))
 
 from PySide6.QtWidgets import QApplication
 from gui import create_gui
