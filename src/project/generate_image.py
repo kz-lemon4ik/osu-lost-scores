@@ -79,7 +79,7 @@ def create_placeholder_image(filename, username, message):
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
     img.save(out_path)
-    print(f"Placeholder image saved to {out_path}")
+    logger.info("Placeholder image saved to %s", os.path.normpath(out_path))
 
 
 def get_token_osu():
@@ -774,30 +774,29 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
         base = base.crop((0, 0, width, final_height))
 
     base.save(out_path)
-    print(f"Image saved to {out_path}")
+    logger.info("Image saved to %s", os.path.normpath(out_path))
 
 
 def make_img_lost(user_id=None, user_name="", max_scores=20):
     make_img(user_id=user_id, user_name=user_name, mode="lost", max_scores=max_scores)
 
+
 def make_img_top(user_id=None, user_name="", max_scores=20, show_lost=False):
     if show_lost:
-                                            
+
         top_with_lost_path = get_resource_path(os.path.join("csv", "top_with_lost.csv"))
         try:
             with open(top_with_lost_path, "r", encoding="utf-8") as f:
                 reader = csv.DictReader(f)
                 rows = list(reader)
 
-                                                  
             lost_score_rank = None
-            for i, row in enumerate(rows, 1):                       
+            for i, row in enumerate(rows, 1):
                 if row.get("Score ID") == "LOST":
                     lost_score_rank = i
                     logger.info(f"Found first lost score at rank {lost_score_rank}")
                     break
 
-                                                                              
             if lost_score_rank is not None and lost_score_rank > max_scores:
                 logger.info(f"Adjusting max_scores from {max_scores} to {lost_score_rank} to include lost score")
                 max_scores = lost_score_rank
@@ -809,5 +808,4 @@ def make_img_top(user_id=None, user_name="", max_scores=20, show_lost=False):
         except Exception as e:
             logger.error(f"Error finding lost score rank: {e}")
 
-                                                                           
     make_img(user_id=user_id, user_name=user_name, mode="top", max_scores=max_scores)

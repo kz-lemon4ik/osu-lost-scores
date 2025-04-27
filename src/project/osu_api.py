@@ -73,7 +73,7 @@ def token_osu():
         logger.error("API keys not found in system keyring")
         return None
 
-    logger.info(f"POST: {url} with client: {client_id[:4]}...")
+    logger.info("POST: %s with client: %s...", url, client_id[:4])
 
     data = {
         "client_id": client_id,
@@ -85,8 +85,8 @@ def token_osu():
     try:
         resp = session.post(url, data=data)
         if resp.status_code == 401:
-            logger.error(f"Invalid API credentials. Check your Client ID and Client Secret.")
-            logger.error(f"Server response: {resp.text}")
+            logger.error("Invalid API credentials. Check your Client ID and Client Secret.")
+            logger.error("Server response: %s", resp.text)
             return None
 
         resp.raise_for_status()
@@ -99,7 +99,7 @@ def token_osu():
             logger.error("Token not received in API response")
             return None
     except Exception as e:
-        logger.error(f"Error getting token: {e}")
+        logger.error("Error getting token: %s", e)
         return None
 
 
@@ -116,15 +116,15 @@ def user_osu(identifier, lookup_key, token):
     try:
         resp = session.get(url, headers=headers, params=params)
         if resp.status_code == 404:
-            logger.error(f"User '{identifier}' (lookup type: {lookup_key}) not found.")
+            logger.error("User '%s' (lookup type: %s) not found.", identifier, lookup_key)
             return None
         resp.raise_for_status()
         return resp.json()
     except requests.exceptions.HTTPError as e:
-        logger.error(f"HTTP error when requesting user data {identifier}: {e}")
+        logger.error("HTTP error when requesting user data %s: %s", identifier, e)
         raise
     except Exception as e:
-        logger.error(f"Unexpected error when requesting user data {identifier}: {e}")
+        logger.error("Unexpected error when requesting user data %s: %s", identifier, e)
         raise
 
 
@@ -135,7 +135,7 @@ def top_osu(token, user_id, limit=200):
 
     for offset in range(0, limit, page_size):
         url = f"https://osu.ppy.sh/api/v2/users/{user_id}/scores/best"
-        logger.info(f"GET top: {url} (offset={offset}, limit={min(page_size, limit - offset)})")
+        logger.info("GET top: %s (offset=%d, limit=%d)", url, offset, min(page_size, limit - offset))
         headers = {"Authorization": f"Bearer {token}"}
         params = {
             "limit": min(page_size, limit - offset),
@@ -150,21 +150,21 @@ def top_osu(token, user_id, limit=200):
             page_scores = resp.json()
 
             if not page_scores:
-                logger.info(f"No more scores found after offset {offset}")
+                logger.info("No more scores found after offset %d", offset)
                 break
 
             all_scores.extend(page_scores)
-            logger.debug(f"Retrieved {len(page_scores)} scores (offset {offset})")
+            logger.debug("Retrieved %d scores (offset %d)", len(page_scores), offset)
 
             if len(page_scores) < min(page_size, limit - offset):
-                logger.debug(f"Last page reached at offset {offset}")
+                logger.debug("Last page reached at offset %d", offset)
                 break
 
         except requests.exceptions.HTTPError as e:
-            logger.error(f"HTTP error when requesting top scores for user {user_id}: {e}")
+            logger.error("HTTP error when requesting top scores for user %s: %s", user_id, e)
             raise
         except Exception as e:
-            logger.error(f"Unexpected error when requesting top scores for user {user_id}: {e}")
+            logger.error("Unexpected error when requesting top scores for user %s: %s", user_id, e)
             raise
 
     return all_scores
@@ -182,13 +182,13 @@ def map_osu(beatmap_id, token):
     try:
         resp = session.get(url, headers=headers)
         if resp.status_code == 404:
-            logger.warning(f"Beatmap with ID {beatmap_id} not found")
+            logger.warning("Beatmap with ID %s not found", beatmap_id)
             return None
         resp.raise_for_status()
         data = resp.json()
 
         if not data:
-            logger.warning(f"Empty API response for beatmap {beatmap_id}")
+            logger.warning("Empty API response for beatmap %s", beatmap_id)
             return None
 
         bset = data.get("beatmapset", {})
@@ -207,12 +207,12 @@ def map_osu(beatmap_id, token):
             "hit_objects": hobj
         }
     except requests.exceptions.HTTPError as e:
-        logger.error(f"HTTP error when requesting beatmap data {beatmap_id}: {e}")
+        logger.error("HTTP error when requesting beatmap data %s: %s", beatmap_id, e)
         if "429" in str(e):
             time.sleep(5)
         raise
     except Exception as e:
-        logger.error(f"Unexpected error when requesting beatmap data {beatmap_id}: {e}")
+        logger.error("Unexpected error when requesting beatmap data %s: %s", beatmap_id, e)
         raise
 
 
@@ -237,67 +237,64 @@ def lookup_osu(checksum):
         response = session.get(url, headers=headers, params=params)
 
         if response.status_code == 404:
-            logger.warning(f"Beatmap with checksum {checksum} not found.")
+            logger.warning("Beatmap with checksum %s not found.", checksum)
             return None
 
         response.raise_for_status()
         data = response.json()
 
         if not data:
-            logger.warning(f"Empty API response for checksum {checksum}")
+            logger.warning("Empty API response for checksum %s", checksum)
             return None
 
         return data.get("id")
     except requests.exceptions.HTTPError as e:
-        logger.error(f"HTTP error when looking up beatmap by checksum {checksum}: {e}")
+        logger.error("HTTP error when looking up beatmap by checksum %s: %s", checksum, e)
         if "429" in str(e):
             time.sleep(5)
         raise
     except Exception as e:
-        logger.error(f"Unexpected error when looking up beatmap by checksum {checksum}: {e}")
+        logger.error("Unexpected error when looking up beatmap by checksum %s: %s", checksum, e)
         raise
 
 
 def save_keys_to_keyring(client_id, client_secret):
-                                                                   
     try:
         if client_id and client_secret:
             keyring.set_password(KEYRING_SERVICE, CLIENT_ID_KEY, client_id)
             keyring.set_password(KEYRING_SERVICE, CLIENT_SECRET_KEY, client_secret)
-            logger.info(f"API keys saved to system keyring (CLIENT_ID: {client_id[:4]}...)")
+            logger.info("API keys saved to system keyring (CLIENT_ID: %s...)", client_id[:4])
             return True
         else:
             logger.warning("Cannot save empty API keys")
             return False
     except Exception as e:
-        logger.error(f"Error saving API keys to keyring: {e}")
+        logger.error("Error saving API keys to keyring: %s", e)
         return False
 
 
 def get_keys_from_keyring():
-                                                                    
     try:
         client_id = keyring.get_password(KEYRING_SERVICE, CLIENT_ID_KEY)
         client_secret = keyring.get_password(KEYRING_SERVICE, CLIENT_SECRET_KEY)
 
         if client_id and client_secret:
-            logger.info(f"API keys retrieved from system keyring (CLIENT_ID: {client_id[:4]}...)")
+            logger.info("API keys retrieved from system keyring (CLIENT_ID: %s...)", client_id[:4])
         else:
             logger.warning("API keys not found in system keyring")
 
         return client_id, client_secret
     except Exception as e:
-        logger.error(f"Error retrieving API keys from keyring: {e}")
+        logger.error("Error retrieving API keys from keyring: %s", e)
         return None, None
 
 
 def delete_keys_from_keyring():
-                                                                   
     try:
         keyring.delete_password(KEYRING_SERVICE, CLIENT_ID_KEY)
         keyring.delete_password(KEYRING_SERVICE, CLIENT_SECRET_KEY)
         logger.info("API keys deleted from system keyring")
         return True
     except Exception as e:
-        logger.error(f"Error deleting API keys from keyring: {e}")
+        logger.error("Error deleting API keys from keyring: %s", e)
         return False

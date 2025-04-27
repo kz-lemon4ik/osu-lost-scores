@@ -11,13 +11,13 @@ if not dotenv_path or not os.path.exists(dotenv_path):
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     dotenv_path = get_resource_path(os.path.join("..", ".env"))
     dotenv_path = os.path.abspath(dotenv_path)
-    logger.warning(f"DOTENV_PATH not set or file doesn't exist, using: {dotenv_path}")
+    logger.warning("DOTENV_PATH not set or file doesn't exist, using: %s", dotenv_path)
 
 if os.path.exists(dotenv_path):
-    logger.info(f"Loading .env from: {dotenv_path}")
+    logger.info("Loading .env from: %s", dotenv_path)
     load_dotenv(dotenv_path=dotenv_path)
 else:
-    logger.error(f"Could not find .env file: {dotenv_path}")
+    logger.error("Could not find .env file: %s", dotenv_path)
 
 DB_FILE = os.environ.get("DB_FILE", "cache/beatmap_info.db")
 
@@ -27,5 +27,5 @@ try:
     CUTOFF_DATE = int(cutoff_env)
 except ValueError:
 
-    logger.warning(f"Could not convert CUTOFF_DATE '{cutoff_env}' to number, using default value")
+    logger.warning("Could not convert CUTOFF_DATE '%s' to number, using default value", cutoff_env)
     CUTOFF_DATE = 1729728000

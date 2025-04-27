@@ -28,8 +28,8 @@ OSR_CACHE_LOCK = threading.Lock()
 MAPS_DIR = get_resource_path("maps")
 os.makedirs(MAPS_DIR, exist_ok=True)
 
+
 def reset_in_memory_caches():
-                                                         
     global MD5_BEATMAPID_CACHE, MD5_MAP, OSR_CACHE, NOT_SUBMITTED_CACHE
     with MD5_CACHE_LOCK:
         MD5_BEATMAPID_CACHE.clear()
@@ -39,6 +39,7 @@ def reset_in_memory_caches():
     NOT_SUBMITTED_CACHE.clear()
 
     logger.info("In-memory caches (MD5, OSR, NotSubmitted) have been reset.")
+
 
 def not_submitted_cache_load():
     if os.path.exists(NOT_SUBMITTED_CACHE_PATH):
@@ -83,7 +84,7 @@ def osr_save(cache):
             with open(OSR_CACHE_PATH, "w", encoding="utf-8") as f:
                 json.dump(cache, f, indent=4)
         except Exception as e:
-            logger.error(f"Error saving OSR-cache: {e}")
+            logger.error("Error saving OSR-cache: %s", e)
 
 
 def md5_load():
@@ -104,7 +105,7 @@ def md5_save(cache):
             with open(MD5_CACHE_PATH, "w", encoding="utf-8") as f:
                 json.dump(cache, f, indent=4)
         except Exception as e:
-            logger.error(f"Error saving MD5-cache: {e}")
+            logger.error("Error saving MD5-cache: %s", e)
 
 
 def get_md5(path):

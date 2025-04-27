@@ -175,16 +175,17 @@ QTextEdit {
     font-family: "Exo 2";
 }
 
-/* Чекбоксы */
+/* Чекбоксы с прозрачным фоном */
 QCheckBox {
     color: #FFFFFF;
     font-size: 14pt;
+    background-color: transparent;
 }
 
 QCheckBox::indicator {
     width: 16px;
     height: 16px;
-    background-color: #302444;
+    background-color: transparent;
     border: 2px solid #4A3F5F;
     border-radius: 3px;
 }
@@ -202,6 +203,8 @@ QCheckBox::indicator:hover {
 QDialog {
     background-color: #251a37;
     color: #FFFFFF;
+    border: 2px solid #4A3F5F;
+    border-radius: 8px;
 }
 
 /* Окно результатов и поиск */
@@ -407,8 +410,36 @@ QPushButton#closeButton {
     font-weight: bold;
 }
 
-/* Специальный селектор для Delta Accuracy */
-QLabel[class~="delta_accuracy"],
-QLabel[property="delta_accuracy"] {
-    color: inherit;
+/* Стиль для всплывающих уведомлений */
+QMessageBox {
+    background-color: #251a37;
+    color: #FFFFFF;
+    border: 2px solid #4A3F5F;
+    border-radius: 8px;
+}
+
+QMessageBox QLabel {
+    color: #FFFFFF;
+    font-size: 12pt;
+    background-color: transparent;
+}
+
+QMessageBox QPushButton {
+    background-color: #302444;
+    color: #FFFFFF;
+    border: 2px solid #4A3F5F;
+    border-radius: 5px;
+    padding: 8px 16px;
+    font-size: 12pt;
+    min-width: 100px;
+}
+
+QMessageBox QPushButton:hover {
+    border: 2px solid #ee4bbd;
+}
+
+/* Специальный стиль для иконки информации в уведомлениях */
+QMessageBox QLabel#qt_msgbox_icon {
+    min-width: 64px;
+    min-height: 64px;
 }

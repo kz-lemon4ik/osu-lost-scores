@@ -12,7 +12,6 @@ if not os.path.isabs(DB_FILE):
 logger = logging.getLogger(__name__)
 
 
-                                                    
 class DatabaseManager:
     _instance = None
     _lock = threading.Lock()
@@ -30,12 +29,11 @@ class DatabaseManager:
             if not self._initialized:
                 try:
                     self._conn = sqlite3.connect(DB_FILE, check_same_thread=False)
-                                                                          
+
                     self._conn.execute("PRAGMA foreign_keys = ON")
                     self._conn.execute("PRAGMA synchronous = NORMAL")
                     self._conn.execute("PRAGMA journal_mode = WAL")
 
-                                                              
                     with self._conn:
                         self._conn.execute("""
                             CREATE TABLE IF NOT EXISTS beatmap_info (
@@ -50,9 +48,9 @@ class DatabaseManager:
                         """)
 
                     self._initialized = True
-                    logger.info(f"Database initialized: {DB_FILE}")
+                    logger.info("Database initialized: %s", os.path.normpath(DB_FILE))
                 except Exception as e:
-                    logger.error(f"Error initializing database: {e}")
+                    logger.error("Error initializing database: %s", e)
                     raise
 
     def get_connection(self):
@@ -69,27 +67,24 @@ class DatabaseManager:
                     self._initialized = False
                     logger.info("Database connection closed")
                 except Exception as e:
-                    logger.error(f"Error closing database connection: {e}")
+                    logger.error("Error closing database connection: %s", e)
 
 
-                                                    
 db_manager = DatabaseManager()
 
 
 def db_init():
-                                                                                
     try:
         db_manager.initialize()
     except Exception as e:
-        logger.error(f"Error initializing database: {e}")
+        logger.error("Error initializing database: %s", e)
         raise
 
 
 def db_save(bid, status, artist, title, version, creator, objs):
-                                                      
     try:
         conn = db_manager.get_connection()
-        with conn:                                  
+        with conn:
             conn.execute("""
                 INSERT OR REPLACE INTO beatmap_info (
                     beatmap_id, status, artist, title, version, creator, hit_objects
@@ -97,11 +92,10 @@ def db_save(bid, status, artist, title, version, creator, objs):
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             """, (str(bid), status, artist, title, version, creator, objs))
     except Exception as e:
-        logger.error(f"Error saving data to database: {e}")
+        logger.error("Error saving data to database: %s", e)
 
 
 def db_get(bid):
-                                                      
     try:
         conn = db_manager.get_connection()
         cursor = conn.cursor()
@@ -124,10 +118,9 @@ def db_get(bid):
             }
         return None
     except Exception as e:
-        logger.error(f"Error retrieving data from database: {e}")
+        logger.error("Error retrieving data from database: %s", e)
         return None
 
 
 def db_close():
-                                             
     db_manager.close()

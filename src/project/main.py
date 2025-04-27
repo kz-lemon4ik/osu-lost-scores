@@ -29,12 +29,12 @@ console_handler = logging.StreamHandler()
 console_handler.setFormatter(log_formatter)
 root_logger.addHandler(console_handler)
 
-logging.info("Logging configured. Output to console and file %s", LOG_FILENAME)
-logging.info(f"Path to .env file: {env_path}")
+logging.info("Logging configured. Output to console and file %s", os.path.normpath(LOG_FILENAME))
+logging.info("Path to .env file: %s", os.path.normpath(env_path))
 
 from PySide6.QtWidgets import QApplication
 from gui import create_gui
-                                 
+
 from database import db_init, db_close
 
 
@@ -54,7 +54,6 @@ def setup_api():
 
 
 def main():
-                                              
     try:
         db_init()
         logging.info("Database connection initialized")
@@ -65,16 +64,13 @@ def main():
     app = QApplication(sys.argv)
 
     if not setup_api():
-                                                 
         db_close()
         return 1
 
     window = create_gui()
 
-                                        
     exit_code = app.exec()
 
-                                                                   
     db_close()
 
     return exit_code
