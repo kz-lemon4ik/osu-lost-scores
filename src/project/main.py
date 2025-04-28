@@ -14,7 +14,7 @@ os.environ["DOTENV_PATH"] = env_path
 LOG_FILENAME = get_resource_path(os.path.join("..", "log.txt"))
 
 log_formatter = logging.Formatter(
-    "%(asctime)s [%(levelname)-5.5s] [%(name)s] %(message)s",
+    "%(asctime)s [%(levelname)s] [%(name)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 root_logger = logging.getLogger()

@@ -24,7 +24,7 @@ else:
 
 DB_FILE = os.environ.get("DB_FILE", "cache/beatmap_info.db")
 
-cutoff_env = os.environ.get("CUTOFF_DATE", "1729728000")
+cutoff_env = os.environ.get("CUTOFF_DATE", "1730114220")
 
 try:
     CUTOFF_DATE = int(cutoff_env)
@@ -32,4 +32,44 @@ except ValueError:
     logger.warning(
         "Could not convert CUTOFF_DATE '%s' to number, using default value", cutoff_env
     )
-    CUTOFF_DATE = 1729728000
+    CUTOFF_DATE = 1730114220
+
+thread_pool_env = os.environ.get("THREAD_POOL_SIZE", "16")
+try:
+    THREAD_POOL_SIZE = int(thread_pool_env)
+except ValueError:
+    logger.warning(
+        "Could not convert THREAD_POOL_SIZE '%s' to number, using default value",
+        thread_pool_env,
+    )
+    THREAD_POOL_SIZE = 16
+
+gui_thread_pool_env = os.environ.get("GUI_THREAD_POOL_SIZE", "24")
+try:
+    GUI_THREAD_POOL_SIZE = int(gui_thread_pool_env)
+except ValueError:
+    logger.warning(
+        "Could not convert GUI_THREAD_POOL_SIZE '%s' to number, using default value",
+        gui_thread_pool_env,
+    )
+    GUI_THREAD_POOL_SIZE = 24
+
+map_download_timeout_env = os.environ.get("MAP_DOWNLOAD_TIMEOUT", "30")
+try:
+    MAP_DOWNLOAD_TIMEOUT = int(map_download_timeout_env)
+except ValueError:
+    logger.warning(
+        "Could not convert MAP_DOWNLOAD_TIMEOUT '%s' to number, using default value",
+        map_download_timeout_env,
+    )
+    MAP_DOWNLOAD_TIMEOUT = 30
+
+download_retry_count_env = os.environ.get("DOWNLOAD_RETRY_COUNT", "3")
+try:
+    DOWNLOAD_RETRY_COUNT = int(download_retry_count_env)
+except ValueError:
+    logger.warning(
+        "Could not convert DOWNLOAD_RETRY_COUNT '%s' to number, using default value",
+        download_retry_count_env,
+    )
+    DOWNLOAD_RETRY_COUNT = 3

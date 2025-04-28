@@ -10,6 +10,7 @@ import rosu_pp_py as rosu
 import requests
 from database import db_get, db_save
 from utils import get_resource_path, mask_path_for_log
+from config import DOWNLOAD_RETRY_COUNT, MAP_DOWNLOAD_TIMEOUT
 
 logger = logging.getLogger(__name__)
 cache_folder = get_resource_path("cache")
@@ -638,7 +639,6 @@ def proc_osr(osr_path, md5_map, cutoff, username):
         )
         return None
 
-
 def download_osu_file(beatmap_id):
     filename = f"beatmap_{beatmap_id}.osu"
     file_path = os.path.join(MAPS_DIR, filename)
@@ -647,26 +647,35 @@ def download_osu_file(beatmap_id):
         return file_path
 
     url = f"https://osu.ppy.sh/osu/{beatmap_id}"
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-    except Exception as e:
-        logger.error("Error downloading .osu file for beatmap_id %s: %s", beatmap_id, e)
-        return None
 
-    with open(file_path, "wb") as f:
-        f.write(response.content)
+    for retry in range(DOWNLOAD_RETRY_COUNT):
+        try:
+            response = requests.get(url, timeout=MAP_DOWNLOAD_TIMEOUT)
+            response.raise_for_status()
 
-    from file_parser import md5_load, find_md5, md5_save
+            with open(file_path, "wb") as f:
+                f.write(response.content)
 
-    cache = md5_load()
+            cache = md5_load()
+            find_md5(file_path, cache)
+            md5_save(cache)
 
-    find_md5(file_path, cache)
+            return file_path
 
-    md5_save(cache)
+        except requests.exceptions.Timeout:
+            logger.warning(
+                "Timeout downloading .osu file for beatmap_id %s (attempt %d/%d)",
+                beatmap_id, retry + 1, DOWNLOAD_RETRY_COUNT
+            )
+        except Exception as e:
+            logger.error(
+                "Error downloading .osu file for beatmap_id %s: %s (attempt %d/%d)",
+                beatmap_id, e, retry + 1, DOWNLOAD_RETRY_COUNT
+            )
 
-    return file_path
-
+    logger.error("Failed to download .osu file after %d attempts for beatmap_id %s",
+                 DOWNLOAD_RETRY_COUNT, beatmap_id)
+    return None
 
 def update_osu_md5_cache(new_osu_path, md5_hash):
     global MD5_CACHE_PATH

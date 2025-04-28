@@ -75,7 +75,7 @@ def token_osu():
         logger.error("API keys not found in system keyring")
         return None
 
-    logger.info("POST: %s with client: %s...", url, client_id[:4])
+    logger.info("POST: %s with client: %s...", url, client_id[:3])
 
     data = {
         "client_id": client_id,
@@ -285,7 +285,7 @@ def save_keys_to_keyring(client_id, client_secret):
             keyring.set_password(KEYRING_SERVICE, CLIENT_ID_KEY, client_id)
             keyring.set_password(KEYRING_SERVICE, CLIENT_SECRET_KEY, client_secret)
             logger.info(
-                "API keys saved to system keyring (CLIENT_ID: %s...)", client_id[:4]
+                "API keys saved to system keyring (CLIENT_ID: %s...)", client_id[:3]
             )
             return True
         else:
@@ -304,7 +304,7 @@ def get_keys_from_keyring():
         if client_id and client_secret:
             logger.info(
                 "API keys retrieved from system keyring (CLIENT_ID: %s...)",
-                client_id[:4],
+                client_id[:3],
             )
         else:
             logger.warning("API keys not found in system keyring")

@@ -7,6 +7,7 @@ import datetime
 import logging
 from database import db_get
 from utils import get_resource_path, mask_path_for_log
+from config import DOWNLOAD_RETRY_COUNT, MAP_DOWNLOAD_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +122,7 @@ def get_token_osu():
         logger.error("[generate_image] API keys are not configured.")
         return None
 
-    logger.info(f"[generate_image] Using keys: ID={client_id[:4]}...")
+    logger.info(f"Using keys: ID={client_id[:3]}...")
 
     url = "https://osu.ppy.sh/oauth/token"
 
@@ -182,15 +183,26 @@ def dl_img(url, path):
 
     os.makedirs(os.path.dirname(path), exist_ok=True)
 
-    try:
-        resp = requests.get(url)
-        resp.raise_for_status()
-        with open(path, "wb") as f:
-            f.write(resp.content)
-        return True
-    except Exception as e:
-        logger.warning(f"Failed to download image {url}: {e}")
-        return False
+    for retry in range(DOWNLOAD_RETRY_COUNT):
+        try:
+            resp = requests.get(url, timeout=MAP_DOWNLOAD_TIMEOUT)
+            resp.raise_for_status()
+            with open(path, "wb") as f:
+                f.write(resp.content)
+            return True
+        except requests.exceptions.Timeout:
+            logger.warning(
+                f"Timeout downloading image {url} (attempt {retry + 1}/{DOWNLOAD_RETRY_COUNT})"
+            )
+        except Exception as e:
+            logger.warning(
+                f"Failed to download image {url}: {e} (attempt {retry + 1}/{DOWNLOAD_RETRY_COUNT})"
+            )
+
+    logger.error(
+        f"Failed to download image after {DOWNLOAD_RETRY_COUNT} attempts: {url}"
+    )
+    return False
 
 
 def short_mods(mods_str):

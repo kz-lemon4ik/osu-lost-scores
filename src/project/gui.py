@@ -14,7 +14,7 @@ from datetime import datetime
 from utils import get_resource_path, mask_path_for_log
 from database import db_close, db_init
 from file_parser import reset_in_memory_caches
-from config import DB_FILE
+from config import DB_FILE, GUI_THREAD_POOL_SIZE
 
 from PySide6 import QtCore, QtGui
 from PySide6.QtCore import (
@@ -1653,6 +1653,7 @@ class MainWindow(QWidget):
         self.enable_results_button()
 
         self.threadpool = QThreadPool()
+        self.threadpool.setMaxThreadCount(GUI_THREAD_POOL_SIZE)
         logger.info(f"Max threads in pool: {self.threadpool.maxThreadCount()}")
 
         self._try_auto_detect_osu_path()

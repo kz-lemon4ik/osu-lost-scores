@@ -9,7 +9,7 @@ from file_parser import parse_osr, grade_osu
 from database import db_init, db_get, db_save
 from osu_api import token_osu, user_osu, top_osu
 from file_parser import find_osu, proc_osr, calc_acc, sort_mods
-from config import CUTOFF_DATE
+from config import CUTOFF_DATE, THREAD_POOL_SIZE
 from utils import get_resource_path, mask_path_for_log
 
 logger = logging.getLogger(__name__)
@@ -342,7 +342,7 @@ def scan_replays(
     no_beatmap_id = []
     no_osu_file = []
 
-    with ThreadPoolExecutor(max_workers=16) as executor:
+    with ThreadPoolExecutor(max_workers=THREAD_POOL_SIZE) as executor:
         futures = {
             executor.submit(
                 proc_osr, os.path.join(replays, f), md5_map, cutoff, username
