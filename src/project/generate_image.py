@@ -7,7 +7,7 @@ import datetime
 import logging
 from database import db_get
 from utils import get_resource_path, mask_path_for_log
-from config import DOWNLOAD_RETRY_COUNT, MAP_DOWNLOAD_TIMEOUT
+from config import DOWNLOAD_RETRY_COUNT, MAP_DOWNLOAD_TIMEOUT, CSV_DIR, RESULTS_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -18,10 +18,10 @@ MODS_DIR = get_resource_path(os.path.join("assets", "mod-icons"))
 
 os.makedirs(os.path.join(BASE_DIR, "results"), exist_ok=True)
 
-CSV_LOST = get_resource_path(os.path.join("csv", "lost_scores.csv"))
-CSV_TOPLOST = get_resource_path(os.path.join("csv", "top_with_lost.csv"))
-IMG_LOST_OUT = get_resource_path(os.path.join("results", "lost_scores_result.png"))
-IMG_TOP_OUT = get_resource_path(os.path.join("results", "potential_top_result.png"))
+CSV_LOST = os.path.join(CSV_DIR, "lost_scores.csv")
+CSV_TOPLOST = os.path.join(CSV_DIR, "top_with_lost.csv")
+IMG_LOST_OUT = os.path.join(RESULTS_DIR, "lost_scores_result.png")
+IMG_TOP_OUT = os.path.join(RESULTS_DIR, "potential_top_result.png")
 
 AVATAR_DIR = get_resource_path(os.path.join("assets", "images", "avatar"))
 COVER_DIR = get_resource_path(os.path.join("assets", "images", "cover"))

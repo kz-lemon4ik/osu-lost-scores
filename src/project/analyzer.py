@@ -9,7 +9,7 @@ from file_parser import parse_osr, grade_osu
 from database import db_init, db_get, db_save
 from osu_api import token_osu, user_osu, top_osu
 from file_parser import find_osu, proc_osr, calc_acc, sort_mods
-from config import CUTOFF_DATE, THREAD_POOL_SIZE
+from config import CUTOFF_DATE, THREAD_POOL_SIZE, CSV_DIR
 from utils import get_resource_path, mask_path_for_log
 
 logger = logging.getLogger(__name__)
@@ -553,7 +553,7 @@ def scan_replays(
         progress_callback(95, 100)
 
     if lost:
-        out_file = get_resource_path(os.path.join("csv", "lost_scores.csv"))
+        out_file = os.path.join(CSV_DIR, "lost_scores.csv")
         fields = [
             "PP",
             "Beatmap ID",
@@ -627,7 +627,7 @@ def make_top(
     if gui_log:
         gui_log("Initializing potential top creation...", update_last=True)
 
-    lost_path = get_resource_path(os.path.join("csv", "lost_scores.csv"))
+    lost_path = os.path.join(CSV_DIR, "lost_scores.csv")
     if not os.path.exists(lost_path):
         gui_log(
             "File lost_scores.csv not found. Aborting potential top creation.",
@@ -679,7 +679,7 @@ def make_top(
     if progress_callback:
         progress_callback(70, 100)
 
-    parsed_file = get_resource_path(os.path.join("csv", "parsed_top.csv"))
+    parsed_file = os.path.join(CSV_DIR, "parsed_top.csv")
 
     table_fields = [
         "PP",
@@ -803,7 +803,7 @@ def make_top(
     overall_acc_lost = acc_sum_lost / tot_weight_lost if tot_weight_lost else 0
     delta_acc = overall_acc_lost - overall_acc_from_api
 
-    top_with_lost_file = get_resource_path(os.path.join("csv", "top_with_lost.csv"))
+    top_with_lost_file = os.path.join(CSV_DIR, "top_with_lost.csv")
     table_fields2 = [
         "PP",
         "Beatmap ID",

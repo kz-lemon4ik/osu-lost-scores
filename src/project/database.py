@@ -2,11 +2,14 @@ import sqlite3
 import os
 import logging
 import threading
-from config import DB_FILE
+from config import DB_FILE, CACHE_DIR
 from utils import mask_path_for_log, get_resource_path
 
 if not os.path.isabs(DB_FILE):
-    DB_FILE = get_resource_path(DB_FILE.replace("../", ""))
+    if DB_FILE.startswith("cache/"):
+        DB_FILE = os.path.join(CACHE_DIR, DB_FILE[6:])
+    else:
+        DB_FILE = get_resource_path(DB_FILE.replace("../", ""))
 
 logger = logging.getLogger(__name__)
 

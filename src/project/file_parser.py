@@ -10,7 +10,7 @@ import rosu_pp_py as rosu
 import requests
 from database import db_get, db_save
 from utils import get_resource_path, mask_path_for_log
-from config import DOWNLOAD_RETRY_COUNT, MAP_DOWNLOAD_TIMEOUT
+from config import DOWNLOAD_RETRY_COUNT, MAP_DOWNLOAD_TIMEOUT, MAPS_DIR
 
 logger = logging.getLogger(__name__)
 cache_folder = get_resource_path("cache")
@@ -68,7 +68,6 @@ MD5_CACHE_PATH = os.path.join(get_resource_path("cache"), "osu_md5_cache.json")
 OSR_CACHE = {}
 OSR_CACHE_LOCK = threading.Lock()
 
-MAPS_DIR = get_resource_path("maps")
 os.makedirs(MAPS_DIR, exist_ok=True)
 
 

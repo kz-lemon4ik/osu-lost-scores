@@ -58,7 +58,21 @@ def setup_api():
         return True
 
 
+def ensure_directories_exist():
+    from config import CACHE_DIR, RESULTS_DIR, MAPS_DIR, CSV_DIR
+
+    dirs = [CACHE_DIR, RESULTS_DIR, MAPS_DIR, CSV_DIR]
+    for dir_path in dirs:
+        try:
+            os.makedirs(dir_path, exist_ok=True)
+            logging.info("Ensured directory exists: %s", mask_path_for_log(dir_path))
+        except Exception as e:
+            logging.error("Failed to create directory %s: %s", mask_path_for_log(dir_path), e)
+
+
 def main():
+    ensure_directories_exist()
+
     try:
         db_init()
         logging.info("Database connection initialized")

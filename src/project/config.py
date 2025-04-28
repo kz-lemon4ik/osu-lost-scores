@@ -73,3 +73,29 @@ except ValueError:
         download_retry_count_env,
     )
     DOWNLOAD_RETRY_COUNT = 3
+
+download_retry_count_env = os.environ.get("DOWNLOAD_RETRY_COUNT", "3")
+try:
+    DOWNLOAD_RETRY_COUNT = int(download_retry_count_env)
+except ValueError:
+    logger.warning(
+        "Could not convert DOWNLOAD_RETRY_COUNT '%s' to number, using default value", download_retry_count_env
+    )
+    DOWNLOAD_RETRY_COUNT = 3
+
+                     
+CACHE_DIR = os.environ.get("CACHE_DIR", "../cache/")
+RESULTS_DIR = os.environ.get("RESULTS_DIR", "../results/")
+MAPS_DIR = os.environ.get("MAPS_DIR", "../maps/")
+CSV_DIR = os.environ.get("CSV_DIR", "../csv/")
+
+                             
+CACHE_DIR = os.path.normpath(CACHE_DIR)
+RESULTS_DIR = os.path.normpath(RESULTS_DIR)
+MAPS_DIR = os.path.normpath(MAPS_DIR)
+CSV_DIR = os.path.normpath(CSV_DIR)
+
+logger.info("Configured paths: CACHE_DIR=%s, RESULTS_DIR=%s, MAPS_DIR=%s, CSV_DIR=%s",
+    mask_path_for_log(CACHE_DIR), mask_path_for_log(RESULTS_DIR),
+    mask_path_for_log(MAPS_DIR), mask_path_for_log(CSV_DIR)
+)
