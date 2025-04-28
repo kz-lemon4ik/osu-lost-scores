@@ -7,6 +7,7 @@ import functools
 import keyring
 from utils import get_resource_path
 from requests.adapters import HTTPAdapter
+from config import API_RATE_LIMIT, API_RETRY_DELAY, API_RETRY_COUNT
 
 logger = logging.getLogger(__name__)
 
@@ -37,12 +38,11 @@ def wait_osu():
     with api_lock:
         now = time.time()
         diff = now - last_call
-        if diff < 1:
-            time.sleep((1) - diff)
+        if diff < API_RATE_LIMIT:
+            time.sleep(API_RATE_LIMIT - diff)
         last_call = time.time()
 
-
-def retry_request(func, max_retries=3, backoff_factor=0.5):
+def retry_request(func, max_retries=API_RETRY_COUNT, backoff_factor=API_RETRY_DELAY):
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         retries = 0
@@ -60,7 +60,6 @@ def retry_request(func, max_retries=3, backoff_factor=0.5):
         return func(*args, **kwargs)
 
     return wrapper
-
 
 def token_osu():
     global TOKEN_CACHE

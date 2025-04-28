@@ -99,3 +99,45 @@ logger.info("Configured paths: CACHE_DIR=%s, RESULTS_DIR=%s, MAPS_DIR=%s, CSV_DI
     mask_path_for_log(CACHE_DIR), mask_path_for_log(RESULTS_DIR),
     mask_path_for_log(MAPS_DIR), mask_path_for_log(CSV_DIR)
 )
+
+                       
+LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
+LOG_FILE = os.environ.get("LOG_FILE", "../../log.txt")
+LOG_FILE = os.path.normpath(LOG_FILE)
+
+logger.info("Configured logging: LOG_LEVEL=%s, LOG_FILE=%s",
+    LOG_LEVEL, mask_path_for_log(LOG_FILE)
+)
+
+                   
+api_rate_limit_env = os.environ.get("API_RATE_LIMIT", "1.0")
+api_retry_count_env = os.environ.get("API_RETRY_COUNT", "3")
+api_retry_delay_env = os.environ.get("API_RETRY_DELAY", "0.5")
+
+try:
+    API_RATE_LIMIT = float(api_rate_limit_env)
+except ValueError:
+    logger.warning(
+        "Could not convert API_RATE_LIMIT '%s' to number, using default value", api_rate_limit_env
+    )
+    API_RATE_LIMIT = 1.0
+
+try:
+    API_RETRY_COUNT = int(api_retry_count_env)
+except ValueError:
+    logger.warning(
+        "Could not convert API_RETRY_COUNT '%s' to number, using default value", api_retry_count_env
+    )
+    API_RETRY_COUNT = 3
+
+try:
+    API_RETRY_DELAY = float(api_retry_delay_env)
+except ValueError:
+    logger.warning(
+        "Could not convert API_RETRY_DELAY '%s' to number, using default value", api_retry_delay_env
+    )
+    API_RETRY_DELAY = 0.5
+
+logger.info("Configured API settings: API_RATE_LIMIT=%s, API_RETRY_COUNT=%s, API_RETRY_DELAY=%s",
+    API_RATE_LIMIT, API_RETRY_COUNT, API_RETRY_DELAY
+)

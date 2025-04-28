@@ -4,6 +4,7 @@ import sys
 
 from database import db_init, db_close
 from utils import get_resource_path, mask_path_for_log
+from config import LOG_LEVEL, LOG_FILE
 
 from PySide6.QtWidgets import QApplication
 from gui import create_gui
@@ -11,14 +12,23 @@ from gui import create_gui
 env_path = get_resource_path(os.path.join("..", ".env"))
 os.environ["DOTENV_PATH"] = env_path
 
-LOG_FILENAME = get_resource_path(os.path.join("..", "log.txt"))
+LOG_FILENAME = LOG_FILE
 
 log_formatter = logging.Formatter(
     "%(asctime)s [%(levelname)s] [%(name)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
+log_level_map = {
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO,
+    "WARNING": logging.WARNING,
+    "ERROR": logging.ERROR,
+    "CRITICAL": logging.CRITICAL
+}
+numeric_level = log_level_map.get(LOG_LEVEL.upper(), logging.INFO)
+
 root_logger = logging.getLogger()
-root_logger.setLevel(logging.INFO)
+root_logger.setLevel(numeric_level)
 
 for handler in root_logger.handlers[:]:
     root_logger.removeHandler(handler)
