@@ -96,14 +96,16 @@ def main():
         db_close()
         return 1
 
-    create_gui()
+                                                                            
+    from gui import show_api_limit_warning
+    show_api_limit_warning()
 
+    window = create_gui()
     exit_code = app.exec()
 
     db_close()
 
     return exit_code
-
 
 if __name__ == "__main__":
     sys.exit(main())

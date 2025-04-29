@@ -110,6 +110,54 @@ def load_qss():
         return ""
 
 
+def show_api_limit_warning():
+    from config import API_REQUESTS_PER_MINUTE
+
+                                                               
+    if 60 < API_REQUESTS_PER_MINUTE <= 1200:
+        QMessageBox.warning(
+            None,
+            "API Rate Limit Warning",
+            f"High API request rate detected\n\nCurrent setting: {API_REQUESTS_PER_MINUTE} requests per minute\n\n"
+            f"WARNING: peppy prohibits using more than 60 requests per minute.\n"
+            f"Burst spikes up to 1200 requests per minute are possible but at your own risk.\n"
+            f"It may result in API/website usage ban."
+        )
+
+                                        
+    elif API_REQUESTS_PER_MINUTE > 1200:
+        QMessageBox.critical(
+            None,
+            "Excessive API Rate",
+            f"Extremely high API request rate detected\n\nCurrent setting: {API_REQUESTS_PER_MINUTE} requests per minute\n\n"
+            f"WARNING: This exceeds the maximum burst limit of 1200 requests per minute.\n"
+            f"Program operation is not guaranteed - you will likely encounter 429 errors\n"
+            f"and temporary API bans.\n\n"
+            f"Please consider reducing API_REQUESTS_PER_MINUTE to at most 1200."
+        )
+
+                                      
+    elif 0 < API_REQUESTS_PER_MINUTE < 60:
+        QMessageBox.information(
+            None,
+            "Conservative API Rate",
+            f"Low API request rate detected\n\nCurrent setting: {API_REQUESTS_PER_MINUTE} requests per minute\n\n"
+            f"This is below the permitted rate of 60 requests per minute.\n"
+            f"Consider setting API_REQUESTS_PER_MINUTE=60 for optimal performance."
+        )
+
+                                            
+    elif API_REQUESTS_PER_MINUTE == 0:
+        QMessageBox.critical(
+            None,
+            "No API Rate Limit",
+            f"API rate limiting is disabled\n\n"
+            f"You have disabled API rate limiting (API_REQUESTS_PER_MINUTE=0).\n\n"
+            f"This is extremely dangerous and will almost certainly result in\n"
+            f"your IP being temporarily banned from the osu! API.\n\n"
+            f"Please set API_REQUESTS_PER_MINUTE to at least 1 and at most 1200."
+        )
+
 class WorkerSignals(QObject):
     progress = Signal(int, int)
     log = Signal(str, bool)

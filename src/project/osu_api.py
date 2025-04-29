@@ -38,8 +38,11 @@ def wait_osu():
     with api_lock:
         now = time.time()
         diff = now - last_call
-        if diff < API_RATE_LIMIT:
+
+                                                                
+        if API_RATE_LIMIT > 0 and diff < API_RATE_LIMIT:
             time.sleep(API_RATE_LIMIT - diff)
+
         last_call = time.time()
 
 def retry_request(func, max_retries=API_RETRY_COUNT, backoff_factor=API_RETRY_DELAY):

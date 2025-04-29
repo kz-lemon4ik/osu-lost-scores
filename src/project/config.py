@@ -69,16 +69,6 @@ try:
     DOWNLOAD_RETRY_COUNT = int(download_retry_count_env)
 except ValueError:
     logger.warning(
-        "Could not convert DOWNLOAD_RETRY_COUNT '%s' to number, using default value",
-        download_retry_count_env,
-    )
-    DOWNLOAD_RETRY_COUNT = 3
-
-download_retry_count_env = os.environ.get("DOWNLOAD_RETRY_COUNT", "3")
-try:
-    DOWNLOAD_RETRY_COUNT = int(download_retry_count_env)
-except ValueError:
-    logger.warning(
         "Could not convert DOWNLOAD_RETRY_COUNT '%s' to number, using default value", download_retry_count_env
     )
     DOWNLOAD_RETRY_COUNT = 3
@@ -110,16 +100,26 @@ logger.info("Configured logging: LOG_LEVEL=%s, LOG_FILE=%s",
 )
 
                    
-api_rate_limit_env = os.environ.get("API_RATE_LIMIT", "1.0")
+api_requests_per_minute_env = os.environ.get("API_REQUESTS_PER_MINUTE", "60")
 api_retry_count_env = os.environ.get("API_RETRY_COUNT", "3")
 api_retry_delay_env = os.environ.get("API_RETRY_DELAY", "0.5")
 
 try:
-    API_RATE_LIMIT = float(api_rate_limit_env)
+    API_REQUESTS_PER_MINUTE = int(api_requests_per_minute_env)
+                          
+    if API_REQUESTS_PER_MINUTE <= 0:
+        logger.warning("API_REQUESTS_PER_MINUTE set to %d, treating as unlimited. This is dangerous!",
+                      API_REQUESTS_PER_MINUTE)
+        API_RATE_LIMIT = 0.0                                          
+    else:
+                                                            
+        API_RATE_LIMIT = 60.0 / API_REQUESTS_PER_MINUTE
 except ValueError:
     logger.warning(
-        "Could not convert API_RATE_LIMIT '%s' to number, using default value", api_rate_limit_env
+        "Could not convert API_REQUESTS_PER_MINUTE '%s' to number, using default value",
+        api_requests_per_minute_env
     )
+    API_REQUESTS_PER_MINUTE = 60
     API_RATE_LIMIT = 1.0
 
 try:
@@ -138,6 +138,6 @@ except ValueError:
     )
     API_RETRY_DELAY = 0.5
 
-logger.info("Configured API settings: API_RATE_LIMIT=%s, API_RETRY_COUNT=%s, API_RETRY_DELAY=%s",
-    API_RATE_LIMIT, API_RETRY_COUNT, API_RETRY_DELAY
-)
+logger.info("Configured API settings: API_REQUESTS_PER_MINUTE=%d, API_RETRY_COUNT=%s, API_RETRY_DELAY=%s",
+            API_REQUESTS_PER_MINUTE, API_RETRY_COUNT, API_RETRY_DELAY
+            )
