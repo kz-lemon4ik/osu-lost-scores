@@ -120,7 +120,7 @@ def show_api_limit_warning():
             "API Rate Limit Warning",
             f"High API request rate detected\n\nCurrent setting: {API_REQUESTS_PER_MINUTE} requests per minute\n\n"
             f"WARNING: peppy prohibits using more than 60 requests per minute.\n"
-            f"Burst spikes up to 1200 requests per minute are possible but at your own risk.\n"
+            f"Burst spikes up to 1200 requests per minute are possible, but proceed at your own risk.\n"
             f"It may result in API/website usage ban."
         )
 
@@ -147,7 +147,7 @@ def show_api_limit_warning():
         )
 
                                             
-    elif API_REQUESTS_PER_MINUTE == 0:
+    elif API_REQUESTS_PER_MINUTE <= 0:
         QMessageBox.critical(
             None,
             "No API Rate Limit",
@@ -2102,11 +2102,11 @@ class MainWindow(QWidget):
     @Slot(int, int)
     def update_progress_bar(self, current, total):
         if self.scan_completed.is_set() and not self.top_completed.is_set():
-            progress = 30 + int((current / total) * 30) if total > 0 else 30
+            progress = 80 + int((current / total) * 5) if total > 0 else 80
         elif self.scan_completed.is_set() and self.top_completed.is_set():
-            progress = 60 + int((current / total) * 40) if total > 0 else 60
+            progress = 85 + int((current / total) * 15) if total > 0 else 85
         else:
-            progress = int((current / total) * 30) if total > 0 else 0
+            progress = int((current / total) * 80) if total > 0 else 0
 
         self.overall_progress = progress
         self.progress_bar.setValue(progress)
@@ -2116,7 +2116,7 @@ class MainWindow(QWidget):
         logger.info("Background task completed.")
 
         if not self.scan_completed.is_set():
-            self.progress_bar.setValue(30)
+            self.progress_bar.setValue(80)
             self.current_task = "Replay scanning completed"
             self.status_label.setText(self.current_task)
         self.scan_completed.set()
@@ -2183,6 +2183,19 @@ class MainWindow(QWidget):
         self.has_error = False
 
         if self.clean_scan_checkbox.isChecked():
+                                                                           
+            reply = QMessageBox.question(
+                self,
+                "Confirm Cache Clearing",
+                "Are you sure you want to clear the cache and database? This action cannot be undone.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+
+            if reply != QMessageBox.StandardButton.Yes:
+                self.append_log("Cache clearing cancelled by user.", False)
+                return
+
             self.append_log("Performing clean scan (cache reset)...", False)
             try:
                 self.append_log("Closing database connection before cleaning...", False)
@@ -2502,7 +2515,7 @@ class MainWindow(QWidget):
 
     @Slot()
     def top_finished(self):
-        self.progress_bar.setValue(60)
+        self.progress_bar.setValue(85)
         self.current_task = "Potential top created"
         self.status_label.setText(self.current_task)
         self.top_completed.set()

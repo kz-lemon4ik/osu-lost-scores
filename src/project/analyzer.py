@@ -7,13 +7,96 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from file_parser import parse_osr, grade_osu
 from database import db_init, db_get, db_save
-from osu_api import token_osu, user_osu, top_osu
+from osu_api import token_osu, user_osu, top_osu, map_osu
 from file_parser import find_osu, proc_osr, calc_acc, sort_mods
 from config import CUTOFF_DATE, THREAD_POOL_SIZE, CSV_DIR
 from utils import get_resource_path, mask_path_for_log
 
 logger = logging.getLogger(__name__)
 
+
+def batch_process_beatmap_statuses(beatmap_ids, token, include_unranked=False, gui_log=None, progress_callback=None,
+                                   base_progress=60):
+           
+    if not beatmap_ids:
+        return {}
+
+    logger.info(f"Batch processing {len(beatmap_ids)} unique beatmaps")
+    if gui_log:
+        gui_log(f"Batch processing {len(beatmap_ids)} unique beatmaps", update_last=True)
+
+                                        
+    db_results = {}
+    ids_to_fetch = set()
+
+    for i, beatmap_id in enumerate(beatmap_ids):
+        db_info = db_get(beatmap_id)
+
+        need_api_update = False
+        if not db_info:
+            need_api_update = True
+        elif not include_unranked and db_info.get("status") == "unknown":
+            need_api_update = True
+
+        if need_api_update:
+            ids_to_fetch.add(beatmap_id)
+        else:
+            db_results[beatmap_id] = db_info
+
+                                      
+        if i % 10 == 0 and progress_callback:
+            progress_callback(base_progress + int((i / len(beatmap_ids)) * 10), 100)
+
+                                             
+    if ids_to_fetch:
+        logger.info(f"Need to fetch {len(ids_to_fetch)} beatmaps from API")
+        if gui_log:
+            gui_log(f"Need to fetch {len(ids_to_fetch)} beatmaps from API", update_last=True)
+
+        for i, beatmap_id in enumerate(ids_to_fetch):
+            info_api = map_osu(beatmap_id, token)
+
+            if info_api:
+                db_save(
+                    beatmap_id,
+                    info_api["status"],
+                    info_api["artist"],
+                    info_api["title"],
+                    info_api["version"],
+                    info_api["creator"],
+                    info_api.get("hit_objects", 0),
+                )
+                db_results[beatmap_id] = info_api
+            else:
+                                                                                          
+                db_info = {
+                    "status": "unknown",
+                    "artist": "",
+                    "title": "",
+                    "version": "",
+                    "creator": "",
+                    "hit_objects": 0,
+                }
+                db_save(
+                    beatmap_id,
+                    db_info["status"],
+                    db_info["artist"],
+                    db_info["title"],
+                    db_info["version"],
+                    db_info["creator"],
+                    0,
+                )
+                db_results[beatmap_id] = db_info
+
+                                           
+            if i % 5 == 0 and gui_log:
+                gui_log(f"Fetching data for map {beatmap_id} ({i + 1}/{len(ids_to_fetch)})", update_last=True)
+
+            if progress_callback:
+                api_progress = base_progress + 10 + int((i / len(ids_to_fetch)) * 10)
+                progress_callback(min(api_progress, base_progress + 20), 100)
+
+    return db_results
 
 def find_lost_scores(scores):
     if not scores:
@@ -315,12 +398,12 @@ def scan_replays(
                 gui_log(f"Scanning .osu files in Songs: {pct}%", update_last=True)
 
             if progress_callback:
-                progress_callback(int(pct * 0.2), 100)
+                progress_callback(int(pct * 0.1), 100)                    
 
     md5_map = find_osu(songs, progress_callback=update_songs)
 
     if progress_callback:
-        progress_callback(20, 100)
+        progress_callback(10, 100)                
 
     gui_log("Scanning .osu files in Songs: 100%", update_last=True)
     gui_log(f"{len(md5_map)} osu files found in Songs.", update_last=False)
@@ -337,7 +420,7 @@ def scan_replays(
 
     def update_replays(curr, tot):
         if progress_callback:
-            progress_callback(20 + int((curr / tot) * 60), 100)
+            progress_callback(10 + int((curr / tot) * 50), 100)                 
 
     no_beatmap_id = []
     no_osu_file = []
@@ -420,7 +503,7 @@ def scan_replays(
     if gui_log:
         gui_log("Processing lost scores...", update_last=False)
     if progress_callback:
-        progress_callback(80, 100)
+        progress_callback(60, 100)                                           
 
     lost = find_lost_scores(score_list)
     lost = [
@@ -438,12 +521,28 @@ def scan_replays(
             len(lost),
         )
 
-        for i, rec in enumerate(lost):
-            beatmap_id = rec["beatmap_id"]
+                                                             
+        beatmap_data = {}
+        for rec in lost:
+            beatmap_id = rec.get("beatmap_id")
+            if not beatmap_id:
+                continue
 
             osu_file_path = rec.get("osu_file_path")
             if osu_file_path and os.path.exists(osu_file_path):
-                from file_parser import count_objs, parse_osu_metadata
+                beatmap_data[beatmap_id] = {
+                    "osu_file_path": osu_file_path,
+                    "record": rec
+                }
+
+                                            
+        if beatmap_data:
+            logger.info(f"Processing {len(beatmap_data)} local .osu files")
+            from file_parser import count_objs, parse_osu_metadata
+
+            for i, (beatmap_id, data) in enumerate(beatmap_data.items()):
+                osu_file_path = data["osu_file_path"]
+                rec = data["record"]
 
                 db_info = db_get(beatmap_id)
 
@@ -462,78 +561,71 @@ def scan_replays(
                         metadata.get("creator", rec.get("creator", "")),
                         hit_objects,
                     )
-            else:
-                logger.warning(
-                    "Local .osu file not found for score with beatmap_id %s", beatmap_id
-                )
 
+                                                                 
+                if i % 5 == 0 or i == len(beatmap_data) - 1:
+                    if gui_log:
+                        gui_log(
+                            f"Processing local map data {i + 1}/{len(beatmap_data)}",
+                            update_last=True,
+                        )
+                    if progress_callback:
+                        progress_callback(60 + int((i / len(beatmap_data)) * 30), 100)
+
+                                    
+        for rec in lost:
             rec["Status"] = "unknown"
 
-            if gui_log:
+            if gui_log and len(beatmap_data) == 0:
                 gui_log(
-                    f"Processing map {beatmap_id} ({i + 1}/{len(lost)})",
+                    f"Processing map {rec.get('beatmap_id')} (no local files)",
                     update_last=True,
                 )
-            if progress_callback:
-                progress_callback(80 + int((i / len(lost)) * 15), 100)
 
         logger.info("ENABLED unranked/loved maps. Total scores: %d", len(lost))
 
     else:
         logger.info(f"Checking status for {len(lost)} maps...")
 
+                                        
+        unique_beatmap_ids = set(rec["beatmap_id"] for rec in lost if "beatmap_id" in rec)
+
+        if gui_log:
+            gui_log(f"Checking status for {len(lost)} maps...", update_last=False)
+
+                                            
+        db_results = batch_process_beatmap_statuses(
+            unique_beatmap_ids,
+            token,
+            include_unranked,
+            gui_log=gui_log,
+            progress_callback=progress_callback,
+            base_progress=60
+        )
+
+                                            
         for i, rec in enumerate(lost):
-            db_ = db_get(rec["beatmap_id"])
+            if "beatmap_id" in rec:
+                db_ = db_results.get(rec["beatmap_id"], {})
+                rec["Status"] = db_.get("status", "unknown")
 
-            need_api_update = False
-            if not db_:
-                need_api_update = True
-            elif not include_unranked and db_.get("status") == "unknown":
-                need_api_update = True
+                                                                        
+                if i % 5 == 0 or i == len(lost) - 1:
+                    if gui_log:
+                        gui_log(f"Getting information about map {rec['beatmap_id']} ({i + 1}/{len(lost)})",
+                                update_last=True)
+                    if progress_callback:
+                        progress_callback(60 + int((i / len(lost)) * 20), 100)
 
-            if need_api_update:
-                from osu_api import map_osu
+                                            
+        for i, rec in enumerate(lost):
+            if "beatmap_id" in rec:
+                db_ = db_results.get(rec["beatmap_id"], {})
+                rec["Status"] = db_.get("status", "unknown")
 
-                info_api = map_osu(rec["beatmap_id"], token)
-                if gui_log:
-                    gui_log(
-                        f"Getting information about map {rec['beatmap_id']} ({i + 1}/{len(lost)})",
-                        update_last=True,
-                    )
-                if progress_callback:
-                    progress_callback(80 + int((i / len(lost)) * 15), 100)
-
-                if info_api:
-                    db_save(
-                        rec["beatmap_id"],
-                        info_api["status"],
-                        info_api["artist"],
-                        info_api["title"],
-                        info_api["version"],
-                        info_api["creator"],
-                        info_api.get("hit_objects", 0),
-                    )
-                    db_ = info_api
-                else:
-                    db_ = {
-                        "status": "unknown",
-                        "artist": rec.get("artist", ""),
-                        "title": rec.get("title", ""),
-                        "version": rec.get("version", ""),
-                        "creator": rec.get("creator", ""),
-                        "hit_objects": 0,
-                    }
-                    db_save(
-                        rec["beatmap_id"],
-                        db_["status"],
-                        db_["artist"],
-                        db_["title"],
-                        db_["version"],
-                        db_["creator"],
-                        0,
-                    )
-
-            rec["Status"] = db_.get("status", "unknown")
+                                        
+                if i % 10 == 0 and gui_log:
+                    gui_log(f"Processing map metadata ({i + 1}/{len(lost)})", update_last=True)
 
         original_count = len(lost)
         lost = [r for r in lost if r.get("Status") in ["ranked", "approved"]]
@@ -550,7 +642,7 @@ def scan_replays(
     if gui_log:
         gui_log("Saving results...", update_last=True)
     if progress_callback:
-        progress_callback(95, 100)
+        progress_callback(90, 100)                                            
 
     if lost:
         out_file = os.path.join(CSV_DIR, "lost_scores.csv")
