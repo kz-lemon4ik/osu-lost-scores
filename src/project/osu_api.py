@@ -200,7 +200,16 @@ def map_osu(beatmap_id, token):
         resp = session.get(url, headers=headers)
         if resp.status_code == 404:
             logger.warning("Beatmap with ID %s not found", beatmap_id)
-            return None
+                                                                   
+            return {
+                "status": "not_found",
+                "artist": "",
+                "title": f"Not Found (ID: {beatmap_id})",
+                "version": "",
+                "creator": "",
+                "hit_objects": 0
+            }
+
         resp.raise_for_status()
         data = resp.json()
 

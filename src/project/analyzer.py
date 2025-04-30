@@ -35,7 +35,7 @@ def batch_process_beatmap_statuses(beatmap_ids, token, include_unranked=False, g
         need_api_update = False
         if not db_info:
             need_api_update = True
-        elif not include_unranked and db_info.get("status") == "unknown":
+        elif not include_unranked and db_info.get("status") == "unknown" and db_info.get("status") != "not_found":
             need_api_update = True
 
         if need_api_update:
@@ -70,7 +70,7 @@ def batch_process_beatmap_statuses(beatmap_ids, token, include_unranked=False, g
             else:
                                                                                           
                 db_info = {
-                    "status": "unknown",
+                    "status": "not_found",                                        
                     "artist": "",
                     "title": "",
                     "version": "",
@@ -628,11 +628,12 @@ def scan_replays(
                     gui_log(f"Processing map metadata ({i + 1}/{len(lost)})", update_last=True)
 
         original_count = len(lost)
-        lost = [r for r in lost if r.get("Status") in ["ranked", "approved"]]
+        lost = [r for r in lost if r.get("Status") in ["ranked", "approved"] and r.get("Status") != "not_found"]
         filtered_count = len(lost)
         logger.info(
             f"Filtered {original_count - filtered_count} scores, remaining: {filtered_count}"
         )
+
 
     for rec in lost:
         db_info = db_get(rec["beatmap_id"])

@@ -201,10 +201,19 @@ OSR_CACHE = osr_load()
 
 def find_osu(songs_folder, progress_callback=None):
     files = []
+                       
     for root, dirs, filenames in os.walk(songs_folder):
         for file in filenames:
             if file.endswith(".osu"):
                 files.append(os.path.join(root, file))
+
+                                             
+    if os.path.exists(MAPS_DIR) and os.path.isdir(MAPS_DIR):
+        for file in os.listdir(MAPS_DIR):
+            if file.endswith(".osu"):
+                files.append(os.path.join(MAPS_DIR, file))
+
+        logger.info(f"Added {len(os.listdir(MAPS_DIR))} files from MAPS_DIR to scanning")
     total = len(files)
     md5_map = {}
     cache = md5_load()
@@ -227,6 +236,8 @@ def find_osu(songs_folder, progress_callback=None):
 
     global MD5_MAP
     MD5_MAP = md5_map
+
+    logger.info(f"Total .osu files indexed: {len(md5_map)}")
 
     return md5_map
 
@@ -531,15 +542,33 @@ def proc_osr(osr_path, md5_map, cutoff, username):
 
             beatmap_id_api = lookup_osu(rep["beatmap_md5"])
             if beatmap_id_api and beatmap_id_api != 0:
-                new_osu_path = download_osu_file(beatmap_id_api)
-                if new_osu_path:
-                    md5_map[rep["beatmap_md5"]] = new_osu_path
-                    update_osu_md5_cache(new_osu_path, rep["beatmap_md5"])
-                    logger.info(
-                        "Downloaded new .osu file for beatmap_id %s by md5 %s",
-                        beatmap_id_api,
-                        rep["beatmap_md5"],
-                    )
+                                                                               
+                maps_dir_files = [f for f in os.listdir(MAPS_DIR) if f.endswith(".osu")]
+                found_in_maps = False
+
+                for maps_file in maps_dir_files:
+                    file_path = os.path.join(MAPS_DIR, maps_file)
+                    file_md5 = get_md5(file_path)
+                    if file_md5 == rep["beatmap_md5"]:
+                        md5_map[rep["beatmap_md5"]] = file_path
+                        logger.info(
+                            "Found existing .osu file in MAPS_DIR for md5 %s: %s",
+                            rep["beatmap_md5"],
+                            mask_path_for_log(file_path),
+                        )
+                        found_in_maps = True
+                        break
+
+                if not found_in_maps:
+                    new_osu_path = download_osu_file(beatmap_id_api)
+                    if new_osu_path:
+                        md5_map[rep["beatmap_md5"]] = new_osu_path
+                        update_osu_md5_cache(new_osu_path, rep["beatmap_md5"])
+                        logger.info(
+                            "Downloaded new .osu file for beatmap_id %s by md5 %s",
+                            beatmap_id_api,
+                            rep["beatmap_md5"],
+                        )
                 else:
                     logger.error(
                         "Failed to download .osu file for beatmap_id %s", beatmap_id_api
@@ -643,6 +672,7 @@ def download_osu_file(beatmap_id):
     file_path = os.path.join(MAPS_DIR, filename)
 
     if os.path.exists(file_path):
+        logger.debug(f"Beatmap file already exists: {mask_path_for_log(file_path)}")
         return file_path
 
     url = f"https://osu.ppy.sh/osu/{beatmap_id}"
