@@ -25,6 +25,7 @@ src/maps
 scripts/strip_comments.py
 
 log.txt
+api_log.txt
 
 src/config/
 

@@ -11,6 +11,7 @@ import requests
 from database import db_get, db_save
 from utils import get_resource_path, mask_path_for_log
 from config import DOWNLOAD_RETRY_COUNT, MAP_DOWNLOAD_TIMEOUT, MAPS_DIR
+from osu_api import reset_api_caches, lookup_osu
 
 logger = logging.getLogger(__name__)
 cache_folder = get_resource_path("cache")
@@ -80,8 +81,10 @@ def reset_in_memory_caches():
         OSR_CACHE.clear()
     NOT_SUBMITTED_CACHE.clear()
 
-    logger.info("In-memory caches (MD5, OSR, NotSubmitted) have been reset.")
+                                     
+    reset_api_caches()
 
+    logger.info("In-memory caches (MD5, OSR, NotSubmitted) have been reset.")
 
 def not_submitted_cache_load():
     if os.path.exists(NOT_SUBMITTED_CACHE_PATH):
@@ -506,7 +509,7 @@ def calculate_pp_rosu(osu_path, replay):
             "count50": replay["count50"],
             "countMiss": replay["countMiss"],
             "count300": replay["count300"],
-            "osu_file_path": osu_path,
+            "osu_file_path": mask_path_for_log(osu_path),
             "Accuracy": acc,
         }
         return result
@@ -518,77 +521,21 @@ def calculate_pp_rosu(osu_path, replay):
         return None
 
 
-def proc_osr(osr_path, md5_map, cutoff, username):
+def process_osr_with_path(replay_data, md5_map, not_submitted_cache):
     try:
-        rep = parse_osr(osr_path)
-        if not rep:
-            logger.warning("Failed to process osr: %s", mask_path_for_log(osr_path))
-            return None
-        if rep["game_mode"] != 0:
-            return None
-        if rep["player_name"].lower() != username.lower():
-            return None
-        if rep["beatmap_md5"] not in md5_map:
+        beatmap_md5 = replay_data["beatmap_md5"]
+        osr_path = replay_data["osr_path"]
+
+        if beatmap_md5 not in md5_map:
             with OSR_CACHE_LOCK:
-                if rep["beatmap_md5"] in NOT_SUBMITTED_CACHE:
-                    logger.error(
+                if beatmap_md5 in not_submitted_cache:
+                    logger.debug(
                         "md5 %s already marked as not found, skipping replay: %s",
-                        rep["beatmap_md5"],
+                        beatmap_md5,
                         mask_path_for_log(osr_path),
                     )
                     return None
-
-            from osu_api import lookup_osu
-
-            beatmap_id_api = lookup_osu(rep["beatmap_md5"])
-            if beatmap_id_api and beatmap_id_api != 0:
-                                                                               
-                maps_dir_files = [f for f in os.listdir(MAPS_DIR) if f.endswith(".osu")]
-                found_in_maps = False
-
-                for maps_file in maps_dir_files:
-                    file_path = os.path.join(MAPS_DIR, maps_file)
-                    file_md5 = get_md5(file_path)
-                    if file_md5 == rep["beatmap_md5"]:
-                        md5_map[rep["beatmap_md5"]] = file_path
-                        logger.info(
-                            "Found existing .osu file in MAPS_DIR for md5 %s: %s",
-                            rep["beatmap_md5"],
-                            mask_path_for_log(file_path),
-                        )
-                        found_in_maps = True
-                        break
-
-                if not found_in_maps:
-                    new_osu_path = download_osu_file(beatmap_id_api)
-                    if new_osu_path:
-                        md5_map[rep["beatmap_md5"]] = new_osu_path
-                        update_osu_md5_cache(new_osu_path, rep["beatmap_md5"])
-                        logger.info(
-                            "Downloaded new .osu file for beatmap_id %s by md5 %s",
-                            beatmap_id_api,
-                            rep["beatmap_md5"],
-                        )
-                else:
-                    logger.error(
-                        "Failed to download .osu file for beatmap_id %s", beatmap_id_api
-                    )
-
-                    with OSR_CACHE_LOCK:
-                        NOT_SUBMITTED_CACHE[rep["beatmap_md5"]] = True
-                        not_submitted_cache_save(NOT_SUBMITTED_CACHE)
-                    return None
-            else:
-                logger.error(
-                    "No .osu file for replay: %s with md5: %s",
-                    mask_path_for_log(osr_path),
-                    rep["beatmap_md5"],
-                )
-
-                with OSR_CACHE_LOCK:
-                    NOT_SUBMITTED_CACHE[rep["beatmap_md5"]] = True
-                    not_submitted_cache_save(NOT_SUBMITTED_CACHE)
-                return None
+            return None
 
         mtime = os.path.getmtime(osr_path)
 
@@ -598,8 +545,8 @@ def proc_osr(osr_path, md5_map, cutoff, username):
         with OSR_CACHE_LOCK:
                                                   
             if (
-                rel_osr_path in OSR_CACHE
-                and OSR_CACHE[rel_osr_path].get("mtime") == mtime
+                    rel_osr_path in OSR_CACHE
+                    and OSR_CACHE[rel_osr_path].get("mtime") == mtime
             ):
                 return OSR_CACHE[rel_osr_path].get("result")
 
@@ -612,8 +559,9 @@ def proc_osr(osr_path, md5_map, cutoff, username):
                 del OSR_CACHE[osr_path]
                 return result
 
-        osu_path = md5_map[rep["beatmap_md5"]]
-        res = calculate_pp_rosu(osu_path, rep)
+        osu_path = md5_map[beatmap_md5]
+        res = calculate_pp_rosu(osu_path, replay_data)
+
         if res:
             beatmap_id = res.get("beatmap_id")
 
@@ -621,7 +569,9 @@ def proc_osr(osr_path, md5_map, cutoff, username):
                 return None
 
             elif beatmap_id is None:
-                md5 = rep.get("beatmap_md5")
+                                                                                                
+                                                                                                    
+                md5 = replay_data.get("beatmap_md5")
                 if md5 is None:
                     return None
 
@@ -630,11 +580,45 @@ def proc_osr(osr_path, md5_map, cutoff, username):
                 else:
                     try:
                         from osu_api import lookup_osu
+                        from database import db_save
 
-                        new_id = lookup_osu(md5)
-                        if new_id is not None:
+                        beatmap_data = lookup_osu(md5)
+
+                        if isinstance(beatmap_data, dict) and "id" in beatmap_data:
+                                               
+                            new_id = beatmap_data.get("id")
+
+                                                                    
+                            db_save(
+                                new_id,
+                                beatmap_data.get("status", "unknown"),
+                                beatmap_data.get("artist", ""),
+                                beatmap_data.get("title", ""),
+                                beatmap_data.get("version", ""),
+                                beatmap_data.get("creator", ""),
+                                beatmap_data.get("hit_objects", 0)
+                            )
+
+                                                       
                             MD5_BEATMAPID_CACHE[md5] = new_id
                             res["beatmap_id"] = new_id
+
+                                                                       
+                            if "artist" not in res or not res["artist"]:
+                                res["artist"] = beatmap_data.get("artist", "")
+                            if "title" not in res or not res["title"]:
+                                res["title"] = beatmap_data.get("title", "")
+                            if "creator" not in res or not res["creator"]:
+                                res["creator"] = beatmap_data.get("creator", "")
+                            if "version" not in res or not res["version"]:
+                                res["version"] = beatmap_data.get("version", "")
+
+                        elif beatmap_data is not None:
+                                                                                                 
+                            new_id = beatmap_data
+                            MD5_BEATMAPID_CACHE[md5] = new_id
+                            res["beatmap_id"] = new_id
+
                     except Exception as e:
                         logger.error(
                             "Error when requesting beatmap_id by md5 (%s): %s", md5, e
@@ -646,28 +630,65 @@ def proc_osr(osr_path, md5_map, cutoff, username):
                 )
                 return None
 
-            if isinstance(rep, dict):
-                if "player_name" in rep:
-                    res["player_name"] = rep["player_name"]
-                if "score_time" in rep:
-                    res["score_time"] = rep["score_time"]
+            if "player_name" in replay_data:
+                res["player_name"] = replay_data["player_name"]
+            if "score_time" in replay_data:
+                res["score_time"] = replay_data["score_time"]
 
-                with OSR_CACHE_LOCK:
-                                                     
-                    OSR_CACHE[rel_osr_path] = {"mtime": mtime, "result": res}
-            else:
-                logger.warning(
-                    f"Invalid replay format for {mask_path_for_log(osr_path)}: {type(rep)}"
-                )
-                return None
+            with OSR_CACHE_LOCK:
+                                                 
+                OSR_CACHE[rel_osr_path] = {"mtime": mtime, "result": res}
         return res
     except Exception as e:
         logger.exception(
-            f"Unexpected error processing replay {mask_path_for_log(osr_path)}: {e}"
+            f"Unexpected error processing replay with path: {e}"
         )
         return None
 
+
+def proc_osr(osr_path, md5_map, cutoff, username):
+           
+    try:
+        rep = parse_osr_info(osr_path, username)
+        if not rep:
+            return None
+        return process_osr_with_path(rep, md5_map, NOT_SUBMITTED_CACHE)
+    except Exception as e:
+        logger.exception(
+            f"Unexpected error in proc_osr wrapper for {mask_path_for_log(osr_path)}: {e}"
+        )
+        return None
+
+
+def parse_osr_info(osr_path, username):
+    try:
+        rep = parse_osr(osr_path)
+        if not rep:
+            logger.warning("Failed to process osr: %s", mask_path_for_log(osr_path))
+            return None
+        if rep["game_mode"] != 0:
+            return None
+        if rep["player_name"].lower() != username.lower():
+            return None
+
+                                                     
+        rep["osr_path"] = osr_path
+        return rep
+    except Exception as e:
+        logger.exception(
+            f"Unexpected error preprocessing replay {mask_path_for_log(osr_path)}: {e}"
+        )
+        return None
+
+
 def download_osu_file(beatmap_id):
+                                                                         
+    api_logger = logging.getLogger('osu_api_calls')
+
+    if not beatmap_id:
+        logger.error("Cannot download .osu file: beatmap_id is None or 0")
+        return None
+
     filename = f"beatmap_{beatmap_id}.osu"
     file_path = os.path.join(MAPS_DIR, filename)
 
@@ -676,35 +697,50 @@ def download_osu_file(beatmap_id):
         return file_path
 
     url = f"https://osu.ppy.sh/osu/{beatmap_id}"
+    api_logger.info(f"GET beatmap file: {url}")
 
     for retry in range(DOWNLOAD_RETRY_COUNT):
         try:
+            api_logger.debug(
+                f"Downloading .osu file for beatmap_id {beatmap_id} (attempt {retry + 1}/{DOWNLOAD_RETRY_COUNT})")
             response = requests.get(url, timeout=MAP_DOWNLOAD_TIMEOUT)
+
+            if response.status_code == 404:
+                api_logger.warning(f"Beatmap with ID {beatmap_id} not found on server (HTTP 404)")
+                return None
+
             response.raise_for_status()
+
+            file_size = len(response.content)
+            api_logger.debug(f"Download successful: received {file_size} bytes")
 
             with open(file_path, "wb") as f:
                 f.write(response.content)
+
+            api_logger.debug(f"File saved to {mask_path_for_log(file_path)}")
 
             cache = md5_load()
             find_md5(file_path, cache)
             md5_save(cache)
 
+            api_logger.info(f"Successfully downloaded and cached .osu file for beatmap_id {beatmap_id}")
             return file_path
 
         except requests.exceptions.Timeout:
-            logger.warning(
+            api_logger.warning(
                 "Timeout downloading .osu file for beatmap_id %s (attempt %d/%d)",
                 beatmap_id, retry + 1, DOWNLOAD_RETRY_COUNT
             )
         except Exception as e:
-            logger.error(
+            api_logger.error(
                 "Error downloading .osu file for beatmap_id %s: %s (attempt %d/%d)",
                 beatmap_id, e, retry + 1, DOWNLOAD_RETRY_COUNT
             )
 
-    logger.error("Failed to download .osu file after %d attempts for beatmap_id %s",
-                 DOWNLOAD_RETRY_COUNT, beatmap_id)
+    api_logger.error("Failed to download .osu file after %d attempts for beatmap_id %s",
+                     DOWNLOAD_RETRY_COUNT, beatmap_id)
     return None
+
 
 def update_osu_md5_cache(new_osu_path, md5_hash):
     global MD5_CACHE_PATH

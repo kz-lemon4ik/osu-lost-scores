@@ -27,29 +27,61 @@ log_level_map = {
 }
 numeric_level = log_level_map.get(LOG_LEVEL.upper(), logging.INFO)
 
+                                  
+logs_dir = os.path.dirname(LOG_FILENAME)
+os.makedirs(logs_dir, exist_ok=True)
+
+                   
+API_LOG_FILENAME = os.path.join(logs_dir, "api_log.txt")
+
+                             
 root_logger = logging.getLogger()
 root_logger.setLevel(numeric_level)
 
+                                   
 for handler in root_logger.handlers[:]:
     root_logger.removeHandler(handler)
 
+                                                                
+class ExcludeAPILogFilter(logging.Filter):
+    def filter(self, record):
+        return not record.name.startswith('osu_api_calls')
+
+                                       
 try:
     file_handler = logging.FileHandler(LOG_FILENAME, encoding="utf-8", mode="w")
     file_handler.setFormatter(log_formatter)
+    file_handler.addFilter(ExcludeAPILogFilter())                    
     root_logger.addHandler(file_handler)
 except Exception as e:
     print(f"Failed to configure logging to file {LOG_FILENAME}: {e}")
 
+                               
 console_handler = logging.StreamHandler()
 console_handler.setFormatter(log_formatter)
+console_handler.addFilter(ExcludeAPILogFilter())                                         
 root_logger.addHandler(console_handler)
 
+                       
+api_logger = logging.getLogger('osu_api_calls')
+api_logger.setLevel(logging.DEBUG)                                               
+api_logger.propagate = False                                                    
+
+try:
+    api_file_handler = logging.FileHandler(API_LOG_FILENAME, encoding="utf-8", mode="w")
+    api_file_handler.setFormatter(log_formatter)
+    api_logger.addHandler(api_file_handler)
+except Exception as e:
+    print(f"Failed to configure API logging to file {API_LOG_FILENAME}: {e}")
+                                                                                     
+    api_logger.propagate = True
+
 logging.info(
-    "Logging configured. Output to console and file %s",
+    "Logging configured. Main log: %s, API log: %s",
     mask_path_for_log(os.path.normpath(LOG_FILENAME)),
+    mask_path_for_log(os.path.normpath(API_LOG_FILENAME))
 )
 logging.info("Path to .env file: %s", mask_path_for_log(os.path.normpath(env_path)))
-
 
 def setup_api():
     try:

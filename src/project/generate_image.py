@@ -116,13 +116,16 @@ def create_placeholder_image(filename, username, message):
 def get_token_osu():
     from osu_api import get_keys_from_keyring
 
+                                                                         
+    api_logger = logging.getLogger('osu_api_calls')
+
     client_id, client_secret = get_keys_from_keyring()
 
     if not client_id or not client_secret:
         logger.error("[generate_image] API keys are not configured.")
         return None
 
-    logger.info(f"Using keys: ID={client_id[:3]}...")
+    api_logger.info(f"[image_gen] Using keys: ID={client_id[:3]}...")
 
     url = "https://osu.ppy.sh/oauth/token"
 
@@ -134,73 +137,120 @@ def get_token_osu():
     }
 
     try:
+        api_logger.debug("[image_gen] Sending token request")
         r = requests.post(url, data=data)
         r.raise_for_status()
         token = r.json().get("access_token")
         if token:
-            logger.info("API token successfully obtained for image generation")
+            api_logger.info("[image_gen] API token successfully obtained for image generation")
             return token
         else:
-            logger.error("Token not received in API response during image generation")
+            api_logger.error("[image_gen] Token not received in API response during image generation")
             return None
     except Exception as e:
-        logger.error(f"Error getting token for image generation: {e}")
+        api_logger.error(f"[image_gen] Error getting token for image generation: {e}")
         return None
 
 
 def get_user_osu(identifier, lookup_key, token):
+                                                                         
+    api_logger = logging.getLogger('osu_api_calls')
+
     url = f"https://osu.ppy.sh/api/v2/users/{identifier}/osu"
     params = {"key": lookup_key}
-    logger.info("GET user (image gen): %s with params %s", url, params)
+    api_logger.info("[image_gen] GET user: %s with params %s", url, params)
     headers = {"Authorization": f"Bearer {token}"}
 
+    api_logger.debug(f"[image_gen] Sending request for user data '{identifier}' (lookup type: {lookup_key})")
     resp = requests.get(url, headers=headers, params=params)
+
     if resp.status_code == 404:
-        logger.error(
-            f"User '{identifier}' (lookup type: {lookup_key}) not found during image generation."
+        api_logger.error(
+            f"[image_gen] User '{identifier}' (lookup type: {lookup_key}) not found during image generation."
         )
         return None
+
     resp.raise_for_status()
-    return resp.json()
+    user_data = resp.json()
+    api_logger.debug(
+        f"[image_gen] Successfully received user data for '{identifier}' (username: {user_data.get('username', 'unknown')})")
+
+    return user_data
 
 
 def get_map_osu(bid, token):
+                                                                         
+    api_logger = logging.getLogger('osu_api_calls')
+
     try:
         bid = int(bid)
     except (ValueError, TypeError):
+        api_logger.warning(f"[image_gen] Invalid beatmap ID format: {bid}")
         return None
+
     url = f"https://osu.ppy.sh/api/v2/beatmaps/{bid}"
-    resp = requests.get(url, headers={"Authorization": f"Bearer {token}"})
-    if resp.status_code == 404:
+    api_logger.info(f"[image_gen] GET map: {url}")
+
+    try:
+        api_logger.debug(f"[image_gen] Sending request for beatmap {bid}")
+        resp = requests.get(url, headers={"Authorization": f"Bearer {token}"})
+
+        if resp.status_code == 404:
+            api_logger.warning(f"[image_gen] Beatmap with ID {bid} not found (HTTP 404)")
+            return None
+
+        resp.raise_for_status()
+        beatmap_data = resp.json()
+
+        title = beatmap_data.get("beatmapset", {}).get("title", "Unknown")
+        artist = beatmap_data.get("beatmapset", {}).get("artist", "Unknown")
+        version = beatmap_data.get("version", "Unknown")
+
+        api_logger.debug(f"[image_gen] Successfully retrieved beatmap {bid}: {artist} - {title} [{version}]")
+        return beatmap_data
+
+    except Exception as e:
+        api_logger.error(f"[image_gen] Error fetching beatmap {bid}: {e}")
         return None
-    resp.raise_for_status()
-    return resp.json()
 
 
 def dl_img(url, path):
+                                                                         
+    api_logger = logging.getLogger('osu_api_calls')
+
     if os.path.exists(path):
+        api_logger.debug(f"[image_gen] Image already exists locally: {mask_path_for_log(path)}")
         return
 
     os.makedirs(os.path.dirname(path), exist_ok=True)
+    api_logger.info(f"[image_gen] GET image: {url}")
 
     for retry in range(DOWNLOAD_RETRY_COUNT):
         try:
+            api_logger.debug(f"[image_gen] Downloading image (attempt {retry + 1}/{DOWNLOAD_RETRY_COUNT})")
             resp = requests.get(url, timeout=MAP_DOWNLOAD_TIMEOUT)
             resp.raise_for_status()
+
+            file_size = len(resp.content)
+            api_logger.debug(f"[image_gen] Download successful: received {file_size} bytes")
+
             with open(path, "wb") as f:
                 f.write(resp.content)
+
+            api_logger.debug(f"[image_gen] Image saved to {mask_path_for_log(path)}")
             return True
+
         except requests.exceptions.Timeout:
-            logger.warning(
-                f"Timeout downloading image {url} (attempt {retry + 1}/{DOWNLOAD_RETRY_COUNT})"
+            api_logger.warning(
+                f"[image_gen] Timeout downloading image {url} (attempt {retry + 1}/{DOWNLOAD_RETRY_COUNT})"
             )
         except Exception as e:
-            logger.warning(
-                f"Failed to download image {url}: {e} (attempt {retry + 1}/{DOWNLOAD_RETRY_COUNT})"
+            api_logger.warning(
+                f"[image_gen] Failed to download image {url}: {e} (attempt {retry + 1}/{DOWNLOAD_RETRY_COUNT})"
             )
 
-    logger.error(
-        f"Failed to download image after {DOWNLOAD_RETRY_COUNT} attempts: {url}"
+    api_logger.error(
+        f"[image_gen] Failed to download image after {DOWNLOAD_RETRY_COUNT} attempts: {url}"
     )
     return False
 

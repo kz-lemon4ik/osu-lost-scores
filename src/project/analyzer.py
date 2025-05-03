@@ -5,10 +5,9 @@ import time
 import datetime
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from file_parser import parse_osr, grade_osu
+from file_parser import parse_osr, grade_osu, find_osu, proc_osr, calc_acc, sort_mods, OSR_CACHE_LOCK, NOT_SUBMITTED_CACHE, MAPS_DIR, not_submitted_cache_save, get_md5
 from database import db_init, db_get, db_save
 from osu_api import token_osu, user_osu, top_osu, map_osu
-from file_parser import find_osu, proc_osr, calc_acc, sort_mods
 from config import CUTOFF_DATE, THREAD_POOL_SIZE, CSV_DIR
 from utils import get_resource_path, mask_path_for_log
 
@@ -89,7 +88,7 @@ def batch_process_beatmap_statuses(beatmap_ids, token, include_unranked=False, g
                 db_results[beatmap_id] = db_info
 
                                            
-            if i % 5 == 0 and gui_log:
+            if i % 1 == 0 and gui_log:
                 gui_log(f"Fetching data for map {beatmap_id} ({i + 1}/{len(ids_to_fetch)})", update_last=True)
 
             if progress_callback:
@@ -414,79 +413,205 @@ def scan_replays(
     gui_log(f"Processed 0/{total_rep} replays", update_last=True)
 
     start = time.time()
-    score_list = []
+
+                                                               
+    if gui_log:
+        gui_log("Phase 1: Preliminary scanning of replays...", update_last=False)
+
+    from file_parser import parse_osr_info, NOT_SUBMITTED_CACHE
+
+                                     
+    replay_data_list = []
+                                                       
+    md5_to_lookup = set()
+
     count = 0
     last_replay_update = {"time": 0}
 
-    def update_replays(curr, tot):
+    def update_replay_phase1(curr, tot):
         if progress_callback:
-            progress_callback(10 + int((curr / tot) * 50), 100)                 
-
-    no_beatmap_id = []
-    no_osu_file = []
+            progress_callback(10 + int((curr / tot) * 20), 100)                 
 
     with ThreadPoolExecutor(max_workers=THREAD_POOL_SIZE) as executor:
         futures = {
             executor.submit(
-                proc_osr, os.path.join(replays, f), md5_map, cutoff, username
+                parse_osr_info, os.path.join(replays, f), username
             ): f
             for f in rep_files
         }
+
         for fut in as_completed(futures):
             count += 1
-            update_replays(count, total_rep)
+            update_replay_phase1(count, total_rep)
             osr_filename = futures[fut]
-            res = fut.result()
-            if res is not None:
-                score_list.append(res)
-            else:
-                try:
-                    rep = parse_osr(os.path.join(replays, osr_filename))
-                    if rep:
-                        if rep["beatmap_md5"] not in md5_map:
-                            no_osu_file.append(
-                                {
-                                    "PP": "",
-                                    "Beatmap ID": None,
-                                    "Beatmap": "",
-                                    "Mods": "",
-                                    "100": "",
-                                    "50": "",
-                                    "Misses": "",
-                                    "Accuracy": "",
-                                    "Score": "",
-                                    "Date": rep.get("score_time", ""),
-                                }
-                            )
-                        else:
-                            no_beatmap_id.append(
-                                {
-                                    "PP": "",
-                                    "Beatmap ID": None,
-                                    "Beatmap": "",
-                                    "Mods": "",
-                                    "100": "",
-                                    "50": "",
-                                    "Misses": "",
-                                    "Accuracy": "",
-                                    "Score": "",
-                                    "Date": rep.get("score_time", ""),
-                                }
-                            )
-                    else:
-                        logger.warning("Unable to parse replay: %s", osr_filename)
-                except Exception as e:
-                    logger.exception(
-                        "Error processing problematic replay %s: %s", osr_filename, e
-                    )
+
+            try:
+                replay_data = fut.result()
+                if replay_data:
+                                                                  
+                    if replay_data["beatmap_md5"] not in md5_map:
+                                                                   
+                        if replay_data["beatmap_md5"] not in NOT_SUBMITTED_CACHE:
+                                                                    
+                            md5_to_lookup.add(replay_data["beatmap_md5"])
+                                                
+                    replay_data_list.append(replay_data)
+            except Exception as e:
+                logger.exception(
+                    "Error in Phase 1 processing replay %s: %s", osr_filename, e
+                )
 
             now = time.time()
             if now - last_replay_update["time"] >= 1 or count == total_rep:
                 last_replay_update["time"] = now
-                gui_log(f"Processed {count}/{total_rep} replays", update_last=True)
+                gui_log(f"Phase 1: Processed {count}/{total_rep} replays", update_last=True)
 
+                                                      
+    if gui_log:
+        gui_log(f"Phase 2: Looking up {len(md5_to_lookup)} unique beatmap IDs...", update_last=False)
+
+    if progress_callback:
+        progress_callback(30, 100)                    
+
+    from osu_api import lookup_osu
+
+                                                   
+    md5_results = {}
+
+                                                            
+    md5_list = list(md5_to_lookup)
+    total_md5 = len(md5_list)
+
+    for i, md5 in enumerate(md5_list):
+        try:
+            if gui_log and (i % 1 == 0 or i == total_md5 - 1):
+                gui_log(f"Looking up beatmap ID {i + 1}/{total_md5}", update_last=True)
+
+            if progress_callback:
+                progress_callback(30 + int((i / total_md5) * 15), 100)                 
+
+            beatmap_id = lookup_osu(md5)
+            md5_results[md5] = beatmap_id
+
+                                                      
+            if beatmap_id is None:
+                with OSR_CACHE_LOCK:
+                    NOT_SUBMITTED_CACHE[md5] = True
+                    if i % 10 == 0 or i == total_md5 - 1:                     
+                        not_submitted_cache_save(NOT_SUBMITTED_CACHE)
+
+        except Exception as e:
+            logger.exception(f"Error looking up MD5 {md5}: {e}")
+            md5_results[md5] = None
+
+                                                   
+    not_submitted_cache_save(NOT_SUBMITTED_CACHE)
+
+                                                       
+    if gui_log:
+        gui_log("Phase 3: Downloading missing .osu files...", update_last=False)
+
+    if progress_callback:
+        progress_callback(45, 100)                    
+
+    from file_parser import download_osu_file, update_osu_md5_cache
+
+                                              
+    download_ids = [bid for md5, bid in md5_results.items() if bid is not None]
+    total_downloads = len(download_ids)
+    downloads_completed = 0
+
+    for i, (md5, beatmap_id) in enumerate(md5_results.items()):
+        if beatmap_id is not None:
+            try:
+                if gui_log:
+                    downloads_completed += 1
+                    gui_log(f"Downloading maps {downloads_completed}/{total_downloads}", update_last=True)
+
+                if progress_callback:
+                    progress_callback(45 + int((i / total_downloads) * 15), 100)                 
+
+                                                                           
+                maps_dir_files = [f for f in os.listdir(MAPS_DIR) if f.endswith(".osu")]
+                found_in_maps = False
+
+                for maps_file in maps_dir_files:
+                    file_path = os.path.join(MAPS_DIR, maps_file)
+                    try:
+                        file_md5 = get_md5(file_path)
+                        if file_md5 == md5:
+                            md5_map[md5] = file_path
+                            logger.info(
+                                "Found existing .osu file in MAPS_DIR for md5 %s: %s",
+                                md5,
+                                mask_path_for_log(file_path),
+                            )
+                            found_in_maps = True
+                            break
+                    except Exception as e:
+                        logger.warning(f"Error checking file MD5 {file_path}: {e}")
+
+                if not found_in_maps:
+                    new_osu_path = download_osu_file(beatmap_id)
+                    if new_osu_path:
+                        md5_map[md5] = new_osu_path
+                        update_osu_md5_cache(new_osu_path, md5)
+                        logger.info(
+                            "Downloaded new .osu file for beatmap_id %s by md5 %s",
+                            beatmap_id,
+                            md5,
+                        )
+            except Exception as e:
+                logger.exception(f"Error downloading .osu file for beatmap_id {beatmap_id}: {e}")
+
+                                      
+    if gui_log:
+        gui_log("Phase 4: Calculating PP values...", update_last=False)
+
+    if progress_callback:
+        progress_callback(60, 100)                    
+
+    from file_parser import process_osr_with_path
+
+    score_list = []
+    total_replays = len(replay_data_list)
+
+    count = 0
+    last_pp_update = {"time": 0}
+
+    def update_pp_progress(curr, tot):
+        if progress_callback:
+            progress_callback(60 + int((curr / tot) * 10), 100)                 
+
+    with ThreadPoolExecutor(max_workers=THREAD_POOL_SIZE) as executor:
+        futures = {
+            executor.submit(
+                process_osr_with_path, replay_data, md5_map, NOT_SUBMITTED_CACHE
+            ): replay_data
+            for replay_data in replay_data_list
+        }
+
+        for fut in as_completed(futures):
+            count += 1
+            update_pp_progress(count, total_replays)
+
+            try:
+                res = fut.result()
+                if res is not None:
+                    score_list.append(res)
+            except Exception as e:
+                replay_data = futures[fut]
+                logger.exception(
+                    "Error in Phase 4 processing replay data: %s", e
+                )
+
+            now = time.time()
+            if now - last_pp_update["time"] >= 1 or count == total_replays:
+                last_pp_update["time"] = now
+                gui_log(f"Phase 4: Calculated PP for {count}/{total_replays} replays", update_last=True)
+
+                
     from file_parser import OSR_CACHE, osr_save
-
     osr_save(OSR_CACHE)
 
     elapsed = time.time() - start
@@ -503,7 +628,7 @@ def scan_replays(
     if gui_log:
         gui_log("Processing lost scores...", update_last=False)
     if progress_callback:
-        progress_callback(60, 100)                                           
+        progress_callback(70, 100)                                           
 
     lost = find_lost_scores(score_list)
     lost = [
@@ -570,7 +695,7 @@ def scan_replays(
                             update_last=True,
                         )
                     if progress_callback:
-                        progress_callback(60 + int((i / len(beatmap_data)) * 30), 100)
+                        progress_callback(70 + int((i / len(beatmap_data)) * 10), 100)
 
                                     
         for rec in lost:
@@ -600,7 +725,7 @@ def scan_replays(
             include_unranked,
             gui_log=gui_log,
             progress_callback=progress_callback,
-            base_progress=60
+            base_progress=80
         )
 
                                             
@@ -615,17 +740,7 @@ def scan_replays(
                         gui_log(f"Getting information about map {rec['beatmap_id']} ({i + 1}/{len(lost)})",
                                 update_last=True)
                     if progress_callback:
-                        progress_callback(60 + int((i / len(lost)) * 20), 100)
-
-                                            
-        for i, rec in enumerate(lost):
-            if "beatmap_id" in rec:
-                db_ = db_results.get(rec["beatmap_id"], {})
-                rec["Status"] = db_.get("status", "unknown")
-
-                                        
-                if i % 10 == 0 and gui_log:
-                    gui_log(f"Processing map metadata ({i + 1}/{len(lost)})", update_last=True)
+                        progress_callback(80 + int((i / len(lost)) * 10), 100)
 
         original_count = len(lost)
         lost = [r for r in lost if r.get("Status") in ["ranked", "approved"] and r.get("Status") != "not_found"]
@@ -633,7 +748,6 @@ def scan_replays(
         logger.info(
             f"Filtered {original_count - filtered_count} scores, remaining: {filtered_count}"
         )
-
 
     for rec in lost:
         db_info = db_get(rec["beatmap_id"])
