@@ -14,19 +14,6 @@ FONTS_DIR = get_resource_path("assets/fonts")
 GRADES_DIR = get_resource_path("assets/grades")
 MODS_DIR = get_resource_path("assets/mod-icons")
 
-# Ensure results directory exists
-os.makedirs(RESULTS_DIR, exist_ok=True)
-
-CSV_LOST = os.path.join(CSV_DIR, "lost_scores.csv")
-CSV_TOPLOST = os.path.join(CSV_DIR, "top_with_lost.csv")
-IMG_LOST_OUT = os.path.join(RESULTS_DIR, "lost_scores_result.png")
-IMG_TOP_OUT = os.path.join(RESULTS_DIR, "potential_top_result.png")
-
-AVATAR_DIR = get_resource_path("assets/images/avatar")
-COVER_DIR = get_resource_path("assets/images/cover")
-os.makedirs(AVATAR_DIR, exist_ok=True)
-os.makedirs(COVER_DIR, exist_ok=True)
-
 try:
     from PIL import ImageFont
 
@@ -51,6 +38,29 @@ except Exception as e:
     ) = ImageFont.load_default()
     BOLD_ITALIC_FONT = BOLD_ITALIC_FONT_SMALL = ImageFont.load_default()
 
+                                 
+os.makedirs(RESULTS_DIR, exist_ok=True)
+
+CSV_LOST = os.path.join(CSV_DIR, "lost_scores.csv")
+CSV_TOPLOST = os.path.join(CSV_DIR, "top_with_lost.csv")
+IMG_LOST_OUT = os.path.join(RESULTS_DIR, "lost_scores_result.png")
+IMG_TOP_OUT = os.path.join(RESULTS_DIR, "potential_top_result.png")
+
+AVATAR_DIR = get_resource_path("assets/images/avatar")
+COVER_DIR = get_resource_path("assets/images/cover")
+os.makedirs(AVATAR_DIR, exist_ok=True)
+os.makedirs(COVER_DIR, exist_ok=True)
+
+                                       
+CARD_HEIGHT = 60
+CARD_SPACING = 2
+TOP_PANEL_HEIGHT = 80
+DEFAULT_MARGIN = 30
+DEFAULT_BASE_CARD_WIDTH = 920
+MOD_THRESHOLD_LOST = 4
+MOD_THRESHOLD_TOP = 2
+MOD_EXTENSION_WIDTH = 43
+
 COLOR_BG = (37, 26, 55)
 COLOR_CARD = (48, 36, 68)
 COLOR_CARD_LOST = (69, 34, 66)
@@ -63,7 +73,16 @@ WEIGHT_COLOR = (255, 255, 255)
 GREEN_COLOR = (128, 255, 128)
 RED_COLOR = (255, 128, 128)
 USERNAME_COLOR = (255, 204, 33)
-
+CARD_CORNER_RADIUS = 15
+GRADE_TARGET_WIDTH = 45
+PP_SHAPE_WIDTH = 100
+MODS_EDGE_OFFSET = 90
+ACCURACY_COLUMN_WIDTH = 120
+PP_COLUMN_WIDTH = 70
+VERTICAL_TEXT_SPACING = 5
+MODS_RIGHT_MARGIN = 10
+MOD_ICON_MAX_SIZE = 38
+MOD_ICON_SPACING = 5
 
 def create_placeholder_image(filename, username, message):
     width, height = 920, 400
@@ -122,10 +141,10 @@ def dl_img(url, path):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     logger.info("GET image: %s", url)
 
-    # Используем rate limiting из osu_api
+                                         
     wait_osu()
 
-    # Определим функцию для скачивания, которую можно обернуть в retry_request
+                                                                              
     @retry_request
     def download_image():
         resp = session.get(url, timeout=MAP_DOWNLOAD_TIMEOUT)
@@ -208,7 +227,7 @@ def download_and_draw_avatar(d, user_id, user_name, avatar_url, x, y, size):
                 f"Error processing avatar {mask_path_for_log(avatar_path)}: {img_err}."
             )
 
-    # Fallback to a placeholder if avatar not available
+                                                       
     logger.warning(f"Using placeholder for avatar user_id {user_id}.")
     d.rounded_rectangle((x, y, x + size, y + size), radius=15, fill=(80, 80, 80, 255))
     return None, False
@@ -220,13 +239,17 @@ def get_beatmap_metadata(beatmap_id, beatmap_full_name, token, metadata_cache=No
     if metadata_cache is None:
         metadata_cache = {}
 
+                                                               
+    if beatmap_id in metadata_cache:
+        return metadata_cache[beatmap_id]
+
     raw_artist = ""
     raw_title = ""
     creator = ""
     version = ""
     cover_url = None
 
-    # Try to extract from full beatmap name
+                                           
     if beatmap_full_name:
         try:
             pattern = r"(.+) - (.+) \((.+)\) \[(.+)\]"
@@ -236,7 +259,7 @@ def get_beatmap_metadata(beatmap_id, beatmap_full_name, token, metadata_cache=No
         except Exception:
             logger.warning(f"Failed to parse beatmap name: {beatmap_full_name}")
 
-    # Try to get from database
+                              
     if (
         not all([raw_artist, raw_title, creator, version])
         and beatmap_id
@@ -252,7 +275,7 @@ def get_beatmap_metadata(beatmap_id, beatmap_full_name, token, metadata_cache=No
         except Exception as db_err:
             logger.warning(f"Error getting map data from DB {beatmap_id}: {db_err}")
 
-    # Try to get from API
+                         
     if beatmap_id and beatmap_id.isdigit():
         if beatmap_id in metadata_cache:
             data = metadata_cache[beatmap_id]
@@ -272,7 +295,7 @@ def get_beatmap_metadata(beatmap_id, beatmap_full_name, token, metadata_cache=No
                         creator = bdata.get("creator") or creator
                         version = bdata.get("version") or version
 
-                        # Получаем URL обложки из beatmapset
+                                                            
                         beatmapset = bdata.get("beatmapset", {})
                         if beatmapset and "covers" in beatmapset:
                             cover_url = beatmapset["covers"].get("cover@2x")
@@ -280,26 +303,35 @@ def get_beatmap_metadata(beatmap_id, beatmap_full_name, token, metadata_cache=No
                                 "Retrieved cover URL for beatmap %s", beatmap_id
                             )
 
-                        metadata_cache[beatmap_id] = {
+                                                 
+                        result = {
                             "artist": raw_artist,
                             "title": raw_title,
                             "creator": creator,
                             "version": version,
                             "cover_url": cover_url,
                         }
+                                                       
+                        metadata_cache[beatmap_id] = result
                         logger.debug("Added beatmap %s to metadata cache", beatmap_id)
+
+                        return result
+
             except Exception as map_err:
                 logger.warning(
                     "Error getting map data %s from API: %s", beatmap_id, map_err
                 )
 
-    return {
+                                                      
+    result = {
         "artist": raw_artist,
         "title": raw_title,
         "creator": creator,
         "version": version,
         "cover_url": cover_url,
     }
+    metadata_cache[beatmap_id] = result
+    return result
 
 
 def get_and_draw_cover(beatmap_id, cover_url, width, height):
@@ -309,7 +341,7 @@ def get_and_draw_cover(beatmap_id, cover_url, width, height):
 
     c_img = None
 
-    # Try to load existing cover
+                                
     if cover_file and os.path.exists(cover_file):
         try:
             c_img = Image.open(cover_file).convert("RGBA").resize((width, height))
@@ -319,7 +351,7 @@ def get_and_draw_cover(beatmap_id, cover_url, width, height):
             )
             c_img = None
 
-    # Try to download cover
+                           
     elif cover_url and beatmap_id:
         try:
             dl_img(cover_url, cover_file)
@@ -329,65 +361,37 @@ def get_and_draw_cover(beatmap_id, cover_url, width, height):
             logger.warning(f"Failed to download cover {cover_url}: {dl_err}")
             c_img = None
 
-    # Use placeholder if no cover available
+                                           
     if not c_img:
         c_img = Image.new("RGBA", (width, height), (80, 80, 80, 255))
 
     return c_img
 
 
-def draw_score_card(
-    base,
-    d_card,
-    row,
-    card_x,
-    card_y,
-    card_w,
-    card_h,
-    is_lost_row=False,
-    show_weights=False,
-    token=None,
-):
-    center_line = card_y + card_h // 2
-
-    # Create the background for the card
+def _prepare_card_background(card_w, card_h, is_lost_row, show_weights, beatmap_id, cover_url):
+                                                               
+                                                
     bg_color = COLOR_CARD_LOST if show_weights and is_lost_row else COLOR_CARD
     bg_img = Image.new("RGBA", (card_w, card_h), bg_color)
 
-    # Get beatmap data
-    beatmap_id = row.get("Beatmap ID", "").strip()
-    beatmap_full_name = row.get("Beatmap", "")
-
-    # Get metadata and cover
-    metadata = get_beatmap_metadata(beatmap_id, beatmap_full_name, token)
-    raw_artist = metadata["artist"]
-    raw_title = metadata["title"]
-    creator = metadata["creator"]
-    version = metadata["version"]
-    cover_url = metadata["cover_url"]
-
-    # Draw beatmap cover
+                                         
     cover_w = card_w // 3
-    cover_h_ = card_h
-    c_img = get_and_draw_cover(beatmap_id, cover_url, cover_w, cover_h_)
+    cover_h = card_h
+    c_img = get_and_draw_cover(beatmap_id, cover_url, cover_w, cover_h)
 
-    # Apply fade effect to cover
-    fade_mask = Image.new("L", (cover_w, cover_h_), 255)
+                                
+    fade_mask = Image.new("L", (cover_w, cover_h), 255)
     dm_fade = ImageDraw.Draw(fade_mask)
-    for x_ in range(cover_w):
-        alpha_val = int(90 - (x_ / cover_w) * 90)
-        dm_fade.line([(x_, 0), (x_, cover_h_)], fill=alpha_val)
+    for x in range(cover_w):
+        alpha_val = int(90 - (x / cover_w) * 90)
+        dm_fade.line([(x, 0), (x, cover_h)], fill=alpha_val)
     bg_img.paste(c_img, (0, 0), fade_mask)
 
-    # Draw rounded corners for the card
-    corner_mask = Image.new("L", (card_w, card_h), 0)
-    dr_corner = ImageDraw.Draw(corner_mask)
-    dr_corner.rounded_rectangle((0, 0, card_w, card_h), radius=15, fill=255)
-    base.paste(bg_img, (card_x, card_y), corner_mask)
+    return bg_img
 
-    # Draw grade icon
-    grade = row.get("Rank", "?")
-    GRADE_TARGET_WIDTH = 45
+
+def _draw_grade_icon(base, d_card, grade, card_x, center_line):
+                                                           
     grade_icon_path = os.path.join(GRADES_DIR, f"{grade}.png")
     if os.path.isfile(grade_icon_path):
         try:
@@ -399,34 +403,33 @@ def draw_score_card(
             base.paste(
                 g_img_resized, (card_x + 10, center_line - nh // 2), g_img_resized
             )
+            return True
         except Exception as grade_err:
             logger.warning(
                 f"Error processing grade icon {mask_path_for_log(grade_icon_path)}: {grade_err}"
             )
-            d_card.text(
-                (card_x + 10, center_line - 8),
-                grade,
-                font=SUBTITLE_FONT,
-                fill=COLOR_WHITE,
-            )
-    else:
-        d_card.text(
-            (card_x + 10, center_line - 8), grade, font=SUBTITLE_FONT, fill=COLOR_WHITE
-        )
 
-    # Draw beatmap info
+                                   
+    d_card.text(
+        (card_x + 10, center_line - 8), grade, font=SUBTITLE_FONT, fill=COLOR_WHITE
+    )
+    return False
+
+
+def _draw_beatmap_info(d_card, raw_title, raw_artist, creator, version, date_str, text_x, text_y_map, card_y):
+                                                      
+                       
     full_name = short_txt(f"{raw_title} by {raw_artist}", 50)
-    text_x = card_x + 70
-    text_y_map = card_y + 4
     d_card.text((text_x, text_y_map), full_name, font=MAP_NAME_FONT, fill=COLOR_WHITE)
     text_y_map += 20
+
+                  
     d_card.text(
         (text_x, text_y_map), f"by {creator}", font=CREATOR_SMALL_FONT, fill=COLOR_WHITE
     )
     text_y_map += 16
 
-    # Draw date
-    date_str = row.get("Date", "")
+                           
     date_human = since_date(date_str)
     gap = "    "
     try:
@@ -451,18 +454,20 @@ def draw_score_card(
             fill=DATE_COLOR,
         )
 
-    # Draw PP shape
-    shape_w = 100
+
+def _draw_pp_section(d_card, row, card_x, card_y, card_w, card_h, center_line):
+                                        
+                   
+    shape_w = PP_SHAPE_WIDTH
     shape_left = card_x + card_w - shape_w
-    right_block_x = shape_left - 20
 
     d_card.rounded_rectangle(
         (shape_left, card_y, shape_left + shape_w, card_y + card_h),
-        radius=15,
+        radius=CARD_CORNER_RADIUS,
         fill=PP_SHAPE_COLOR,
     )
 
-    # Draw PP
+                   
     raw_pp = row.get("PP", "0")
     try:
         pp_val = round(float(raw_pp))
@@ -488,31 +493,90 @@ def draw_score_card(
             fill=COLOR_WHITE,
         )
 
-    # Draw additional info based on mode
+    return shape_left
+
+
+def draw_score_card(
+        base,
+        d_card,
+        row,
+        card_x,
+        card_y,
+        card_w,
+        card_h,
+        is_lost_row=False,
+        show_weights=False,
+        token=None,
+        metadata_cache=None,
+):
+    center_line = card_y + card_h // 2
+
+                      
+    beatmap_id = row.get("Beatmap ID", "").strip()
+    beatmap_full_name = row.get("Beatmap", "")
+
+                                       
+    if metadata_cache is None:
+        metadata_cache = {}
+    metadata = get_beatmap_metadata(beatmap_id, beatmap_full_name, token, metadata_cache)
+    raw_artist = metadata["artist"]
+    raw_title = metadata["title"]
+    creator = metadata["creator"]
+    version = metadata["version"]
+    cover_url = metadata["cover_url"]
+
+                                        
+    bg_img = _prepare_card_background(card_w, card_h, is_lost_row, show_weights, beatmap_id, cover_url)
+
+                                                   
+    corner_mask = Image.new("L", (card_w, card_h), 0)
+    dr_corner = ImageDraw.Draw(corner_mask)
+    dr_corner.rounded_rectangle((0, 0, card_w, card_h), radius=CARD_CORNER_RADIUS, fill=255)
+    base.paste(bg_img, (card_x, card_y), corner_mask)
+
+                     
+    grade = row.get("Rank", "?")
+    _draw_grade_icon(base, d_card, grade, card_x, center_line)
+
+                       
+    text_x = card_x + 70
+    text_y_map = card_y + 4
+    date_str = row.get("Date", "")
+    _draw_beatmap_info(d_card, raw_title, raw_artist, creator, version, date_str, text_x, text_y_map, card_y)
+
+                     
+    shape_left = _draw_pp_section(d_card, row, card_x, card_y, card_w, card_h, center_line)
+    right_block_x = shape_left - 20
+
+                                        
     if not show_weights:
-        # Lost mode - draw accuracy and mods
+                                            
         draw_accuracy_and_mods_lost(
             d_card, base, row, right_block_x, center_line, shape_left
         )
     else:
-        # Top mode - draw weighted PP, accuracy and mods
+                                                        
         draw_weighted_info(d_card, base, row, shape_left, center_line)
 
+def _format_accuracy_text(accuracy_value):
+                                                                      
+    try:
+        return f"{float(accuracy_value):.2f}%"
+    except ValueError:
+        return f"{accuracy_value}%" if accuracy_value else "?.??%"
 
 def draw_accuracy_and_mods_lost(
     d_card, base, row, right_block_x, center_line, shape_left
 ):
-    mods_edge = right_block_x - 90
+    mods_edge = right_block_x - MODS_EDGE_OFFSET
     acc_center_x = (mods_edge + shape_left) / 2
 
-    # Draw accuracy
+                              
     raw_acc_str = row.get("Accuracy", "0")
-    try:
-        acc_s = f"{float(raw_acc_str):.2f}%"
-    except ValueError:
-        acc_s = f"{raw_acc_str}%" if raw_acc_str else "?.??%"
+    acc_s = _format_accuracy_text(raw_acc_str)
 
     try:
+                                                       
         acc_box = d_card.textbbox((0, 0), acc_s, font=BOLD_ITALIC_FONT)
         d_card.text(
             (acc_center_x, center_line),
@@ -522,6 +586,7 @@ def draw_accuracy_and_mods_lost(
             anchor="mm",
         )
     except AttributeError:
+                                            
         acc_box = d_card.textbbox((0, 0), acc_s, font=BOLD_ITALIC_FONT)
         if acc_box:
             acc_w = acc_box[2] - acc_box[0]
@@ -539,15 +604,11 @@ def draw_accuracy_and_mods_lost(
                 fill=ACC_COLOR,
             )
 
-    # Draw mods
+               
     draw_mods(d_card, base, row, mods_edge, center_line)
 
-
 def draw_weighted_info(d_card, base, row, shape_left, center_line):
-    acc_column_width = 120
-    pp_column_width = 70
-
-    # Draw weighted PP
+                      
     wpp_x = shape_left - 10
     raw_wpp = row.get("weight_PP", "")
     try:
@@ -557,30 +618,31 @@ def draw_weighted_info(d_card, base, row, shape_left, center_line):
 
     if weight_pp_text:
         try:
+                                                           
             d_card.text(
-                (wpp_x - pp_column_width / 2, center_line),
+                (wpp_x - PP_COLUMN_WIDTH / 2, center_line),
                 weight_pp_text,
                 font=BOLD_ITALIC_FONT_SMALL,
                 fill=WEIGHT_COLOR,
                 anchor="mm",
             )
         except AttributeError:
+                                                
             d_card.text(
-                (wpp_x - pp_column_width + 5, center_line - 8),
+                (wpp_x - PP_COLUMN_WIDTH + 5, center_line - 8),
                 weight_pp_text,
                 font=BOLD_ITALIC_FONT_SMALL,
                 fill=WEIGHT_COLOR,
             )
 
-    # Draw accuracy and weight percentage
-    acc_block_x = wpp_x - pp_column_width - acc_column_width / 2
+                                            
+    acc_block_x = wpp_x - PP_COLUMN_WIDTH - ACCURACY_COLUMN_WIDTH / 2
 
+                          
     raw_acc = row.get("Accuracy", "0")
-    try:
-        acc_str2 = f"{float(raw_acc):.2f}%"
-    except ValueError:
-        acc_str2 = f"{raw_acc}%" if raw_acc else "?.??%"
+    acc_str2 = _format_accuracy_text(raw_acc)
 
+                                   
     raw_wpercent = row.get("weight_%", "")
     try:
         w_percent_str = f"weighted {round(float(raw_wpercent))}%"
@@ -588,63 +650,66 @@ def draw_weighted_info(d_card, base, row, shape_left, center_line):
         w_percent_str = ""
 
     try:
+                                                       
         acc_box = d_card.textbbox((0, 0), acc_str2, font=BOLD_ITALIC_FONT)
         acc_h = acc_box[3] - acc_box[1]
 
-        left_align_x = acc_block_x - acc_column_width / 2 + 10
+        left_align_x = acc_block_x - ACCURACY_COLUMN_WIDTH / 2 + 10
 
-        vertical_spacing = 5
-
+                                    
         d_card.text(
-            (left_align_x, center_line - acc_h / 2 - vertical_spacing),
+            (left_align_x, center_line - acc_h / 2 - VERTICAL_TEXT_SPACING),
             acc_str2,
             font=BOLD_ITALIC_FONT,
             fill=ACC_COLOR,
             anchor="lm",
         )
 
+                                                          
         if w_percent_str:
             wpct_box = d_card.textbbox((0, 0), w_percent_str, font=CREATOR_SMALL_FONT)
             wpct_h = wpct_box[3] - wpct_box[1]
 
             d_card.text(
-                (left_align_x, center_line + wpct_h / 2 + vertical_spacing),
+                (left_align_x, center_line + wpct_h / 2 + VERTICAL_TEXT_SPACING),
                 w_percent_str,
                 font=CREATOR_SMALL_FONT,
                 fill=WEIGHT_COLOR,
                 anchor="lm",
             )
     except AttributeError:
+                                            
         d_card.text(
-            (acc_block_x - acc_column_width / 2 + 10, center_line - 14),
+            (acc_block_x - ACCURACY_COLUMN_WIDTH / 2 + 10, center_line - 14),
             acc_str2,
             font=BOLD_ITALIC_FONT,
             fill=ACC_COLOR,
         )
         if w_percent_str:
             d_card.text(
-                (acc_block_x - acc_column_width / 2 + 10, center_line + 6),
+                (acc_block_x - ACCURACY_COLUMN_WIDTH / 2 + 10, center_line + 6),
                 w_percent_str,
                 font=CREATOR_SMALL_FONT,
                 fill=WEIGHT_COLOR,
             )
 
-    # Draw mods
-    mods_right_edge = acc_block_x - acc_column_width / 2 - 10
+               
+    mods_right_edge = acc_block_x - ACCURACY_COLUMN_WIDTH / 2 - MODS_RIGHT_MARGIN
     draw_mods(d_card, base, row, mods_right_edge, center_line)
 
-
 def draw_mods(d_card, base, row, mods_right_edge, center_line):
+                                                 
     mods_list = short_mods(row.get("Mods", ""))
     mod_x_cur = mods_right_edge
 
     for m_ in reversed(mods_list):
         path_ = os.path.join(MODS_DIR, f"{m_.upper()}.png")
         if os.path.isfile(path_):
+                                                
             try:
                 mg = Image.open(path_).convert("RGBA")
                 ow, oh = mg.size
-                sc = min(38 / ow, 38 / oh)
+                sc = min(MOD_ICON_MAX_SIZE / ow, MOD_ICON_MAX_SIZE / oh)
                 nw, nh = int(ow * sc), int(oh * sc)
                 mod_x_cur -= nw
                 mod_img_resized = mg.resize((nw, nh), Image.Resampling.LANCZOS)
@@ -653,12 +718,13 @@ def draw_mods(d_card, base, row, mods_right_edge, center_line):
                     (int(mod_x_cur), center_line - nh // 2),
                     mod_img_resized,
                 )
-                mod_x_cur -= 5
+                mod_x_cur -= MOD_ICON_SPACING
             except Exception as mod_err:
                 logger.warning(
                     f"Error processing mod icon {mask_path_for_log(path_)}: {mod_err}"
                 )
         else:
+                                                    
             try:
                 box_m = d_card.textbbox((0, 0), m_, font=SMALL_FONT)
                 w_m = box_m[2] - box_m[0]
@@ -669,7 +735,7 @@ def draw_mods(d_card, base, row, mods_right_edge, center_line):
                     font=SMALL_FONT,
                     fill=COLOR_WHITE,
                 )
-                mod_x_cur -= 5
+                mod_x_cur -= MOD_ICON_SPACING
             except AttributeError:
                 pass
 
@@ -697,7 +763,7 @@ def draw_header(
         title_right_x = margin + 200
         title_h = 40
 
-    # Draw avatar
+                 
     av_x = width - margin - av_size
     center_y = baseline_y + title_h / 2
     av_y = int(center_y - av_size / 2 + extra_shift)
@@ -719,7 +785,7 @@ def draw_header(
     if avatar_img and avatar_drawn:
         base.paste(avatar_img, (av_x, av_y), avatar_img)
 
-    # Draw username
+                   
     try:
         nb = d.textbbox((0, 0), username, font=SUBTITLE_FONT)
         n_w = nb[2] - nb[0]
@@ -754,71 +820,90 @@ def parse_sum(csv_path):
     return summary
 
 
-def make_img(user_id, user_name, mode="lost", max_scores=20):
+def _prepare_image_data(user_id, user_name, mode, max_scores):
+                                                         
     from osu_api import token_osu, user_osu
 
     token = token_osu()
-    if user_id is None or not user_name:
-        max_scores = max(1, min(100, max_scores))
-        raise ValueError("Need user_id and user_name")
+    user_data_json = None
 
+                                          
     max_scores = max(1, min(100, max_scores))
 
-    user_data_json = None
-    try:
-        user_data_json = user_osu(str(user_id), "id", token)
-    except Exception as api_err:
-        logger.error(f"Error getting user data {user_id} for make_img: {api_err}")
+                                           
+    if user_id:
+        try:
+            user_data_json = user_osu(str(user_id), "id", token)
+        except Exception as api_err:
+            logger.error(f"Error getting user data {user_id} for make_img: {api_err}")
 
+                                             
     if mode == "lost":
         csv_path = CSV_LOST
         out_path = IMG_LOST_OUT
         main_title = "Lost Scores"
         show_weights = False
+        baseline_offset = 20
     else:
         csv_path = CSV_TOPLOST
         out_path = IMG_TOP_OUT
         main_title = "Potential Top"
         show_weights = True
+        baseline_offset = 0
 
+                   
     try:
         with open(csv_path, "r", encoding="utf-8") as f:
             all_rows = list(csv.DictReader(f))
     except FileNotFoundError:
         logger.error(f"CSV file not found: {mask_path_for_log(csv_path)}")
-        print(f"Error: CSV file not found: {mask_path_for_log(csv_path)}")
         create_placeholder_image(
             os.path.basename(out_path),
             user_name,
-            f"CSV file not found: {os.path.basename(mask_path_for_log(csv_path))}",
+            f"CSV file not found: {os.path.basename(mask_path_for_log(csv_path))}"
         )
-        return
+        return None
     except Exception as csv_err:
         logger.error(f"Error reading CSV file {mask_path_for_log(csv_path)}: {csv_err}")
-        print(f"Error: Failed to read CSV file: {mask_path_for_log(csv_path)}")
         create_placeholder_image(
             os.path.basename(out_path),
             user_name,
-            f"Error reading CSV file: {str(csv_err)}",
+            f"Error reading CSV file: {str(csv_err)}"
         )
-        return
+        return None
 
+                           
     if not all_rows:
-        logger.info(
-            f"No data in CSV file {mask_path_for_log(csv_path)} for image creation"
-        )
+        logger.info(f"No data in CSV file {mask_path_for_log(csv_path)} for image creation")
         create_placeholder_image(
-            os.path.basename(out_path), user_name, f"No data to display in {mode} mode"
+            os.path.basename(out_path),
+            user_name,
+            f"No data to display in {mode} mode"
         )
-        return
+        return None
 
-    total_rows_count = (
-        max(0, len(all_rows) - 5) if show_weights else max(0, len(all_rows))
-    )
-
+                                               
+    total_rows_count = max(0, len(all_rows) - 5) if show_weights else max(0, len(all_rows))
     rows = all_rows[:max_scores]
 
-    # Get current PP and accuracy from user data
+                                                
+    return {
+        "token": token,
+        "user_data_json": user_data_json,
+        "csv_path": csv_path,
+        "out_path": out_path,
+        "main_title": main_title,
+        "show_weights": show_weights,
+        "total_rows_count": total_rows_count,
+        "rows": rows,
+        "baseline_offset": baseline_offset,
+        "mode": mode
+    }
+
+
+def _process_user_statistics(user_data_json, show_weights, csv_path):
+                                                                
+                                 
     cur_pp_val = 0
     cur_acc_f = 0.0
     if user_data_json and user_data_json.get("statistics"):
@@ -827,158 +912,176 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
         cur_acc_f = float(user_data_json["statistics"].get("hit_accuracy", 0.0))
     cur_acc_str = f"{cur_acc_f:.2f}%"
 
-    # Parse summary stats for top mode
-    top_summary = {}
-    pot_pp_val = "N/A"
-    new_diff_pp = "N/A"
-    pot_acc_str = "N/A"
-    acc_diff_str = "N/A"
-    acc_diff_color = COLOR_WHITE
-    diff_color = COLOR_WHITE
+                              
+    stats = {
+        "cur_pp_val": cur_pp_val,
+        "cur_acc_str": cur_acc_str,
+        "pot_pp_val": "N/A",
+        "new_diff_pp": "N/A",
+        "pot_acc_str": "N/A",
+        "acc_diff_str": "N/A",
+        "acc_diff_color": COLOR_WHITE,
+        "diff_color": COLOR_WHITE,
+    }
 
+                                                  
     if show_weights:
         top_summary = parse_sum(csv_path)
 
-        # Parse potential PP
+                              
         raw_pot_pp_str = top_summary.get("Overall Potential PP", "0")
         try:
             pot_pp_val_num = round(float(raw_pot_pp_str))
-            pot_pp_val = str(pot_pp_val_num)
+            stats["pot_pp_val"] = str(pot_pp_val_num)
         except ValueError:
-            pot_pp_val = "N/A"
+            pass
 
-        # Parse PP difference
+                               
         diff_pp_str = top_summary.get("Difference", "0")
         try:
             diff_pp_f = float(diff_pp_str)
             sign_pp = "+" if diff_pp_f > 0 else ""
-            new_diff_pp = f"{sign_pp}{round(diff_pp_f)}"
+            stats["new_diff_pp"] = f"{sign_pp}{round(diff_pp_f)}"
             if diff_pp_f > 0:
-                diff_color = GREEN_COLOR
+                stats["diff_color"] = GREEN_COLOR
             elif diff_pp_f < 0:
-                diff_color = RED_COLOR
-            else:
-                diff_color = COLOR_WHITE
+                stats["diff_color"] = RED_COLOR
         except ValueError:
-            new_diff_pp = "N/A"
-            diff_color = COLOR_WHITE
+            pass
 
-        # Parse accuracy info
-        pot_acc_str_raw = (
-            top_summary.get("Overall Accuracy", "0%").replace("%", "").strip()
-        )
-        delta_acc_str_raw = (
-            top_summary.get("Δ Overall Accuracy", "0%").replace("%", "").strip()
-        )
+                               
+        pot_acc_str_raw = top_summary.get("Overall Accuracy", "0%").replace("%", "").strip()
+        delta_acc_str_raw = top_summary.get("Δ Overall Accuracy", "0%").replace("%", "").strip()
         try:
             pot_acc_f = float(pot_acc_str_raw)
-            pot_acc_str = f"{pot_acc_f:.2f}%"
+            stats["pot_acc_str"] = f"{pot_acc_f:.2f}%"
 
             acc_delta_f = float(delta_acc_str_raw)
-            acc_diff_str = f"{acc_delta_f:+.2f}%"
+            stats["acc_diff_str"] = f"{acc_delta_f:+.2f}%"
             if acc_delta_f > 0:
-                acc_diff_color = GREEN_COLOR
+                stats["acc_diff_color"] = GREEN_COLOR
             elif acc_delta_f < 0:
-                acc_diff_color = RED_COLOR
-            else:
-                acc_diff_color = COLOR_WHITE
+                stats["acc_diff_color"] = RED_COLOR
         except ValueError:
-            pot_acc_str = "N/A"
-            acc_diff_str = "N/A"
-            acc_diff_color = COLOR_WHITE
+            pass
 
-    logger.info(f"Displaying {len(rows)}/{total_rows_count} scores in {mode} mode")
+    return stats
 
-    # Calculate card dimensions based on mods
-    if mode == "lost":
-        threshold = 4
-    else:
-        threshold = 2
 
-    base_card_width = 920
+def _setup_canvas_and_dimensions(rows, mode, total_rows_count):
+                                                     
+                                        
+    threshold = MOD_THRESHOLD_LOST if mode == "lost" else MOD_THRESHOLD_TOP
+
+                            
     max_mods = 0
     for r in rows:
         mlist = short_mods(r.get("Mods", ""))
         if len(mlist) > max_mods:
             max_mods = len(mlist)
+
+                                    
     extra_mods = max(0, max_mods - threshold)
-    extra_width = extra_mods * 43
-    card_w = base_card_width + extra_width
+    extra_width = extra_mods * MOD_EXTENSION_WIDTH
+    card_w = DEFAULT_BASE_CARD_WIDTH + extra_width
 
-    # Setup image dimensions
-    MARGIN = 30
-    card_h = 60
-    spacing = 2
-    top_panel_height = 80
-    width = card_w + 2 * MARGIN
+                            
+    width = card_w + 2 * DEFAULT_MARGIN
+    start_y = DEFAULT_MARGIN + TOP_PANEL_HEIGHT - (20 if mode == "lost" else 0)
+    total_h = start_y + len(rows) * (CARD_HEIGHT + CARD_SPACING) + DEFAULT_MARGIN
 
-    if mode == "lost":
-        baseline_offset = 20
-    else:
-        baseline_offset = 0
-
-    start_y = MARGIN + top_panel_height - baseline_offset
-    total_h = start_y + len(rows) * (card_h + spacing) + MARGIN
-
-    # Create base image
+                       
     base = Image.new("RGBA", (width, total_h), COLOR_BG)
     d = ImageDraw.Draw(base)
 
-    # Draw header section
-    baseline_y = max(0, MARGIN + 10 - baseline_offset)
-    extra_shift = 13 if mode == "lost" else 0
+    logger.info(f"Displaying {len(rows)}/{total_rows_count} scores in {mode} mode")
+
+    return {
+        "base": base,
+        "d": d,
+        "width": width,
+        "card_w": card_w,
+        "start_y": start_y
+    }
+
+
+def _draw_stats_section(d, stats, title_right_x, baseline_y):
+                                                   
+    stats_start_x = title_right_x + 50
+    stats_baseline = baseline_y + 5
+    col_w = 140
+    row1_y = stats_baseline
+    row2_y = row1_y + 25
+
+    def draw_col(label, val, x, y, val_color):
+        try:
+            label_box = d.textbbox((0, 0), label, font=VERSION_FONT)
+            lw = label_box[2] - label_box[0]
+            d.text((x, y), label, font=VERSION_FONT, fill=ACC_COLOR)
+            d.text((x + lw + 5, y), str(val), font=VERSION_FONT, fill=val_color)
+        except AttributeError:
+            d.text((x, y), f"{label} {val}", font=VERSION_FONT, fill=val_color)
+
+                            
+    draw_col("Cur PP:", stats["cur_pp_val"], stats_start_x, row1_y, COLOR_WHITE)
+    draw_col("Cur Acc:", stats["cur_acc_str"], stats_start_x + col_w, row1_y, COLOR_WHITE)
+    draw_col("Δ PP:", stats["new_diff_pp"], stats_start_x + 2 * col_w, row1_y, stats["diff_color"])
+    draw_col("Pot PP:", stats["pot_pp_val"], stats_start_x, row2_y, COLOR_WHITE)
+    draw_col("Pot Acc:", stats["pot_acc_str"], stats_start_x + col_w, row2_y, COLOR_WHITE)
+    draw_col("Δ Acc:", stats["acc_diff_str"], stats_start_x + 2 * col_w, row2_y, stats["acc_diff_color"])
+
+
+def make_img(user_id, user_name, mode="lost", max_scores=20):
+    if user_id is None or not user_name:
+        max_scores = max(1, min(100, max_scores))
+        raise ValueError("Need user_id and user_name")
+
+                                       
+    data = _prepare_image_data(user_id, user_name, mode, max_scores)
+    if data is None:
+        return
+
+                             
+    stats = _process_user_statistics(data["user_data_json"], data["show_weights"], data["csv_path"])
+
+                                 
+    canvas_info = _setup_canvas_and_dimensions(data["rows"], data["mode"], data["total_rows_count"])
+    base = canvas_info["base"]
+    d = canvas_info["d"]
+
+                         
+    baseline_y = max(0, DEFAULT_MARGIN + 10 - data["baseline_offset"])
+    extra_shift = 13 if data["mode"] == "lost" else 0
     av_size = 70
 
     title_right_x, title_h = draw_header(
         base,
         d,
-        width,
-        MARGIN,
-        main_title,
+        canvas_info["width"],
+        DEFAULT_MARGIN,
+        data["main_title"],
         user_name,
         USERNAME_COLOR,
-        user_data_json,
+        data["user_data_json"],
         av_size,
         baseline_y,
         title_h=40,
         extra_shift=extra_shift,
     )
 
-    # Draw stats section in header for top mode
-    if show_weights:
-        stats_start_x = title_right_x + 50
-        stats_baseline = baseline_y + 5
-        col_w = 140
-        row1_y = stats_baseline
-        row2_y = row1_y + 25
-
-        def draw_col(label, val, x, y, val_color):
-            try:
-                label_box = d.textbbox((0, 0), label, font=VERSION_FONT)
-                lw = label_box[2] - label_box[0]
-                d.text((x, y), label, font=VERSION_FONT, fill=ACC_COLOR)
-                d.text((x + lw + 5, y), str(val), font=VERSION_FONT, fill=val_color)
-            except AttributeError:
-                d.text((x, y), f"{label} {val}", font=VERSION_FONT, fill=val_color)
-
-        draw_col("Cur PP:", cur_pp_val, stats_start_x, row1_y, COLOR_WHITE)
-        draw_col("Cur Acc:", cur_acc_str, stats_start_x + col_w, row1_y, COLOR_WHITE)
-        draw_col("Δ PP:", new_diff_pp, stats_start_x + 2 * col_w, row1_y, diff_color)
-        draw_col("Pot PP:", pot_pp_val, stats_start_x, row2_y, COLOR_WHITE)
-        draw_col("Pot Acc:", pot_acc_str, stats_start_x + col_w, row2_y, COLOR_WHITE)
-        draw_col(
-            "Δ Acc:", acc_diff_str, stats_start_x + 2 * col_w, row2_y, acc_diff_color
-        )
-    elif mode == "lost":
+                                           
+    if data["show_weights"]:
+        _draw_stats_section(d, stats, title_right_x, baseline_y)
+    elif data["mode"] == "lost":
         scammed_y = baseline_y + title_h + 15
-        s_ = f"Peppy scammed me for {total_rows_count} of them!"
-        d.text((MARGIN, scammed_y), s_, font=VERSION_FONT, fill=COLOR_HIGHLIGHT)
+        s_ = f"Peppy scammed me for {data['total_rows_count']} of them!"
+        d.text((DEFAULT_MARGIN, scammed_y), s_, font=VERSION_FONT, fill=COLOR_HIGHLIGHT)
 
-    # Draw score cards
+                                                 
     metadata_cache = {}
-    for i, row in enumerate(rows):
-        card_x = MARGIN
-        card_y = start_y + i * (card_h + spacing)
+    for i, row in enumerate(data["rows"]):
+        card_x = DEFAULT_MARGIN
+        card_y = canvas_info["start_y"] + i * (CARD_HEIGHT + CARD_SPACING)
 
         score_id_val = row.get("Score ID", "").strip().upper()
         is_lost_row = score_id_val == "LOST"
@@ -989,23 +1092,60 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
             row,
             card_x,
             card_y,
-            card_w,
-            card_h,
+            canvas_info["card_w"],
+            CARD_HEIGHT,
             is_lost_row=is_lost_row,
-            show_weights=show_weights,
-            token=token,
+            show_weights=data["show_weights"],
+            token=data["token"],
+            metadata_cache=metadata_cache,                                   
         )
 
-    # Crop image to final height
-    last_bottom = start_y + len(rows) * (card_h + spacing) - spacing
-    final_height = last_bottom + MARGIN
+                                
+    last_bottom = canvas_info["start_y"] + len(data["rows"]) * (CARD_HEIGHT + CARD_SPACING) - CARD_SPACING
+    final_height = last_bottom + DEFAULT_MARGIN
 
     if final_height < base.height:
-        base = base.crop((0, 0, width, final_height))
+        base = base.crop((0, 0, canvas_info["width"], final_height))
 
-    # Save the image
-    base.save(out_path)
-    logger.info("Image saved to %s", mask_path_for_log(os.path.normpath(out_path)))
+                    
+    base.save(data["out_path"])
+    logger.info("Image saved to %s", mask_path_for_log(os.path.normpath(data["out_path"])))
+
+
+def _adjust_max_scores_for_lost_score(max_scores, show_lost):
+                                                                      
+    if not show_lost:
+        return max_scores
+
+    top_with_lost_path = get_resource_path(os.path.join("csv", "top_with_lost.csv"))
+    try:
+        with open(top_with_lost_path, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+
+        lost_score_rank = None
+        for i, row in enumerate(rows, 1):
+            if row.get("Score ID") == "LOST":
+                lost_score_rank = i
+                logger.info(f"Found first lost score at rank {lost_score_rank}")
+                break
+
+        if lost_score_rank is not None and lost_score_rank > max_scores:
+            logger.info(
+                f"Adjusting max_scores from {max_scores} to {lost_score_rank} to include lost score"
+            )
+            return lost_score_rank
+        else:
+            if lost_score_rank is None:
+                logger.info("No lost scores found in the top")
+            else:
+                logger.info(
+                    f"Lost score rank {lost_score_rank} is already within displayed top {max_scores}"
+                )
+            return max_scores
+    except Exception as e:
+        logger.error(f"Error finding lost score rank: {e}")
+        return max_scores
 
 
 def make_img_lost(user_id=None, user_name="", max_scores=20):
@@ -1013,33 +1153,5 @@ def make_img_lost(user_id=None, user_name="", max_scores=20):
 
 
 def make_img_top(user_id=None, user_name="", max_scores=20, show_lost=False):
-    if show_lost:
-        top_with_lost_path = get_resource_path(os.path.join("csv", "top_with_lost.csv"))
-        try:
-            with open(top_with_lost_path, "r", encoding="utf-8") as f:
-                reader = csv.DictReader(f)
-                rows = list(reader)
-
-            lost_score_rank = None
-            for i, row in enumerate(rows, 1):
-                if row.get("Score ID") == "LOST":
-                    lost_score_rank = i
-                    logger.info(f"Found first lost score at rank {lost_score_rank}")
-                    break
-
-            if lost_score_rank is not None and lost_score_rank > max_scores:
-                logger.info(
-                    f"Adjusting max_scores from {max_scores} to {lost_score_rank} to include lost score"
-                )
-                max_scores = lost_score_rank
-            else:
-                if lost_score_rank is None:
-                    logger.info("No lost scores found in the top")
-                else:
-                    logger.info(
-                        f"Lost score rank {lost_score_rank} is already within displayed top {max_scores}"
-                    )
-        except Exception as e:
-            logger.error(f"Error finding lost score rank: {e}")
-
-    make_img(user_id=user_id, user_name=user_name, mode="top", max_scores=max_scores)
+    adjusted_max_scores = _adjust_max_scores_for_lost_score(max_scores, show_lost)
+    make_img(user_id=user_id, user_name=user_name, mode="top", max_scores=adjusted_max_scores)
