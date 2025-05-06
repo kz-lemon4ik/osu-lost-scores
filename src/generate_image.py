@@ -1,30 +1,29 @@
 import os
 import csv
-import requests
 from PIL import Image, ImageDraw, ImageFont
 import re
 import datetime
 import logging
 from database import db_get
 from utils import get_resource_path, mask_path_for_log
-from config import DOWNLOAD_RETRY_COUNT, MAP_DOWNLOAD_TIMEOUT, CSV_DIR, RESULTS_DIR
+from config import MAP_DOWNLOAD_TIMEOUT, CSV_DIR, RESULTS_DIR
 
 logger = logging.getLogger(__name__)
 
-BASE_DIR = get_resource_path("")
-FONTS_DIR = get_resource_path(os.path.join("assets", "fonts"))
-GRADES_DIR = get_resource_path(os.path.join("assets", "grades"))
-MODS_DIR = get_resource_path(os.path.join("assets", "mod-icons"))
+FONTS_DIR = get_resource_path("assets/fonts")
+GRADES_DIR = get_resource_path("assets/grades")
+MODS_DIR = get_resource_path("assets/mod-icons")
 
-os.makedirs(os.path.join(BASE_DIR, "results"), exist_ok=True)
+# Ensure results directory exists
+os.makedirs(RESULTS_DIR, exist_ok=True)
 
 CSV_LOST = os.path.join(CSV_DIR, "lost_scores.csv")
 CSV_TOPLOST = os.path.join(CSV_DIR, "top_with_lost.csv")
 IMG_LOST_OUT = os.path.join(RESULTS_DIR, "lost_scores_result.png")
 IMG_TOP_OUT = os.path.join(RESULTS_DIR, "potential_top_result.png")
 
-AVATAR_DIR = get_resource_path(os.path.join("assets", "images", "avatar"))
-COVER_DIR = get_resource_path(os.path.join("assets", "images", "cover"))
+AVATAR_DIR = get_resource_path("assets/images/avatar")
+COVER_DIR = get_resource_path("assets/images/cover")
 os.makedirs(AVATAR_DIR, exist_ok=True)
 os.makedirs(COVER_DIR, exist_ok=True)
 
@@ -45,8 +44,8 @@ try:
     BOLD_ITALIC_FONT_SMALL = ImageFont.truetype(
         os.path.join(FONTS_DIR, "Exo2-BoldItalic.otf"), 14
     )
-except Exception:
-    print("Failed to load Exo2 fonts, using default fonts.")
+except Exception as e:
+    print(f"Failed to load Exo2 fonts, using default fonts. Error: {e}")
     TITLE_FONT = SUBTITLE_FONT = MAP_NAME_FONT = CREATOR_SMALL_FONT = VERSION_FONT = (
         SMALL_FONT
     ) = ImageFont.load_default()
@@ -113,146 +112,39 @@ def create_placeholder_image(filename, username, message):
     )
 
 
-def get_token_osu():
-    from osu_api import get_keys_from_keyring
-
-                                                                         
-    api_logger = logging.getLogger('osu_api_calls')
-
-    client_id, client_secret = get_keys_from_keyring()
-
-    if not client_id or not client_secret:
-        logger.error("[generate_image] API keys are not configured.")
-        return None
-
-    api_logger.info(f"[image_gen] Using keys: ID={client_id[:3]}...")
-
-    url = "https://osu.ppy.sh/oauth/token"
-
-    data = {
-        "client_id": client_id,
-        "client_secret": client_secret,
-        "grant_type": "client_credentials",
-        "scope": "public",
-    }
-
-    try:
-        api_logger.debug("[image_gen] Sending token request")
-        r = requests.post(url, data=data)
-        r.raise_for_status()
-        token = r.json().get("access_token")
-        if token:
-            api_logger.info("[image_gen] API token successfully obtained for image generation")
-            return token
-        else:
-            api_logger.error("[image_gen] Token not received in API response during image generation")
-            return None
-    except Exception as e:
-        api_logger.error(f"[image_gen] Error getting token for image generation: {e}")
-        return None
-
-
-def get_user_osu(identifier, lookup_key, token):
-                                                                         
-    api_logger = logging.getLogger('osu_api_calls')
-
-    url = f"https://osu.ppy.sh/api/v2/users/{identifier}/osu"
-    params = {"key": lookup_key}
-    api_logger.info("[image_gen] GET user: %s with params %s", url, params)
-    headers = {"Authorization": f"Bearer {token}"}
-
-    api_logger.debug(f"[image_gen] Sending request for user data '{identifier}' (lookup type: {lookup_key})")
-    resp = requests.get(url, headers=headers, params=params)
-
-    if resp.status_code == 404:
-        api_logger.error(
-            f"[image_gen] User '{identifier}' (lookup type: {lookup_key}) not found during image generation."
-        )
-        return None
-
-    resp.raise_for_status()
-    user_data = resp.json()
-    api_logger.debug(
-        f"[image_gen] Successfully received user data for '{identifier}' (username: {user_data.get('username', 'unknown')})")
-
-    return user_data
-
-
-def get_map_osu(bid, token):
-                                                                         
-    api_logger = logging.getLogger('osu_api_calls')
-
-    try:
-        bid = int(bid)
-    except (ValueError, TypeError):
-        api_logger.warning(f"[image_gen] Invalid beatmap ID format: {bid}")
-        return None
-
-    url = f"https://osu.ppy.sh/api/v2/beatmaps/{bid}"
-    api_logger.info(f"[image_gen] GET map: {url}")
-
-    try:
-        api_logger.debug(f"[image_gen] Sending request for beatmap {bid}")
-        resp = requests.get(url, headers={"Authorization": f"Bearer {token}"})
-
-        if resp.status_code == 404:
-            api_logger.warning(f"[image_gen] Beatmap with ID {bid} not found (HTTP 404)")
-            return None
-
-        resp.raise_for_status()
-        beatmap_data = resp.json()
-
-        title = beatmap_data.get("beatmapset", {}).get("title", "Unknown")
-        artist = beatmap_data.get("beatmapset", {}).get("artist", "Unknown")
-        version = beatmap_data.get("version", "Unknown")
-
-        api_logger.debug(f"[image_gen] Successfully retrieved beatmap {bid}: {artist} - {title} [{version}]")
-        return beatmap_data
-
-    except Exception as e:
-        api_logger.error(f"[image_gen] Error fetching beatmap {bid}: {e}")
-        return None
-
-
 def dl_img(url, path):
-                                                                         
-    api_logger = logging.getLogger('osu_api_calls')
+    from osu_api import session, wait_osu, retry_request
 
     if os.path.exists(path):
-        api_logger.debug(f"[image_gen] Image already exists locally: {mask_path_for_log(path)}")
+        logger.debug("Image already exists locally: %s", mask_path_for_log(path))
         return
 
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    api_logger.info(f"[image_gen] GET image: {url}")
+    logger.info("GET image: %s", url)
 
-    for retry in range(DOWNLOAD_RETRY_COUNT):
-        try:
-            api_logger.debug(f"[image_gen] Downloading image (attempt {retry + 1}/{DOWNLOAD_RETRY_COUNT})")
-            resp = requests.get(url, timeout=MAP_DOWNLOAD_TIMEOUT)
-            resp.raise_for_status()
+    # Используем rate limiting из osu_api
+    wait_osu()
 
-            file_size = len(resp.content)
-            api_logger.debug(f"[image_gen] Download successful: received {file_size} bytes")
+    # Определим функцию для скачивания, которую можно обернуть в retry_request
+    @retry_request
+    def download_image():
+        resp = session.get(url, timeout=MAP_DOWNLOAD_TIMEOUT)
+        resp.raise_for_status()
+        return resp.content
 
-            with open(path, "wb") as f:
-                f.write(resp.content)
+    try:
+        content = download_image()
+        file_size = len(content)
+        logger.debug("Download successful: received %d bytes", file_size)
 
-            api_logger.debug(f"[image_gen] Image saved to {mask_path_for_log(path)}")
-            return True
+        with open(path, "wb") as f:
+            f.write(content)
 
-        except requests.exceptions.Timeout:
-            api_logger.warning(
-                f"[image_gen] Timeout downloading image {url} (attempt {retry + 1}/{DOWNLOAD_RETRY_COUNT})"
-            )
-        except Exception as e:
-            api_logger.warning(
-                f"[image_gen] Failed to download image {url}: {e} (attempt {retry + 1}/{DOWNLOAD_RETRY_COUNT})"
-            )
-
-    api_logger.error(
-        f"[image_gen] Failed to download image after {DOWNLOAD_RETRY_COUNT} attempts: {url}"
-    )
-    return False
+        logger.debug("Image saved to %s", mask_path_for_log(path))
+        return True
+    except Exception as e:
+        logger.error("Failed to download image: %s: %s", url, e)
+        return False
 
 
 def short_mods(mods_str):
@@ -298,23 +190,33 @@ def download_and_draw_avatar(d, user_id, user_name, avatar_url, x, y, size):
     if avatar_url:
         try:
             dl_img(avatar_url, avatar_path)
-            avatar_img_raw = Image.open(avatar_path).convert("RGBA").resize((size, size))
+            avatar_img_raw = (
+                Image.open(avatar_path).convert("RGBA").resize((size, size))
+            )
             av_mask = Image.new("L", (size, size), 0)
-            ImageDraw.Draw(av_mask).rounded_rectangle((0, 0, size, size), radius=15, fill=255)
+            ImageDraw.Draw(av_mask).rounded_rectangle(
+                (0, 0, size, size), radius=15, fill=255
+            )
             avatar_img_raw.putalpha(av_mask)
             return avatar_img_raw, True
         except FileNotFoundError:
-            logger.warning(f"Avatar file {mask_path_for_log(avatar_path)} not found after download attempt.")
+            logger.warning(
+                f"Avatar file {mask_path_for_log(avatar_path)} not found after download attempt."
+            )
         except Exception as img_err:
-            logger.warning(f"Error processing avatar {mask_path_for_log(avatar_path)}: {img_err}.")
+            logger.warning(
+                f"Error processing avatar {mask_path_for_log(avatar_path)}: {img_err}."
+            )
 
-                                                       
+    # Fallback to a placeholder if avatar not available
     logger.warning(f"Using placeholder for avatar user_id {user_id}.")
     d.rounded_rectangle((x, y, x + size, y + size), radius=15, fill=(80, 80, 80, 255))
     return None, False
 
 
 def get_beatmap_metadata(beatmap_id, beatmap_full_name, token, metadata_cache=None):
+    from osu_api import map_osu
+
     if metadata_cache is None:
         metadata_cache = {}
 
@@ -324,7 +226,7 @@ def get_beatmap_metadata(beatmap_id, beatmap_full_name, token, metadata_cache=No
     version = ""
     cover_url = None
 
-                                           
+    # Try to extract from full beatmap name
     if beatmap_full_name:
         try:
             pattern = r"(.+) - (.+) \((.+)\) \[(.+)\]"
@@ -334,8 +236,12 @@ def get_beatmap_metadata(beatmap_id, beatmap_full_name, token, metadata_cache=No
         except Exception:
             logger.warning(f"Failed to parse beatmap name: {beatmap_full_name}")
 
-                              
-    if not all([raw_artist, raw_title, creator, version]) and beatmap_id and beatmap_id.isdigit():
+    # Try to get from database
+    if (
+        not all([raw_artist, raw_title, creator, version])
+        and beatmap_id
+        and beatmap_id.isdigit()
+    ):
         try:
             db_info = db_get(beatmap_id)
             if db_info:
@@ -346,48 +252,53 @@ def get_beatmap_metadata(beatmap_id, beatmap_full_name, token, metadata_cache=No
         except Exception as db_err:
             logger.warning(f"Error getting map data from DB {beatmap_id}: {db_err}")
 
-                         
+    # Try to get from API
     if beatmap_id and beatmap_id.isdigit():
         if beatmap_id in metadata_cache:
             data = metadata_cache[beatmap_id]
-            raw_artist = data.get('artist', raw_artist) or raw_artist
-            raw_title = data.get('title', raw_title) or raw_title
-            creator = data.get('creator', creator) or creator
-            version = data.get('version', version) or version
-            cover_url = data.get('cover_url')
+            raw_artist = data.get("artist", raw_artist) or raw_artist
+            raw_title = data.get("title", raw_title) or raw_title
+            creator = data.get("creator", creator) or creator
+            version = data.get("version", version) or version
+            cover_url = data.get("cover_url")
         else:
             try:
                 if not all([raw_artist, raw_title, creator, version]) or not cover_url:
-                    bdata = get_map_osu(beatmap_id, token)
+                    logger.debug("Getting beatmap data for ID %s", beatmap_id)
+                    bdata = map_osu(beatmap_id, token)
                     if bdata:
-                        if "artist" in bdata:
-                            raw_artist = bdata.get("artist") or raw_artist
-                        if "title" in bdata:
-                            raw_title = bdata.get("title") or raw_title
-                        if "creator" in bdata:
-                            creator = bdata.get("creator") or creator
-                        if "version" in bdata:
-                            version = bdata.get("version") or version
+                        raw_artist = bdata.get("artist") or raw_artist
+                        raw_title = bdata.get("title") or raw_title
+                        creator = bdata.get("creator") or creator
+                        version = bdata.get("version") or version
 
-                        if bdata.get("beatmapset") and "covers" in bdata["beatmapset"]:
-                            cover_url = bdata["beatmapset"]["covers"].get("cover@2x")
+                        # Получаем URL обложки из beatmapset
+                        beatmapset = bdata.get("beatmapset", {})
+                        if beatmapset and "covers" in beatmapset:
+                            cover_url = beatmapset["covers"].get("cover@2x")
+                            logger.debug(
+                                "Retrieved cover URL for beatmap %s", beatmap_id
+                            )
 
                         metadata_cache[beatmap_id] = {
-                            'artist': raw_artist,
-                            'title': raw_title,
-                            'creator': creator,
-                            'version': version,
-                            'cover_url': cover_url
+                            "artist": raw_artist,
+                            "title": raw_title,
+                            "creator": creator,
+                            "version": version,
+                            "cover_url": cover_url,
                         }
+                        logger.debug("Added beatmap %s to metadata cache", beatmap_id)
             except Exception as map_err:
-                logger.warning(f"Error getting map data {beatmap_id} from API: {map_err}")
+                logger.warning(
+                    "Error getting map data %s from API: %s", beatmap_id, map_err
+                )
 
     return {
-        'artist': raw_artist,
-        'title': raw_title,
-        'creator': creator,
-        'version': version,
-        'cover_url': cover_url
+        "artist": raw_artist,
+        "title": raw_title,
+        "creator": creator,
+        "version": version,
+        "cover_url": cover_url,
     }
 
 
@@ -398,15 +309,17 @@ def get_and_draw_cover(beatmap_id, cover_url, width, height):
 
     c_img = None
 
-                                
+    # Try to load existing cover
     if cover_file and os.path.exists(cover_file):
         try:
             c_img = Image.open(cover_file).convert("RGBA").resize((width, height))
         except Exception as cover_err:
-            logger.warning(f"Failed to open cover {mask_path_for_log(cover_file)}: {cover_err}")
+            logger.warning(
+                f"Failed to open cover {mask_path_for_log(cover_file)}: {cover_err}"
+            )
             c_img = None
 
-                           
+    # Try to download cover
     elif cover_url and beatmap_id:
         try:
             dl_img(cover_url, cover_file)
@@ -416,39 +329,49 @@ def get_and_draw_cover(beatmap_id, cover_url, width, height):
             logger.warning(f"Failed to download cover {cover_url}: {dl_err}")
             c_img = None
 
-                                           
+    # Use placeholder if no cover available
     if not c_img:
         c_img = Image.new("RGBA", (width, height), (80, 80, 80, 255))
 
     return c_img
 
 
-def draw_score_card(base, d_card, row, card_x, card_y, card_w, card_h, is_lost_row=False, show_weights=False,
-                    token=None):
+def draw_score_card(
+    base,
+    d_card,
+    row,
+    card_x,
+    card_y,
+    card_w,
+    card_h,
+    is_lost_row=False,
+    show_weights=False,
+    token=None,
+):
     center_line = card_y + card_h // 2
 
-                                        
+    # Create the background for the card
     bg_color = COLOR_CARD_LOST if show_weights and is_lost_row else COLOR_CARD
     bg_img = Image.new("RGBA", (card_w, card_h), bg_color)
 
-                      
+    # Get beatmap data
     beatmap_id = row.get("Beatmap ID", "").strip()
     beatmap_full_name = row.get("Beatmap", "")
 
-                            
+    # Get metadata and cover
     metadata = get_beatmap_metadata(beatmap_id, beatmap_full_name, token)
-    raw_artist = metadata['artist']
-    raw_title = metadata['title']
-    creator = metadata['creator']
-    version = metadata['version']
-    cover_url = metadata['cover_url']
+    raw_artist = metadata["artist"]
+    raw_title = metadata["title"]
+    creator = metadata["creator"]
+    version = metadata["version"]
+    cover_url = metadata["cover_url"]
 
-                        
+    # Draw beatmap cover
     cover_w = card_w // 3
     cover_h_ = card_h
     c_img = get_and_draw_cover(beatmap_id, cover_url, cover_w, cover_h_)
 
-                                
+    # Apply fade effect to cover
     fade_mask = Image.new("L", (cover_w, cover_h_), 255)
     dm_fade = ImageDraw.Draw(fade_mask)
     for x_ in range(cover_w):
@@ -456,13 +379,13 @@ def draw_score_card(base, d_card, row, card_x, card_y, card_w, card_h, is_lost_r
         dm_fade.line([(x_, 0), (x_, cover_h_)], fill=alpha_val)
     bg_img.paste(c_img, (0, 0), fade_mask)
 
-                                       
+    # Draw rounded corners for the card
     corner_mask = Image.new("L", (card_w, card_h), 0)
     dr_corner = ImageDraw.Draw(corner_mask)
     dr_corner.rounded_rectangle((0, 0, card_w, card_h), radius=15, fill=255)
     base.paste(bg_img, (card_x, card_y), corner_mask)
 
-                     
+    # Draw grade icon
     grade = row.get("Rank", "?")
     GRADE_TARGET_WIDTH = 45
     grade_icon_path = os.path.join(GRADES_DIR, f"{grade}.png")
@@ -473,23 +396,36 @@ def draw_score_card(base, d_card, row, card_x, card_y, card_w, card_h, is_lost_r
             scale = GRADE_TARGET_WIDTH / ow
             nw, nh = int(ow * scale), int(oh * scale)
             g_img_resized = g_img.resize((nw, nh), Image.Resampling.LANCZOS)
-            base.paste(g_img_resized, (card_x + 10, center_line - nh // 2), g_img_resized)
+            base.paste(
+                g_img_resized, (card_x + 10, center_line - nh // 2), g_img_resized
+            )
         except Exception as grade_err:
-            logger.warning(f"Error processing grade icon {mask_path_for_log(grade_icon_path)}: {grade_err}")
-            d_card.text((card_x + 10, center_line - 8), grade, font=SUBTITLE_FONT, fill=COLOR_WHITE)
+            logger.warning(
+                f"Error processing grade icon {mask_path_for_log(grade_icon_path)}: {grade_err}"
+            )
+            d_card.text(
+                (card_x + 10, center_line - 8),
+                grade,
+                font=SUBTITLE_FONT,
+                fill=COLOR_WHITE,
+            )
     else:
-        d_card.text((card_x + 10, center_line - 8), grade, font=SUBTITLE_FONT, fill=COLOR_WHITE)
+        d_card.text(
+            (card_x + 10, center_line - 8), grade, font=SUBTITLE_FONT, fill=COLOR_WHITE
+        )
 
-                       
+    # Draw beatmap info
     full_name = short_txt(f"{raw_title} by {raw_artist}", 50)
     text_x = card_x + 70
     text_y_map = card_y + 4
     d_card.text((text_x, text_y_map), full_name, font=MAP_NAME_FONT, fill=COLOR_WHITE)
     text_y_map += 20
-    d_card.text((text_x, text_y_map), f"by {creator}", font=CREATOR_SMALL_FONT, fill=COLOR_WHITE)
+    d_card.text(
+        (text_x, text_y_map), f"by {creator}", font=CREATOR_SMALL_FONT, fill=COLOR_WHITE
+    )
     text_y_map += 16
 
-               
+    # Draw date
     date_str = row.get("Date", "")
     date_human = since_date(date_str)
     gap = "    "
@@ -498,12 +434,24 @@ def draw_score_card(base, d_card, row, card_x, card_y, card_w, card_h, is_lost_r
         version_w = version_bbox[2] - version_bbox[0]
         gap_bbox = d_card.textbbox((0, 0), gap, font=VERSION_FONT)
         gap_w = gap_bbox[2] - gap_bbox[0]
-        d_card.text((text_x, text_y_map), version, font=VERSION_FONT, fill=COLOR_HIGHLIGHT)
-        d_card.text((text_x + version_w + gap_w, text_y_map), date_human, font=VERSION_FONT, fill=DATE_COLOR)
+        d_card.text(
+            (text_x, text_y_map), version, font=VERSION_FONT, fill=COLOR_HIGHLIGHT
+        )
+        d_card.text(
+            (text_x + version_w + gap_w, text_y_map),
+            date_human,
+            font=VERSION_FONT,
+            fill=DATE_COLOR,
+        )
     except AttributeError:
-        d_card.text((text_x, text_y_map), f"{version}{gap}{date_human}", font=VERSION_FONT, fill=DATE_COLOR)
+        d_card.text(
+            (text_x, text_y_map),
+            f"{version}{gap}{date_human}",
+            font=VERSION_FONT,
+            fill=DATE_COLOR,
+        )
 
-                   
+    # Draw PP shape
     shape_w = 100
     shape_left = card_x + card_w - shape_w
     right_block_x = shape_left - 20
@@ -514,7 +462,7 @@ def draw_score_card(base, d_card, row, card_x, card_y, card_w, card_h, is_lost_r
         fill=PP_SHAPE_COLOR,
     )
 
-             
+    # Draw PP
     raw_pp = row.get("PP", "0")
     try:
         pp_val = round(float(raw_pp))
@@ -529,23 +477,35 @@ def draw_score_card(base, d_card, row, card_x, card_y, card_w, card_h, is_lost_r
         manual_offset_pp = -4
         text_x_pp = shape_left + shape_w / 2 - w_pp_ / 2
         text_y_pp = center_line - h_pp_ / 2 + manual_offset_pp
-        d_card.text((text_x_pp, text_y_pp), pp_str, font=SUBTITLE_FONT, fill=COLOR_WHITE)
+        d_card.text(
+            (text_x_pp, text_y_pp), pp_str, font=SUBTITLE_FONT, fill=COLOR_WHITE
+        )
     except AttributeError:
-        d_card.text((shape_left + 15, center_line - 10), pp_str, font=SUBTITLE_FONT, fill=COLOR_WHITE)
+        d_card.text(
+            (shape_left + 15, center_line - 10),
+            pp_str,
+            font=SUBTITLE_FONT,
+            fill=COLOR_WHITE,
+        )
 
-                                        
+    # Draw additional info based on mode
     if not show_weights:
-                                            
-        draw_accuracy_and_mods_lost(d_card, base, row, right_block_x, center_line, shape_left)
+        # Lost mode - draw accuracy and mods
+        draw_accuracy_and_mods_lost(
+            d_card, base, row, right_block_x, center_line, shape_left
+        )
     else:
-                                                        
+        # Top mode - draw weighted PP, accuracy and mods
         draw_weighted_info(d_card, base, row, shape_left, center_line)
 
-def draw_accuracy_and_mods_lost(d_card, base, row, right_block_x, center_line, shape_left):
+
+def draw_accuracy_and_mods_lost(
+    d_card, base, row, right_block_x, center_line, shape_left
+):
     mods_edge = right_block_x - 90
     acc_center_x = (mods_edge + shape_left) / 2
 
-                   
+    # Draw accuracy
     raw_acc_str = row.get("Accuracy", "0")
     try:
         acc_s = f"{float(raw_acc_str):.2f}%"
@@ -579,7 +539,7 @@ def draw_accuracy_and_mods_lost(d_card, base, row, right_block_x, center_line, s
                 fill=ACC_COLOR,
             )
 
-               
+    # Draw mods
     draw_mods(d_card, base, row, mods_edge, center_line)
 
 
@@ -587,7 +547,7 @@ def draw_weighted_info(d_card, base, row, shape_left, center_line):
     acc_column_width = 120
     pp_column_width = 70
 
-                      
+    # Draw weighted PP
     wpp_x = shape_left - 10
     raw_wpp = row.get("weight_PP", "")
     try:
@@ -612,7 +572,7 @@ def draw_weighted_info(d_card, base, row, shape_left, center_line):
                 fill=WEIGHT_COLOR,
             )
 
-                                         
+    # Draw accuracy and weight percentage
     acc_block_x = wpp_x - pp_column_width - acc_column_width / 2
 
     raw_acc = row.get("Accuracy", "0")
@@ -669,7 +629,7 @@ def draw_weighted_info(d_card, base, row, shape_left, center_line):
                 fill=WEIGHT_COLOR,
             )
 
-               
+    # Draw mods
     mods_right_edge = acc_block_x - acc_column_width / 2 - 10
     draw_mods(d_card, base, row, mods_right_edge, center_line)
 
@@ -695,7 +655,9 @@ def draw_mods(d_card, base, row, mods_right_edge, center_line):
                 )
                 mod_x_cur -= 5
             except Exception as mod_err:
-                logger.warning(f"Error processing mod icon {mask_path_for_log(path_)}: {mod_err}")
+                logger.warning(
+                    f"Error processing mod icon {mask_path_for_log(path_)}: {mod_err}"
+                )
         else:
             try:
                 box_m = d_card.textbbox((0, 0), m_, font=SMALL_FONT)
@@ -711,8 +673,21 @@ def draw_mods(d_card, base, row, mods_right_edge, center_line):
             except AttributeError:
                 pass
 
-def draw_header(base, d, width, margin, title, username, username_color, user_json, av_size, baseline_y, title_h,
-                extra_shift=0):
+
+def draw_header(
+    base,
+    d,
+    width,
+    margin,
+    title,
+    username,
+    username_color,
+    user_json,
+    av_size,
+    baseline_y,
+    title_h,
+    extra_shift=0,
+):
     d.text((margin, baseline_y), title, font=TITLE_FONT, fill=COLOR_WHITE)
     try:
         title_box = d.textbbox((margin, baseline_y), title, font=TITLE_FONT)
@@ -722,7 +697,7 @@ def draw_header(base, d, width, margin, title, username, username_color, user_js
         title_right_x = margin + 200
         title_h = 40
 
-                 
+    # Draw avatar
     av_x = width - margin - av_size
     center_y = baseline_y + title_h / 2
     av_y = int(center_y - av_size / 2 + extra_shift)
@@ -732,14 +707,19 @@ def draw_header(base, d, width, margin, title, username, username_color, user_js
         avatar_url = user_json.get("avatar_url")
 
     avatar_img, avatar_drawn = download_and_draw_avatar(
-        d, user_id=None, user_name=username,
-        avatar_url=avatar_url, x=av_x, y=av_y, size=av_size
+        d,
+        user_id=None,
+        user_name=username,
+        avatar_url=avatar_url,
+        x=av_x,
+        y=av_y,
+        size=av_size,
     )
 
     if avatar_img and avatar_drawn:
         base.paste(avatar_img, (av_x, av_y), avatar_img)
 
-                   
+    # Draw username
     try:
         nb = d.textbbox((0, 0), username, font=SUBTITLE_FONT)
         n_w = nb[2] - nb[0]
@@ -753,6 +733,7 @@ def draw_header(base, d, width, margin, title, username, username_color, user_js
         )
 
     return title_right_x, title_h
+
 
 def parse_sum(csv_path):
     summary = {}
@@ -774,17 +755,18 @@ def parse_sum(csv_path):
 
 
 def make_img(user_id, user_name, mode="lost", max_scores=20):
-    token = get_token_osu()
+    from osu_api import token_osu, user_osu
+
+    token = token_osu()
     if user_id is None or not user_name:
         max_scores = max(1, min(100, max_scores))
-
         raise ValueError("Need user_id and user_name")
 
     max_scores = max(1, min(100, max_scores))
 
     user_data_json = None
     try:
-        user_data_json = get_user_osu(str(user_id), "id", token)
+        user_data_json = user_osu(str(user_id), "id", token)
     except Exception as api_err:
         logger.error(f"Error getting user data {user_id} for make_img: {api_err}")
 
@@ -836,7 +818,7 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
 
     rows = all_rows[:max_scores]
 
-                                                
+    # Get current PP and accuracy from user data
     cur_pp_val = 0
     cur_acc_f = 0.0
     if user_data_json and user_data_json.get("statistics"):
@@ -845,7 +827,7 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
         cur_acc_f = float(user_data_json["statistics"].get("hit_accuracy", 0.0))
     cur_acc_str = f"{cur_acc_f:.2f}%"
 
-                                      
+    # Parse summary stats for top mode
     top_summary = {}
     pot_pp_val = "N/A"
     new_diff_pp = "N/A"
@@ -857,7 +839,7 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
     if show_weights:
         top_summary = parse_sum(csv_path)
 
-                            
+        # Parse potential PP
         raw_pot_pp_str = top_summary.get("Overall Potential PP", "0")
         try:
             pot_pp_val_num = round(float(raw_pot_pp_str))
@@ -865,7 +847,7 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
         except ValueError:
             pot_pp_val = "N/A"
 
-                             
+        # Parse PP difference
         diff_pp_str = top_summary.get("Difference", "0")
         try:
             diff_pp_f = float(diff_pp_str)
@@ -881,9 +863,13 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
             new_diff_pp = "N/A"
             diff_color = COLOR_WHITE
 
-                             
-        pot_acc_str_raw = top_summary.get("Overall Accuracy", "0%").replace("%", "").strip()
-        delta_acc_str_raw = top_summary.get("Δ Overall Accuracy", "0%").replace("%", "").strip()
+        # Parse accuracy info
+        pot_acc_str_raw = (
+            top_summary.get("Overall Accuracy", "0%").replace("%", "").strip()
+        )
+        delta_acc_str_raw = (
+            top_summary.get("Δ Overall Accuracy", "0%").replace("%", "").strip()
+        )
         try:
             pot_acc_f = float(pot_acc_str_raw)
             pot_acc_str = f"{pot_acc_f:.2f}%"
@@ -903,7 +889,7 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
 
     logger.info(f"Displaying {len(rows)}/{total_rows_count} scores in {mode} mode")
 
-                                             
+    # Calculate card dimensions based on mods
     if mode == "lost":
         threshold = 4
     else:
@@ -919,7 +905,7 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
     extra_width = extra_mods * 43
     card_w = base_card_width + extra_width
 
-                            
+    # Setup image dimensions
     MARGIN = 30
     card_h = 60
     spacing = 2
@@ -934,21 +920,31 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
     start_y = MARGIN + top_panel_height - baseline_offset
     total_h = start_y + len(rows) * (card_h + spacing) + MARGIN
 
-                       
+    # Create base image
     base = Image.new("RGBA", (width, total_h), COLOR_BG)
     d = ImageDraw.Draw(base)
 
-                         
+    # Draw header section
     baseline_y = max(0, MARGIN + 10 - baseline_offset)
     extra_shift = 13 if mode == "lost" else 0
     av_size = 70
 
     title_right_x, title_h = draw_header(
-        base, d, width, MARGIN, main_title, user_name, USERNAME_COLOR,
-        user_data_json, av_size, baseline_y, title_h=40, extra_shift=extra_shift
+        base,
+        d,
+        width,
+        MARGIN,
+        main_title,
+        user_name,
+        USERNAME_COLOR,
+        user_data_json,
+        av_size,
+        baseline_y,
+        title_h=40,
+        extra_shift=extra_shift,
     )
 
-                                               
+    # Draw stats section in header for top mode
     if show_weights:
         stats_start_x = title_right_x + 50
         stats_baseline = baseline_y + 5
@@ -970,13 +966,15 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
         draw_col("Δ PP:", new_diff_pp, stats_start_x + 2 * col_w, row1_y, diff_color)
         draw_col("Pot PP:", pot_pp_val, stats_start_x, row2_y, COLOR_WHITE)
         draw_col("Pot Acc:", pot_acc_str, stats_start_x + col_w, row2_y, COLOR_WHITE)
-        draw_col("Δ Acc:", acc_diff_str, stats_start_x + 2 * col_w, row2_y, acc_diff_color)
+        draw_col(
+            "Δ Acc:", acc_diff_str, stats_start_x + 2 * col_w, row2_y, acc_diff_color
+        )
     elif mode == "lost":
         scammed_y = baseline_y + title_h + 15
         s_ = f"Peppy scammed me for {total_rows_count} of them!"
         d.text((MARGIN, scammed_y), s_, font=VERSION_FONT, fill=COLOR_HIGHLIGHT)
 
-                      
+    # Draw score cards
     metadata_cache = {}
     for i, row in enumerate(rows):
         card_x = MARGIN
@@ -985,19 +983,30 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
         score_id_val = row.get("Score ID", "").strip().upper()
         is_lost_row = score_id_val == "LOST"
 
-        draw_score_card(base, d, row, card_x, card_y, card_w, card_h,
-                        is_lost_row=is_lost_row, show_weights=show_weights, token=token)
+        draw_score_card(
+            base,
+            d,
+            row,
+            card_x,
+            card_y,
+            card_w,
+            card_h,
+            is_lost_row=is_lost_row,
+            show_weights=show_weights,
+            token=token,
+        )
 
-                                
+    # Crop image to final height
     last_bottom = start_y + len(rows) * (card_h + spacing) - spacing
     final_height = last_bottom + MARGIN
 
     if final_height < base.height:
         base = base.crop((0, 0, width, final_height))
 
-                    
+    # Save the image
     base.save(out_path)
     logger.info("Image saved to %s", mask_path_for_log(os.path.normpath(out_path)))
+
 
 def make_img_lost(user_id=None, user_name="", max_scores=20):
     make_img(user_id=user_id, user_name=user_name, mode="lost", max_scores=max_scores)

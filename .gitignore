@@ -13,20 +13,16 @@ venv/
 build/
 dist/
 
-.env
 *.bak
 
-src/results/
-src/cache/
-src/assets/images/
-src/csv/
-src/maps
+results/
+cache/
+assets/images/
+csv/
+maps/
+log/
+config/
 
 scripts/strip_comments.py
-
-log.txt
-api_log.txt
-
-src/config/
 
 build.py

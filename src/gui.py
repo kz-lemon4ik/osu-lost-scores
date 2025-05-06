@@ -11,10 +11,18 @@ import pandas as pd
 import os.path
 from functools import partial
 from datetime import datetime
-from utils import get_resource_path, mask_path_for_log
+from utils import get_resource_path, mask_path_for_log, get_standard_dir
 from database import db_close, db_init
 from file_parser import reset_in_memory_caches
-from config import DB_FILE, GUI_THREAD_POOL_SIZE
+from config import (
+    GUI_THREAD_POOL_SIZE,
+    DB_FILE,
+    CACHE_DIR,
+    MAPS_DIR,
+    RESULTS_DIR,
+    CSV_DIR,
+)
+
 
 from PySide6 import QtCore, QtGui
 from PySide6.QtCore import (
@@ -79,20 +87,17 @@ from analyzer import scan_replays, make_top
 
 logger = logging.getLogger(__name__)
 
-BASE_SRC_PATH = get_resource_path("")
-ICON_PATH = get_resource_path(os.path.join("assets", "icons"))
-FONT_PATH = get_resource_path(os.path.join("assets", "fonts"))
-BACKGROUND_FOLDER_PATH = get_resource_path(os.path.join("assets", "background"))
-BACKGROUND_IMAGE_PATH = get_resource_path(
-    os.path.join("assets", "background", "bg.png")
-)
-CONFIG_PATH = get_resource_path(os.path.join("config", "gui_config.json"))
+ICON_PATH = get_resource_path("assets/icons")
+FONT_PATH = get_resource_path("assets/fonts")
+BACKGROUND_FOLDER_PATH = get_resource_path("assets/background")
+BACKGROUND_IMAGE_PATH = get_resource_path("assets/background/bg.png")
+CONFIG_PATH = os.path.join(get_standard_dir("config"), "gui_config.json")
 
 os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
 
 
 def load_qss():
-    style_path = get_resource_path(os.path.join("assets", "styles", "style.qss"))
+    style_path = get_resource_path("assets/styles/style.qss")
     logger.debug(
         "Attempting to load QSS from: %s",
         mask_path_for_log(os.path.normpath(style_path)),
@@ -113,7 +118,7 @@ def load_qss():
 def show_api_limit_warning():
     from config import API_REQUESTS_PER_MINUTE
 
-                                                               
+    # More than 60 requests per minute (but not exceeding 1200)
     if 60 < API_REQUESTS_PER_MINUTE <= 1200:
         QMessageBox.warning(
             None,
@@ -121,10 +126,10 @@ def show_api_limit_warning():
             f"High API request rate detected\n\nCurrent setting: {API_REQUESTS_PER_MINUTE} requests per minute\n\n"
             f"WARNING: peppy prohibits using more than 60 requests per minute.\n"
             f"Burst spikes up to 1200 requests per minute are possible, but proceed at your own risk.\n"
-            f"It may result in API/website usage ban."
+            f"It may result in API/website usage ban.",
         )
 
-                                        
+    # More than 1200 requests per minute
     elif API_REQUESTS_PER_MINUTE > 1200:
         QMessageBox.critical(
             None,
@@ -133,30 +138,31 @@ def show_api_limit_warning():
             f"WARNING: This exceeds the maximum burst limit of 1200 requests per minute.\n"
             f"Program operation is not guaranteed - you will likely encounter 429 errors\n"
             f"and temporary API bans.\n\n"
-            f"Please consider reducing API_REQUESTS_PER_MINUTE to at most 1200."
+            f"Please consider reducing API_REQUESTS_PER_MINUTE to at most 1200.",
         )
 
-                                      
+    # Less than 60 requests per minute
     elif 0 < API_REQUESTS_PER_MINUTE < 60:
         QMessageBox.information(
             None,
             "Conservative API Rate",
             f"Low API request rate detected\n\nCurrent setting: {API_REQUESTS_PER_MINUTE} requests per minute\n\n"
             f"This is below the permitted rate of 60 requests per minute.\n"
-            f"Consider setting API_REQUESTS_PER_MINUTE=60 for optimal performance."
+            f"Consider setting API_REQUESTS_PER_MINUTE=60 for optimal performance.",
         )
 
-                                            
+    # No limit (API_REQUESTS_PER_MINUTE = 0)
     elif API_REQUESTS_PER_MINUTE <= 0:
         QMessageBox.critical(
             None,
             "No API Rate Limit",
-            f"API rate limiting is disabled\n\n"
-            f"You have disabled API rate limiting (API_REQUESTS_PER_MINUTE=0).\n\n"
-            f"This is extremely dangerous and will almost certainly result in\n"
-            f"your IP being temporarily banned from the osu! API.\n\n"
-            f"Please set API_REQUESTS_PER_MINUTE to at least 1 and at most 1200."
+            "API rate limiting is disabled\n\n"
+            "You have disabled API rate limiting (API_REQUESTS_PER_MINUTE=0).\n\n"
+            "This is extremely dangerous and will almost certainly result in\n"
+            "your IP being temporarily banned from the osu! API.\n\n"
+            "Please set API_REQUESTS_PER_MINUTE to at least 1 and at most 1200.",
         )
+
 
 class WorkerSignals(QObject):
     progress = Signal(int, int)
@@ -960,7 +966,7 @@ class ResultsWindow(QDialog):
         try:
             self.update_scan_time()
 
-            lost_scores_path = get_resource_path(os.path.join("csv", "lost_scores.csv"))
+            lost_scores_path = get_resource_path("csv/lost_scores.csv")
             if os.path.exists(lost_scores_path):
                 lost_scores_df = pd.read_csv(lost_scores_path)
                 model = PandasTableModel(lost_scores_df)
@@ -974,7 +980,7 @@ class ResultsWindow(QDialog):
                 model = PandasTableModel(empty_df)
                 self.lost_scores_view.setModel(model)
 
-            parsed_top_path = get_resource_path(os.path.join("csv", "parsed_top.csv"))
+            parsed_top_path = get_resource_path("csv/parsed_top.csv")
             if os.path.exists(parsed_top_path):
                 try:
                     full_df = pd.read_csv(parsed_top_path)
@@ -1022,9 +1028,8 @@ class ResultsWindow(QDialog):
                 model = PandasTableModel(empty_df)
                 self.parsed_top_view.setModel(model)
 
-            top_with_lost_path = get_resource_path(
-                os.path.join("csv", "top_with_lost.csv")
-            )
+            top_with_lost_path = get_resource_path("csv/top_with_lost.csv")
+
             if os.path.exists(top_with_lost_path):
                 try:
                     full_df = pd.read_csv(top_with_lost_path)
@@ -1435,13 +1440,13 @@ class ResultsWindow(QDialog):
 
             self.stats_panel_layout.addWidget(delta_pp_label)
 
-                            
+            # Delta Accuracy
             delta_acc = self.stats_data["top_with_lost"].get(
                 "Δ Overall Accuracy", "N/A"
             )
             delta_acc_label = QLabel(f"Δ Accuracy: {delta_acc}")
 
-                                                                 
+            # Проверяем начало строки на наличие символов + или -
             if isinstance(delta_acc, str):
                 if delta_acc.startswith("+"):
                     delta_acc_label.setProperty("class", "StatsLabel PositiveValue")
@@ -1752,10 +1757,10 @@ class MainWindow(QWidget):
             self.results_button.setEnabled(False)
 
     def ensure_csv_files_exist(self):
-        csv_dir = get_resource_path("csv")
+        csv_dir = get_resource_path("csv/")
         os.makedirs(csv_dir, exist_ok=True)
 
-        lost_scores_path = os.path.join(csv_dir, "lost_scores.csv")
+        lost_scores_path = get_resource_path("csv/lost_scores.csv")
         if not os.path.exists(lost_scores_path):
             try:
                 with open(lost_scores_path, "w", encoding="utf-8") as f:
@@ -2074,8 +2079,8 @@ class MainWindow(QWidget):
                 cursor.insertText(full_gui_message)
                 self.log_textbox.ensureCursorVisible()
 
-                                                                         
-                                                       
+                # GUI-specific messages should be logged with debug level
+                # to avoid cluttering the main log file
                 gui_log_messages = [
                     "button enabled",
                     "button disabled",
@@ -2183,13 +2188,13 @@ class MainWindow(QWidget):
         self.has_error = False
 
         if self.clean_scan_checkbox.isChecked():
-                                                                           
+            # Add confirmation dialog before proceeding with cache clearing
             reply = QMessageBox.question(
                 self,
                 "Confirm Cache Clearing",
                 "Are you sure you want to clear the cache and database? This action cannot be undone.",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No
+                QMessageBox.StandardButton.No,
             )
 
             if reply != QMessageBox.StandardButton.Yes:
@@ -2202,7 +2207,7 @@ class MainWindow(QWidget):
                 db_close()
                 logger.info("Database connection closed for cache cleaning.")
 
-                db_path = get_resource_path(DB_FILE.replace("../", ""))
+                db_path = DB_FILE
                 if os.path.exists(db_path):
                     try:
                         os.remove(db_path)
@@ -2211,10 +2216,10 @@ class MainWindow(QWidget):
                         self.append_log(f"Failed to delete database file: {e}", False)
 
                 folders_to_clean = [
-                    get_resource_path("cache"),
-                    get_resource_path("maps"),
-                    get_resource_path("results"),
-                    get_resource_path("csv"),
+                    CACHE_DIR,
+                    MAPS_DIR,
+                    RESULTS_DIR,
+                    CSV_DIR,
                     get_resource_path("assets/images"),
                 ]
                 logger.debug(
@@ -2560,6 +2565,8 @@ class MainWindow(QWidget):
 
         def task(user_id_or_name, key_type, num_scores, show_lost_flag):
             try:
+                from osu_api import token_osu, user_osu
+
                 QtCore.QMetaObject.invokeMethod(
                     self,
                     "update_progress_bar",
@@ -2575,7 +2582,7 @@ class MainWindow(QWidget):
                     QtCore.Q_ARG(str, "Getting API token..."),
                 )
 
-                token = img_mod.get_token_osu()
+                token = token_osu()
                 if not token:
                     raise ValueError("Failed to get osu! API token!")
 
@@ -2594,7 +2601,7 @@ class MainWindow(QWidget):
                     QtCore.Q_ARG(str, "Getting user data..."),
                 )
 
-                user_data = img_mod.get_user_osu(user_id_or_name, key_type, token)
+                user_data = user_osu(user_id_or_name, key_type, token)
                 if not user_data:
                     error_msg = f"Failed to get user data '{user_id_or_name}' (type: {key_type})."
                     QtCore.QMetaObject.invokeMethod(

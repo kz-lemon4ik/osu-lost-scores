@@ -1,16 +1,14 @@
 import os
 import logging
 from dotenv import load_dotenv
-from utils import get_resource_path, mask_path_for_log
+from utils import get_env_path, get_standard_dir, mask_path_for_log
 
 logger = logging.getLogger(__name__)
 
 dotenv_path = os.environ.get("DOTENV_PATH")
 
 if not dotenv_path or not os.path.exists(dotenv_path):
-    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    dotenv_path = get_resource_path(os.path.join("..", ".env"))
-    dotenv_path = os.path.abspath(dotenv_path)
+    dotenv_path = get_env_path()
     logger.info(
         "DOTENV_PATH not set or file doesn't exist, using: %s",
         mask_path_for_log(dotenv_path),
@@ -22,7 +20,22 @@ if os.path.exists(dotenv_path):
 else:
     logger.error("Could not find .env file: %s", mask_path_for_log(dotenv_path))
 
-DB_FILE = os.environ.get("DB_FILE", "cache/beatmap_info.db")
+# Path configurations - fallback to standard directories if not in environment
+CACHE_DIR = os.environ.get("CACHE_DIR", get_standard_dir("cache"))
+RESULTS_DIR = os.environ.get("RESULTS_DIR", get_standard_dir("results"))
+MAPS_DIR = os.environ.get("MAPS_DIR", get_standard_dir("maps"))
+CSV_DIR = os.environ.get("CSV_DIR", get_standard_dir("csv"))
+LOG_DIR = get_standard_dir("log")
+
+# Ensure these directories exist
+os.makedirs(CACHE_DIR, exist_ok=True)
+os.makedirs(RESULTS_DIR, exist_ok=True)
+os.makedirs(MAPS_DIR, exist_ok=True)
+os.makedirs(CSV_DIR, exist_ok=True)
+os.makedirs(LOG_DIR, exist_ok=True)
+
+# Database file path
+DB_FILE = os.environ.get("DB_FILE", os.path.join(CACHE_DIR, "beatmap_info.db"))
 
 cutoff_env = os.environ.get("CUTOFF_DATE", "1730114220")
 
@@ -69,55 +82,69 @@ try:
     DOWNLOAD_RETRY_COUNT = int(download_retry_count_env)
 except ValueError:
     logger.warning(
-        "Could not convert DOWNLOAD_RETRY_COUNT '%s' to number, using default value", download_retry_count_env
+        "Could not convert DOWNLOAD_RETRY_COUNT '%s' to number, using default value",
+        download_retry_count_env,
     )
     DOWNLOAD_RETRY_COUNT = 3
 
-                     
-CACHE_DIR = os.environ.get("CACHE_DIR", "../cache/")
-RESULTS_DIR = os.environ.get("RESULTS_DIR", "../results/")
-MAPS_DIR = os.environ.get("MAPS_DIR", "../maps/")
-CSV_DIR = os.environ.get("CSV_DIR", "../csv/")
-
-                             
+# Ensure paths are normalized and create directories if they don't exist
 CACHE_DIR = os.path.normpath(CACHE_DIR)
 RESULTS_DIR = os.path.normpath(RESULTS_DIR)
 MAPS_DIR = os.path.normpath(MAPS_DIR)
 CSV_DIR = os.path.normpath(CSV_DIR)
 
-logger.info("Configured paths: CACHE_DIR=%s, RESULTS_DIR=%s, MAPS_DIR=%s, CSV_DIR=%s",
-    mask_path_for_log(CACHE_DIR), mask_path_for_log(RESULTS_DIR),
-    mask_path_for_log(MAPS_DIR), mask_path_for_log(CSV_DIR)
+# Ensure these directories exist
+os.makedirs(CACHE_DIR, exist_ok=True)
+os.makedirs(RESULTS_DIR, exist_ok=True)
+os.makedirs(MAPS_DIR, exist_ok=True)
+os.makedirs(CSV_DIR, exist_ok=True)
+
+logger.info(
+    "Configured paths: CACHE_DIR=%s, RESULTS_DIR=%s, MAPS_DIR=%s, CSV_DIR=%s",
+    mask_path_for_log(CACHE_DIR),
+    mask_path_for_log(RESULTS_DIR),
+    mask_path_for_log(MAPS_DIR),
+    mask_path_for_log(CSV_DIR),
 )
 
-                       
+# Logging configuration
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
-LOG_FILE = os.environ.get("LOG_FILE", "../../log.txt")
-LOG_FILE = os.path.normpath(LOG_FILE)
+LOG_DIR = os.environ.get("LOG_DIR", get_standard_dir("log"))
+LOG_FILE = os.path.join(LOG_DIR, "log.txt")
+API_LOG_FILE = os.path.join(LOG_DIR, "api_log.txt")
 
-logger.info("Configured logging: LOG_LEVEL=%s, LOG_FILE=%s",
-    LOG_LEVEL, mask_path_for_log(LOG_FILE)
+# Ensure log directory exists
+os.makedirs(LOG_DIR, exist_ok=True)
+
+logger.info(
+    "Configured logging: LOG_LEVEL=%s, LOG_DIR=%s, LOG_FILE=%s, API_LOG_FILE=%s",
+    LOG_LEVEL,
+    mask_path_for_log(LOG_DIR),
+    mask_path_for_log(LOG_FILE),
+    mask_path_for_log(API_LOG_FILE),
 )
 
-                   
+# API configuration
 api_requests_per_minute_env = os.environ.get("API_REQUESTS_PER_MINUTE", "60")
 api_retry_count_env = os.environ.get("API_RETRY_COUNT", "3")
 api_retry_delay_env = os.environ.get("API_RETRY_DELAY", "0.5")
 
 try:
     API_REQUESTS_PER_MINUTE = int(api_requests_per_minute_env)
-                          
+    # Handle special cases
     if API_REQUESTS_PER_MINUTE <= 0:
-        logger.warning("API_REQUESTS_PER_MINUTE set to %d, treating as unlimited. This is dangerous!",
-                      API_REQUESTS_PER_MINUTE)
-        API_RATE_LIMIT = 0.0                                          
+        logger.warning(
+            "API_REQUESTS_PER_MINUTE set to %d, treating as unlimited. This is dangerous!",
+            API_REQUESTS_PER_MINUTE,
+        )
+        API_RATE_LIMIT = 0.0  # No delay between requests - dangerous!
     else:
-                                                            
+        # Derive API_RATE_LIMIT from API_REQUESTS_PER_MINUTE
         API_RATE_LIMIT = 60.0 / API_REQUESTS_PER_MINUTE
 except ValueError:
     logger.warning(
         "Could not convert API_REQUESTS_PER_MINUTE '%s' to number, using default value",
-        api_requests_per_minute_env
+        api_requests_per_minute_env,
     )
     API_REQUESTS_PER_MINUTE = 60
     API_RATE_LIMIT = 1.0
@@ -126,7 +153,8 @@ try:
     API_RETRY_COUNT = int(api_retry_count_env)
 except ValueError:
     logger.warning(
-        "Could not convert API_RETRY_COUNT '%s' to number, using default value", api_retry_count_env
+        "Could not convert API_RETRY_COUNT '%s' to number, using default value",
+        api_retry_count_env,
     )
     API_RETRY_COUNT = 3
 
@@ -134,10 +162,14 @@ try:
     API_RETRY_DELAY = float(api_retry_delay_env)
 except ValueError:
     logger.warning(
-        "Could not convert API_RETRY_DELAY '%s' to number, using default value", api_retry_delay_env
+        "Could not convert API_RETRY_DELAY '%s' to number, using default value",
+        api_retry_delay_env,
     )
     API_RETRY_DELAY = 0.5
 
-logger.info("Configured API settings: API_REQUESTS_PER_MINUTE=%d, API_RETRY_COUNT=%s, API_RETRY_DELAY=%s",
-            API_REQUESTS_PER_MINUTE, API_RETRY_COUNT, API_RETRY_DELAY
-            )
+logger.info(
+    "Configured API settings: API_REQUESTS_PER_MINUTE=%d, API_RETRY_COUNT=%s, API_RETRY_DELAY=%s",
+    API_REQUESTS_PER_MINUTE,
+    API_RETRY_COUNT,
+    API_RETRY_DELAY,
+)

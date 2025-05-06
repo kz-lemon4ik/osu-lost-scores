@@ -9,19 +9,18 @@ import logging
 import rosu_pp_py as rosu
 import requests
 from database import db_get, db_save
-from utils import get_resource_path, mask_path_for_log
-from config import DOWNLOAD_RETRY_COUNT, MAP_DOWNLOAD_TIMEOUT, MAPS_DIR
-from osu_api import reset_api_caches, lookup_osu
+from utils import mask_path_for_log
+from config import DOWNLOAD_RETRY_COUNT, MAP_DOWNLOAD_TIMEOUT, MAPS_DIR, CACHE_DIR
+from osu_api import reset_api_caches
 
 logger = logging.getLogger(__name__)
-cache_folder = get_resource_path("cache")
-os.makedirs(cache_folder, exist_ok=True)
+os.makedirs(CACHE_DIR, exist_ok=True)
 
-                                                                
+# Добавляем глобальную переменную для хранения базового пути osu
 OSU_BASE_PATH = None
 
 
-                                     
+# Функция для установки базового пути
 def set_osu_base_path(path):
     global OSU_BASE_PATH
     if path:
@@ -29,12 +28,12 @@ def set_osu_base_path(path):
         logger.info(f"osu! base path set to: {mask_path_for_log(OSU_BASE_PATH)}")
 
 
-                                                             
+# Функция для преобразования абсолютного пути в относительный
 def to_relative_path(abs_path):
     if not abs_path or not OSU_BASE_PATH:
         return abs_path
     try:
-                                                           
+        # Проверяем, начинается ли путь с базового пути osu
         if os.path.normpath(abs_path).startswith(OSU_BASE_PATH):
             rel_path = os.path.relpath(abs_path, OSU_BASE_PATH)
             return rel_path
@@ -44,12 +43,12 @@ def to_relative_path(abs_path):
         return abs_path
 
 
-                                                             
+# Функция для преобразования относительного пути в абсолютный
 def to_absolute_path(rel_path):
     if not rel_path or not OSU_BASE_PATH:
         return rel_path
     try:
-                                                   
+        # Проверяем, является ли путь относительным
         if not os.path.isabs(rel_path):
             abs_path = os.path.normpath(os.path.join(OSU_BASE_PATH, rel_path))
             return abs_path
@@ -63,8 +62,8 @@ MD5_CACHE_LOCK = threading.Lock()
 MD5_BEATMAPID_CACHE = {}
 MD5_MAP = {}
 
-OSR_CACHE_PATH = os.path.join(get_resource_path("cache"), "osr_cache.json")
-MD5_CACHE_PATH = os.path.join(get_resource_path("cache"), "osu_md5_cache.json")
+OSR_CACHE_PATH = os.path.join(CACHE_DIR, "osr_cache.json")
+MD5_CACHE_PATH = os.path.join(CACHE_DIR, "osu_md5_cache.json")
 
 OSR_CACHE = {}
 OSR_CACHE_LOCK = threading.Lock()
@@ -81,10 +80,11 @@ def reset_in_memory_caches():
         OSR_CACHE.clear()
     NOT_SUBMITTED_CACHE.clear()
 
-                                     
+    # Также сбрасываем кэши в osu_api
     reset_api_caches()
 
     logger.info("In-memory caches (MD5, OSR, NotSubmitted) have been reset.")
+
 
 def not_submitted_cache_load():
     if os.path.exists(NOT_SUBMITTED_CACHE_PATH):
@@ -105,9 +105,7 @@ def not_submitted_cache_save(cache):
         logger.error("Error writing not_submitted_cache: %s", e)
 
 
-NOT_SUBMITTED_CACHE_PATH = os.path.join(
-    get_resource_path("cache"), "not_submitted_cache.json"
-)
+NOT_SUBMITTED_CACHE_PATH = os.path.join(CACHE_DIR, "not_submitted_cache.json")
 NOT_SUBMITTED_CACHE = not_submitted_cache_load()
 
 
@@ -175,22 +173,22 @@ def find_md5(full_path, cache):
     except Exception:
         return None
 
-                                                                     
+    # Преобразуем абсолютный путь в относительный для хранения в кеше
     rel_path = to_relative_path(full_path)
 
-                                                            
+    # Проверяем, есть ли в кеше запись с относительным путем
     if rel_path in cache:
         saved = cache[rel_path]
         if saved.get("mtime") == mtime:
             return saved.get("md5")
 
-                                                                             
+    # Если в кеше есть запись с абсолютным путем (для обратной совместимости)
     if full_path in cache:
         saved = cache[full_path]
         if saved.get("mtime") == mtime:
-                                                                   
+            # Перемещаем запись из абсолютного пути в относительный
             cache[rel_path] = saved
-                                               
+            # Удаляем запись с абсолютным путем
             del cache[full_path]
             return saved.get("md5")
 
@@ -204,19 +202,21 @@ OSR_CACHE = osr_load()
 
 def find_osu(songs_folder, progress_callback=None):
     files = []
-                       
+    # Scan Songs folder
     for root, dirs, filenames in os.walk(songs_folder):
         for file in filenames:
             if file.endswith(".osu"):
                 files.append(os.path.join(root, file))
 
-                                             
+    # Scan MAPS_DIR for downloaded .osu files
     if os.path.exists(MAPS_DIR) and os.path.isdir(MAPS_DIR):
         for file in os.listdir(MAPS_DIR):
             if file.endswith(".osu"):
                 files.append(os.path.join(MAPS_DIR, file))
 
-        logger.info(f"Added {len(os.listdir(MAPS_DIR))} files from MAPS_DIR to scanning")
+        logger.info(
+            f"Added {len(os.listdir(MAPS_DIR))} files from MAPS_DIR to scanning"
+        )
     total = len(files)
     md5_map = {}
     cache = md5_load()
@@ -539,23 +539,23 @@ def process_osr_with_path(replay_data, md5_map, not_submitted_cache):
 
         mtime = os.path.getmtime(osr_path)
 
-                                                                         
+        # Преобразуем абсолютный путь в относительный для хранения в кеше
         rel_osr_path = to_relative_path(osr_path)
 
         with OSR_CACHE_LOCK:
-                                                  
+            # Проверяем сначала относительный путь
             if (
-                    rel_osr_path in OSR_CACHE
-                    and OSR_CACHE[rel_osr_path].get("mtime") == mtime
+                rel_osr_path in OSR_CACHE
+                and OSR_CACHE[rel_osr_path].get("mtime") == mtime
             ):
                 return OSR_CACHE[rel_osr_path].get("result")
 
-                                                                  
+            # Для обратной совместимости проверяем абсолютный путь
             if osr_path in OSR_CACHE and OSR_CACHE[osr_path].get("mtime") == mtime:
                 result = OSR_CACHE[osr_path].get("result")
-                                                                       
+                # Перемещаем запись из абсолютного пути в относительный
                 OSR_CACHE[rel_osr_path] = OSR_CACHE[osr_path]
-                                                   
+                # Удаляем запись с абсолютным путем
                 del OSR_CACHE[osr_path]
                 return result
 
@@ -569,8 +569,8 @@ def process_osr_with_path(replay_data, md5_map, not_submitted_cache):
                 return None
 
             elif beatmap_id is None:
-                                                                                                
-                                                                                                    
+                # Если beatmap_id не удалось получить из локального файла, используем lookup_osu
+                # Этот случай не должен часто встречаться, т.к. обычно ID получен на предыдущем шаге
                 md5 = replay_data.get("beatmap_md5")
                 if md5 is None:
                     return None
@@ -585,10 +585,10 @@ def process_osr_with_path(replay_data, md5_map, not_submitted_cache):
                         beatmap_data = lookup_osu(md5)
 
                         if isinstance(beatmap_data, dict) and "id" in beatmap_data:
-                                               
+                            # Получаем ID карты
                             new_id = beatmap_data.get("id")
 
-                                                                    
+                            # Сохраняем данные о карте в базу данных
                             db_save(
                                 new_id,
                                 beatmap_data.get("status", "unknown"),
@@ -596,14 +596,14 @@ def process_osr_with_path(replay_data, md5_map, not_submitted_cache):
                                 beatmap_data.get("title", ""),
                                 beatmap_data.get("version", ""),
                                 beatmap_data.get("creator", ""),
-                                beatmap_data.get("hit_objects", 0)
+                                beatmap_data.get("hit_objects", 0),
                             )
 
-                                                       
+                            # Обновляем кэш и результат
                             MD5_BEATMAPID_CACHE[md5] = new_id
                             res["beatmap_id"] = new_id
 
-                                                                       
+                            # Обновляем метаданные в текущем результате
                             if "artist" not in res or not res["artist"]:
                                 res["artist"] = beatmap_data.get("artist", "")
                             if "title" not in res or not res["title"]:
@@ -614,7 +614,7 @@ def process_osr_with_path(replay_data, md5_map, not_submitted_cache):
                                 res["version"] = beatmap_data.get("version", "")
 
                         elif beatmap_data is not None:
-                                                                                                 
+                            # Для обратной совместимости, если вернулся просто ID (старый формат)
                             new_id = beatmap_data
                             MD5_BEATMAPID_CACHE[md5] = new_id
                             res["beatmap_id"] = new_id
@@ -636,18 +636,18 @@ def process_osr_with_path(replay_data, md5_map, not_submitted_cache):
                 res["score_time"] = replay_data["score_time"]
 
             with OSR_CACHE_LOCK:
-                                                 
+                # Сохраняем с относительным путем
                 OSR_CACHE[rel_osr_path] = {"mtime": mtime, "result": res}
         return res
     except Exception as e:
-        logger.exception(
-            f"Unexpected error processing replay with path: {e}"
-        )
+        logger.exception(f"Unexpected error processing replay with path: {e}")
         return None
 
 
 def proc_osr(osr_path, md5_map, cutoff, username):
-           
+    """
+    Обертка для обратной совместимости
+    """
     try:
         rep = parse_osr_info(osr_path, username)
         if not rep:
@@ -671,7 +671,7 @@ def parse_osr_info(osr_path, username):
         if rep["player_name"].lower() != username.lower():
             return None
 
-                                                     
+        # Добавим путь к osr для дальнейшей обработки
         rep["osr_path"] = osr_path
         return rep
     except Exception as e:
@@ -682,8 +682,8 @@ def parse_osr_info(osr_path, username):
 
 
 def download_osu_file(beatmap_id):
-                                                                         
-    api_logger = logging.getLogger('osu_api_calls')
+    # Используем стандартный логгер модуля
+    logger = logging.getLogger(__name__)
 
     if not beatmap_id:
         logger.error("Cannot download .osu file: beatmap_id is None or 0")
@@ -697,48 +697,61 @@ def download_osu_file(beatmap_id):
         return file_path
 
     url = f"https://osu.ppy.sh/osu/{beatmap_id}"
-    api_logger.info(f"GET beatmap file: {url}")
+    logger.info(f"GET beatmap file: {url}")
 
     for retry in range(DOWNLOAD_RETRY_COUNT):
         try:
-            api_logger.debug(
-                f"Downloading .osu file for beatmap_id {beatmap_id} (attempt {retry + 1}/{DOWNLOAD_RETRY_COUNT})")
+            logger.debug(
+                f"Downloading .osu file for beatmap_id {beatmap_id} (attempt {retry + 1}/{DOWNLOAD_RETRY_COUNT})"
+            )
             response = requests.get(url, timeout=MAP_DOWNLOAD_TIMEOUT)
 
             if response.status_code == 404:
-                api_logger.warning(f"Beatmap with ID {beatmap_id} not found on server (HTTP 404)")
+                logger.warning(
+                    f"Beatmap with ID {beatmap_id} not found on server (HTTP 404)"
+                )
                 return None
 
             response.raise_for_status()
 
             file_size = len(response.content)
-            api_logger.debug(f"Download successful: received {file_size} bytes")
+            logger.debug(f"Download successful: received {file_size} bytes")
 
             with open(file_path, "wb") as f:
                 f.write(response.content)
 
-            api_logger.debug(f"File saved to {mask_path_for_log(file_path)}")
+            logger.debug(f"File saved to {mask_path_for_log(file_path)}")
 
             cache = md5_load()
             find_md5(file_path, cache)
             md5_save(cache)
 
-            api_logger.info(f"Successfully downloaded and cached .osu file for beatmap_id {beatmap_id}")
+            logger.info(
+                f"Successfully downloaded and cached .osu file for beatmap_id {beatmap_id}"
+            )
             return file_path
 
         except requests.exceptions.Timeout:
-            api_logger.warning(
+            logger.warning(
                 "Timeout downloading .osu file for beatmap_id %s (attempt %d/%d)",
-                beatmap_id, retry + 1, DOWNLOAD_RETRY_COUNT
+                beatmap_id,
+                retry + 1,
+                DOWNLOAD_RETRY_COUNT,
             )
         except Exception as e:
-            api_logger.error(
+            logger.error(
                 "Error downloading .osu file for beatmap_id %s: %s (attempt %d/%d)",
-                beatmap_id, e, retry + 1, DOWNLOAD_RETRY_COUNT
+                beatmap_id,
+                e,
+                retry + 1,
+                DOWNLOAD_RETRY_COUNT,
             )
 
-    api_logger.error("Failed to download .osu file after %d attempts for beatmap_id %s",
-                     DOWNLOAD_RETRY_COUNT, beatmap_id)
+    logger.error(
+        "Failed to download .osu file after %d attempts for beatmap_id %s",
+        DOWNLOAD_RETRY_COUNT,
+        beatmap_id,
+    )
     return None
 
 
@@ -761,7 +774,7 @@ def update_osu_md5_cache(new_osu_path, md5_hash):
             )
             mtime = None
 
-                                                                         
+        # Преобразуем абсолютный путь в относительный для хранения в кеше
         rel_path = to_relative_path(new_osu_path)
         cache[rel_path] = {"mtime": mtime, "md5": md5_hash}
 

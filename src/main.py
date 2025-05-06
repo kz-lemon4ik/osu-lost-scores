@@ -3,16 +3,16 @@ import os
 import sys
 
 from database import db_init, db_close
-from utils import get_resource_path, mask_path_for_log
-from config import LOG_LEVEL, LOG_FILE
+from utils import mask_path_for_log
+from config import LOG_LEVEL, LOG_FILE, LOG_DIR, API_LOG_FILE
 
 from PySide6.QtWidgets import QApplication
 from gui import create_gui
 
-env_path = get_resource_path(os.path.join("..", ".env"))
-os.environ["DOTENV_PATH"] = env_path
+from utils import get_env_path
 
-LOG_FILENAME = LOG_FILE
+env_path = get_env_path()
+os.environ["DOTENV_PATH"] = env_path
 
 log_formatter = logging.Formatter(
     "%(asctime)s [%(levelname)s] [%(name)s] %(message)s",
@@ -23,65 +23,69 @@ log_level_map = {
     "INFO": logging.INFO,
     "WARNING": logging.WARNING,
     "ERROR": logging.ERROR,
-    "CRITICAL": logging.CRITICAL
+    "CRITICAL": logging.CRITICAL,
 }
 numeric_level = log_level_map.get(LOG_LEVEL.upper(), logging.INFO)
 
-                                  
-logs_dir = os.path.dirname(LOG_FILENAME)
-os.makedirs(logs_dir, exist_ok=True)
+# Ensure log directory exists
+os.makedirs(LOG_DIR, exist_ok=True)
 
-                   
-API_LOG_FILENAME = os.path.join(logs_dir, "api_log.txt")
-
-                             
+# Настройка корневого логгера
 root_logger = logging.getLogger()
 root_logger.setLevel(numeric_level)
 
-                                   
+# Очистка существующих обработчиков
 for handler in root_logger.handlers[:]:
     root_logger.removeHandler(handler)
 
-                                                                
-class ExcludeAPILogFilter(logging.Filter):
-    def filter(self, record):
-        return not record.name.startswith('osu_api_calls')
-
-                                       
+# Настройка основного файлового логгера
 try:
-    file_handler = logging.FileHandler(LOG_FILENAME, encoding="utf-8", mode="w")
+    file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8", mode="w")
     file_handler.setFormatter(log_formatter)
-    file_handler.addFilter(ExcludeAPILogFilter())                    
     root_logger.addHandler(file_handler)
 except Exception as e:
-    print(f"Failed to configure logging to file {LOG_FILENAME}: {e}")
+    print(f"Failed to configure logging to file {LOG_FILE}: {e}")
 
-                               
+# Настройка консольного логгера
 console_handler = logging.StreamHandler()
 console_handler.setFormatter(log_formatter)
-console_handler.addFilter(ExcludeAPILogFilter())                                         
 root_logger.addHandler(console_handler)
 
-                       
-api_logger = logging.getLogger('osu_api_calls')
-api_logger.setLevel(logging.DEBUG)                                               
-api_logger.propagate = False                                                    
+# Настройка API логгера для osu_api модуля
+api_logger = logging.getLogger("osu_api")
+api_logger.setLevel(logging.DEBUG)
 
+# Создаем отдельный файловый обработчик для API логов
 try:
-    api_file_handler = logging.FileHandler(API_LOG_FILENAME, encoding="utf-8", mode="w")
+    api_file_handler = logging.FileHandler(API_LOG_FILE, encoding="utf-8", mode="w")
     api_file_handler.setFormatter(log_formatter)
     api_logger.addHandler(api_file_handler)
 except Exception as e:
-    print(f"Failed to configure API logging to file {API_LOG_FILENAME}: {e}")
-                                                                                     
+    print(f"Failed to configure API logging to file {API_LOG_FILE}: {e}")
+
+logging.info(
+    "Logging configured. Main log: %s, API log: %s",
+    mask_path_for_log(os.path.normpath(LOG_FILE)),
+    mask_path_for_log(os.path.normpath(API_LOG_FILE)),
+)
+logging.info("Path to .env file: %s", mask_path_for_log(os.path.normpath(env_path)))
+
+try:
+    api_file_handler = logging.FileHandler(API_LOG_FILE, encoding="utf-8", mode="w")
+    api_file_handler.setFormatter(log_formatter)
+    api_logger.addHandler(api_file_handler)
+except Exception as e:
+    print(f"Failed to configure API logging to file {API_LOG_FILE}: {e}")
+    # Если не удалось создать файл логов API, добавляем сообщения к основному логгеру
     api_logger.propagate = True
 
 logging.info(
     "Logging configured. Main log: %s, API log: %s",
-    mask_path_for_log(os.path.normpath(LOG_FILENAME)),
-    mask_path_for_log(os.path.normpath(API_LOG_FILENAME))
+    mask_path_for_log(os.path.normpath(LOG_FILE)),
+    mask_path_for_log(os.path.normpath(API_LOG_FILE)),
 )
 logging.info("Path to .env file: %s", mask_path_for_log(os.path.normpath(env_path)))
+
 
 def setup_api():
     try:
@@ -101,6 +105,12 @@ def setup_api():
 
 
 def ensure_directories_exist():
+    from utils import ensure_app_dirs_exist
+
+    # Create standard app directories
+    ensure_app_dirs_exist()
+
+    # Also ensure config directories from environment variables exist
     from config import CACHE_DIR, RESULTS_DIR, MAPS_DIR, CSV_DIR
 
     dirs = [CACHE_DIR, RESULTS_DIR, MAPS_DIR, CSV_DIR]
@@ -109,7 +119,9 @@ def ensure_directories_exist():
             os.makedirs(dir_path, exist_ok=True)
             logging.info("Ensured directory exists: %s", mask_path_for_log(dir_path))
         except Exception as e:
-            logging.error("Failed to create directory %s: %s", mask_path_for_log(dir_path), e)
+            logging.error(
+                "Failed to create directory %s: %s", mask_path_for_log(dir_path), e
+            )
 
 
 def main():
@@ -128,8 +140,9 @@ def main():
         db_close()
         return 1
 
-                                                                            
+    # После создания QApplication теперь безопасно показывать предупреждения
     from gui import show_api_limit_warning
+
     show_api_limit_warning()
 
     window = create_gui()
@@ -138,6 +151,7 @@ def main():
     db_close()
 
     return exit_code
+
 
 if __name__ == "__main__":
     sys.exit(main())
