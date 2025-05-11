@@ -48,8 +48,8 @@ class DatabaseManager:
                         "Database initialized: %s",
                         mask_path_for_log(os.path.normpath(DB_FILE)),
                     )
-                except Exception as e:
-                    logger.error("Error initializing database: %s", e)
+                except Exception:
+                    logger.exception("Error initializing database:")
                     raise
 
     def get_connection(self):
@@ -65,65 +65,71 @@ class DatabaseManager:
                     self._conn = None
                     self._initialized = False
                     logger.info("Database connection closed")
-                except Exception as e:
-                    logger.error("Error closing database connection: %s", e)
+                except Exception:
+                    logger.exception("Error closing database connection:")
 
 
 db_manager = DatabaseManager()
+db_operation_lock = threading.Lock()
 
 
 def db_init():
     try:
         db_manager.initialize()
-    except Exception as e:
-        logger.error("Error initializing database: %s", e)
+    except Exception:
+        logger.exception("Error initializing database:")
         raise
 
 
 def db_save(bid, status, artist, title, version, creator, objs):
     try:
-        conn = db_manager.get_connection()
-        with conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO beatmap_info (
-                    beatmap_id, status, artist, title, version, creator, hit_objects
+                                                          
+        with db_operation_lock:
+            conn = db_manager.get_connection()
+            with conn:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO beatmap_info (
+                        beatmap_id, status, artist, title, version, creator, hit_objects
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                    (str(bid), status, artist, title, version, creator, objs),
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-                (str(bid), status, artist, title, version, creator, objs),
-            )
-    except Exception as e:
-        logger.error("Error saving data to database: %s", e)
+    except Exception:
+        logger.exception("Error saving data to database:")
 
 
 def db_get(bid):
     try:
-        conn = db_manager.get_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT status, artist, title, version, creator, hit_objects
-            FROM beatmap_info
-            WHERE beatmap_id=?
-        """,
-            (str(bid),),
-        )
-        row = cursor.fetchone()
-        cursor.close()
+                                                                                      
+                                                                                    
+        with db_operation_lock:
+            conn = db_manager.get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT status, artist, title, version, creator, hit_objects
+                FROM beatmap_info
+                WHERE beatmap_id=?
+            """,
+                (str(bid),),
+            )
+            row = cursor.fetchone()
+            cursor.close()
 
-        if row:
-            return {
-                "status": row[0],
-                "artist": row[1],
-                "title": row[2],
-                "version": row[3],
-                "creator": row[4],
-                "hit_objects": row[5],
-            }
-        return None
-    except Exception as e:
-        logger.error("Error retrieving data from database: %s", e)
+            if row:
+                return {
+                    "status": row[0],
+                    "artist": row[1],
+                    "title": row[2],
+                    "version": row[3],
+                    "creator": row[4],
+                    "hit_objects": row[5],
+                }
+            return None
+    except Exception:
+        logger.exception("Error retrieving data from database:")
         return None
 
 

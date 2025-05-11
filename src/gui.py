@@ -13,7 +13,7 @@ from functools import partial
 from datetime import datetime
 from utils import get_resource_path, mask_path_for_log, get_standard_dir
 from database import db_close, db_init
-from file_parser import reset_in_memory_caches
+from analyzer import file_parser
 from config import (
     GUI_THREAD_POOL_SIZE,
     DB_FILE,
@@ -118,7 +118,7 @@ def load_qss():
 def show_api_limit_warning():
     from config import API_REQUESTS_PER_MINUTE
 
-    # More than 60 requests per minute (but not exceeding 1200)
+                                                               
     if 60 < API_REQUESTS_PER_MINUTE <= 1200:
         QMessageBox.warning(
             None,
@@ -129,7 +129,7 @@ def show_api_limit_warning():
             f"It may result in API/website usage ban.",
         )
 
-    # More than 1200 requests per minute
+                                        
     elif API_REQUESTS_PER_MINUTE > 1200:
         QMessageBox.critical(
             None,
@@ -141,7 +141,7 @@ def show_api_limit_warning():
             f"Please consider reducing API_REQUESTS_PER_MINUTE to at most 1200.",
         )
 
-    # Less than 60 requests per minute
+                                      
     elif 0 < API_REQUESTS_PER_MINUTE < 60:
         QMessageBox.information(
             None,
@@ -151,7 +151,7 @@ def show_api_limit_warning():
             f"Consider setting API_REQUESTS_PER_MINUTE=60 for optimal performance.",
         )
 
-    # No limit (API_REQUESTS_PER_MINUTE = 0)
+                                            
     elif API_REQUESTS_PER_MINUTE <= 0:
         QMessageBox.critical(
             None,
@@ -697,14 +697,6 @@ class PandasTableModel(QAbstractTableModel):
 class ResultsWindow(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-
-        self.setWindowFlags(
-            Qt.WindowType.Window
-            | Qt.WindowType.WindowSystemMenuHint
-            | Qt.WindowType.WindowMinMaxButtonsHint
-            | Qt.WindowType.WindowCloseButtonHint
-        )
-
         screen = QApplication.primaryScreen().availableGeometry()
         self.resize(int(screen.width() * 0.8), int(screen.height() * 0.8))
         self.setWindowTitle("Full Scan Results")
@@ -717,7 +709,7 @@ class ResultsWindow(QDialog):
         self.search_results = []
         self.current_result_index = -1
 
-        logger.info(f"Created stats_data dictionary: {self.stats_data}")
+        logger.debug(f"Created stats_data dictionary: {self.stats_data}")
 
         self.setWindowFlags(
             Qt.WindowType.Dialog
@@ -725,9 +717,6 @@ class ResultsWindow(QDialog):
             | Qt.WindowType.WindowMinMaxButtonsHint
             | Qt.WindowType.WindowCloseButtonHint
         )
-
-        screen = QApplication.primaryScreen().availableGeometry()
-        self.resize(int(screen.width() * 0.8), int(screen.height() * 0.8))
 
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(20, 20, 20, 20)
@@ -880,7 +869,7 @@ class ResultsWindow(QDialog):
         self.stats_panel_layout.setContentsMargins(10, 5, 10, 5)
         self.stats_panel_layout.setSpacing(20)
 
-        logger.info(f"Created stats_panel_layout: {self.stats_panel_layout}")
+        logger.debug(f"Created stats_panel_layout: {self.stats_panel_layout}")
 
         self.bottom_layout.addWidget(self.stats_panel, 1)
 
@@ -946,8 +935,6 @@ class ResultsWindow(QDialog):
         shortcut_copy_potential.activated.connect(
             lambda: self.copy_selected_cells(self.top_with_lost_view)
         )
-
-        self.stats_data = {"lost_scores": {}, "parsed_top": {}, "top_with_lost": {}}
 
         self.load_data()
 
@@ -1335,7 +1322,6 @@ class ResultsWindow(QDialog):
 
         try:
             total_scores = self.stats_data["lost_scores"].get("total", 0)
-            total_scores = self.stats_data["lost_scores"].get("total", 0)
             scores_label = QLabel(f"TOTAL: {total_scores}")
             scores_label.setProperty("class", "StatsLabel Bold")
             self.stats_panel_layout.addWidget(scores_label)
@@ -1440,13 +1426,13 @@ class ResultsWindow(QDialog):
 
             self.stats_panel_layout.addWidget(delta_pp_label)
 
-            # Delta Accuracy
+                            
             delta_acc = self.stats_data["top_with_lost"].get(
                 "Δ Overall Accuracy", "N/A"
             )
             delta_acc_label = QLabel(f"Δ Accuracy: {delta_acc}")
 
-            # Проверяем начало строки на наличие символов + или -
+                                                                 
             if isinstance(delta_acc, str):
                 if delta_acc.startswith("+"):
                     delta_acc_label.setProperty("class", "StatsLabel PositiveValue")
@@ -1674,12 +1660,17 @@ class ResultsWindow(QDialog):
 
 
 class MainWindow(QWidget):
-    def __init__(self):
+    def __init__(self, osu_api_client=None):
         super().__init__()
+        self.osu_api_client = osu_api_client                                
         self.setWindowTitle("osu! Lost Scores Analyzer")
         self.setGeometry(100, 100, 650, 500)
         self.setFixedSize(650, 500)
         self.setObjectName("mainWindow")
+
+                                                        
+        if not osu_api_client:
+            logger.warning("No API client provided to MainWindow")
 
         self.scan_completed = threading.Event()
         self.top_completed = threading.Event()
@@ -1711,9 +1702,9 @@ class MainWindow(QWidget):
 
         self._try_auto_detect_osu_path()
 
-        from osu_api import get_keys_from_keyring
+        from osu_api import OsuApiClient
 
-        client_id, client_secret = get_keys_from_keyring()
+        client_id, client_secret = OsuApiClient.get_keys_from_keyring()
 
         if not client_id or not client_secret:
             QtCore.QTimer.singleShot(500, self.show_first_run_api_dialog)
@@ -1724,7 +1715,8 @@ class MainWindow(QWidget):
             "API Keys Required",
             "Welcome to osu! Lost Scores Analyzer!\n\n"
             "To use this application, you need to provide osu! API keys.\n"
-            "Please enter your API keys in the next dialog.",
+            "Please enter your API keys in the next dialog.\n\n"
+            "You can obtain these keys from: https://osu.ppy.sh/home/account/edit#oauth",
         )
         self.open_api_dialog()
 
@@ -2079,8 +2071,8 @@ class MainWindow(QWidget):
                 cursor.insertText(full_gui_message)
                 self.log_textbox.ensureCursorVisible()
 
-                # GUI-specific messages should be logged with debug level
-                # to avoid cluttering the main log file
+                                                                         
+                                                       
                 gui_log_messages = [
                     "button enabled",
                     "button disabled",
@@ -2157,10 +2149,21 @@ class MainWindow(QWidget):
         user_input = self.profile_entry.text().strip()
 
         if not game_dir or not user_input:
+            logger.warning(
+                "Missing required inputs: Game directory or user profile is empty"
+            )
             QMessageBox.warning(
                 self,
                 "Error",
                 "Please specify osu! folder and profile input (URL/ID/Username).",
+            )
+            return
+
+        if not self.osu_api_client:
+            QMessageBox.warning(
+                self,
+                "Error",
+                "No API client configured. Please set up your API keys first.",
             )
             return
 
@@ -2188,7 +2191,7 @@ class MainWindow(QWidget):
         self.has_error = False
 
         if self.clean_scan_checkbox.isChecked():
-            # Add confirmation dialog before proceeding with cache clearing
+                                                                           
             reply = QMessageBox.question(
                 self,
                 "Confirm Cache Clearing",
@@ -2198,10 +2201,13 @@ class MainWindow(QWidget):
             )
 
             if reply != QMessageBox.StandardButton.Yes:
+                logger.info("Cache clearing cancelled by user")
                 self.append_log("Cache clearing cancelled by user.", False)
                 return
 
+            logger.info("Starting clean scan with cache reset")
             self.append_log("Performing clean scan (cache reset)...", False)
+
             try:
                 self.append_log("Closing database connection before cleaning...", False)
                 db_close()
@@ -2211,8 +2217,16 @@ class MainWindow(QWidget):
                 if os.path.exists(db_path):
                     try:
                         os.remove(db_path)
+                        logger.info(
+                            "Database file removed: %s", mask_path_for_log(db_path)
+                        )
                         self.append_log(f"Database file removed: {db_path}", False)
                     except Exception as e:
+                        logger.error(
+                            "Failed to delete database file: %s - %s",
+                            mask_path_for_log(db_path),
+                            e,
+                        )
                         self.append_log(f"Failed to delete database file: {e}", False)
 
                 folders_to_clean = [
@@ -2240,7 +2254,7 @@ class MainWindow(QWidget):
                                 f"Error removing directory {abs_folder_path}: {e}"
                             )
 
-                            if os.path.isdir(abs_folder_path):
+                            if os.path.exists(abs_folder_path):
                                 for item in os.listdir(abs_folder_path):
                                     item_path = os.path.join(abs_folder_path, item)
                                     try:
@@ -2248,11 +2262,19 @@ class MainWindow(QWidget):
                                             item_path
                                         ):
                                             os.unlink(item_path)
+                                            logger.debug(
+                                                "Deleted file: %s",
+                                                mask_path_for_log(item_path),
+                                            )
                                         elif os.path.isdir(item_path):
                                             shutil.rmtree(item_path)
+                                            logger.debug(
+                                                "Deleted directory: %s",
+                                                mask_path_for_log(item_path),
+                                            )
                                     except Exception as ex_inner:
-                                        logger.error(
-                                            f"Failed to delete item {mask_path_for_log(item_path)}: {ex_inner}"
+                                        logger.exception(
+                                            f"Failed to delete item {mask_path_for_log(item_path)}:"
                                         )
 
                                         raise e from ex_inner
@@ -2277,20 +2299,26 @@ class MainWindow(QWidget):
                 logger.info("Database re-initialized after cache cleaning.")
 
                 self.append_log("Resetting in-memory caches...", False)
-                reset_in_memory_caches()
+                file_parser.reset_in_memory_caches(self.osu_api_client)
 
                 self.ensure_csv_files_exist()
                 self.append_log("Cache clearing completed successfully", False)
 
             except (FileNotFoundError, PermissionError, OSError) as e:
+                logger.error("Error clearing cache: %s", e)
+
                 self.append_log(f"Error clearing cache: {e}", False)
 
                 try:
+                    logger.info("Attempting DB re-initialization after cache error")
+
                     self.append_log(
                         "Attempting DB re-initialization after cache error...", False
                     )
                     db_init()
                 except Exception as db_err:
+                    logger.exception("Failed to re-initialize DB after cache error:")
+
                     self.append_log(
                         f"Failed to re-initialize DB after cache error: {db_err}", False
                     )
@@ -2337,7 +2365,9 @@ class MainWindow(QWidget):
 
             while not self.scan_completed.is_set():
                 if time.time() - wait_start > max_wait_time:
-                    logger.error("Maximum wait time exceeded for replay scanning")
+                    logger.error(
+                        "Maximum wait time exceeded for replay scanning phase - process may be stalled or unresponsive"
+                    )
                     QtCore.QMetaObject.invokeMethod(
                         self,
                         "task_error",
@@ -2361,7 +2391,7 @@ class MainWindow(QWidget):
             while not self.top_completed.is_set():
                 if time.time() - wait_start > max_wait_time:
                     logger.error(
-                        "Maximum wait time exceeded for potential top creation"
+                        "Maximum wait time exceeded for potential top creation phase - process may be hanging or deadlocked"
                     )
                     QtCore.QMetaObject.invokeMethod(
                         self,
@@ -2384,7 +2414,9 @@ class MainWindow(QWidget):
 
             while not self.img_completed.is_set():
                 if time.time() - wait_start > max_wait_time:
-                    logger.error("Maximum wait time exceeded for image creation")
+                    logger.error(
+                        "Maximum wait time exceeded for image creation phase - API server may be unresponsive"
+                    )
                     QtCore.QMetaObject.invokeMethod(
                         self,
                         "task_error",
@@ -2401,13 +2433,14 @@ class MainWindow(QWidget):
                     QtCore.Qt.ConnectionType.QueuedConnection,
                 )
         except Exception as e:
-            logger.error(f"Sequential launch error: {e}")
+            logger.exception("Sequential launch error:")
             QtCore.QMetaObject.invokeMethod(
                 self,
                 "task_error",
                 QtCore.Qt.ConnectionType.QueuedConnection,
                 QtCore.Q_ARG(str, f"Sequential launch error: {e}"),
             )
+
         finally:
             QtCore.QMetaObject.invokeMethod(
                 self, "enable_all_button", QtCore.Qt.ConnectionType.QueuedConnection
@@ -2428,6 +2461,9 @@ class MainWindow(QWidget):
 
         self.enable_results_button()
 
+                                                
+        self.results_button.setEnabled(True)
+
         if os.path.exists(results_path) and os.path.isdir(results_path):
             self.append_log(
                 f"Opening results folder: {mask_path_for_log(results_path)}", False
@@ -2441,7 +2477,7 @@ class MainWindow(QWidget):
         QMessageBox.information(
             self,
             "Done",
-            "Analysis completed! You can find results in the 'results' folder.",
+            "Analysis completed! You can find results in the 'results' folder. Click 'See Full Results' to view detailed data.",
         )
         self.save_config()
         self.enable_all_button()
@@ -2470,6 +2506,15 @@ class MainWindow(QWidget):
             self.scan_completed.set()
             return
 
+        if not self.osu_api_client:
+            QMessageBox.warning(
+                self,
+                "Error",
+                "No API client configured. Please set up your API keys first.",
+            )
+            self.scan_completed.set()
+            return
+
         identifier, lookup_key = self._parse_user_input(user_input)
         if identifier is None:
             self.scan_completed.set()
@@ -2485,6 +2530,7 @@ class MainWindow(QWidget):
             identifier,
             lookup_key,
             include_unranked=include_unranked,
+            osu_api_client=self.osu_api_client,                   
         )
         worker.signals.progress.connect(self.update_progress_bar)
         worker.signals.log.connect(self.append_log)
@@ -2504,6 +2550,15 @@ class MainWindow(QWidget):
             self.top_completed.set()
             return
 
+        if not self.osu_api_client:
+            QMessageBox.warning(
+                self,
+                "Error",
+                "No API client configured. Please set up your API keys first.",
+            )
+            self.top_completed.set()
+            return
+
         identifier, lookup_key = self._parse_user_input(user_input)
         if identifier is None:
             self.top_completed.set()
@@ -2511,7 +2566,13 @@ class MainWindow(QWidget):
 
         self.append_log("Generating potential top...", False)
 
-        worker = Worker(make_top, game_dir, identifier, lookup_key)
+        worker = Worker(
+            make_top,
+            game_dir,
+            identifier,
+            lookup_key,
+            osu_api_client=self.osu_api_client,                   
+        )
         worker.signals.log.connect(self.append_log)
         worker.signals.progress.connect(self.update_progress_bar)
         worker.signals.finished.connect(self.top_finished)
@@ -2546,6 +2607,15 @@ class MainWindow(QWidget):
             self.img_completed.set()
             return
 
+        if not self.osu_api_client:
+            QMessageBox.warning(
+                self,
+                "Error",
+                "No API client configured. Please set up your API keys first.",
+            )
+            self.img_completed.set()
+            return
+
         self.ensure_csv_files_exist()
 
         try:
@@ -2563,9 +2633,24 @@ class MainWindow(QWidget):
 
         self.append_log("Generating images...", False)
 
-        def task(user_id_or_name, key_type, num_scores, show_lost_flag):
+        def task(
+            user_id_or_name,
+            key_type,
+            num_scores,
+            show_lost_flag,
+            osu_api_client,
+            gui_log,
+        ):
             try:
-                from osu_api import token_osu, user_osu
+                if not osu_api_client:
+                    error_msg = "No API client provided."
+                    QtCore.QMetaObject.invokeMethod(
+                        self,
+                        "img_error",
+                        QtCore.Qt.ConnectionType.QueuedConnection,
+                        QtCore.Q_ARG(str, error_msg),
+                    )
+                    return
 
                 QtCore.QMetaObject.invokeMethod(
                     self,
@@ -2579,29 +2664,10 @@ class MainWindow(QWidget):
                     self,
                     "update_task",
                     QtCore.Qt.ConnectionType.QueuedConnection,
-                    QtCore.Q_ARG(str, "Getting API token..."),
-                )
-
-                token = token_osu()
-                if not token:
-                    raise ValueError("Failed to get osu! API token!")
-
-                QtCore.QMetaObject.invokeMethod(
-                    self,
-                    "update_progress_bar",
-                    QtCore.Qt.ConnectionType.QueuedConnection,
-                    QtCore.Q_ARG(int, 70),
-                    QtCore.Q_ARG(int, 100),
-                )
-
-                QtCore.QMetaObject.invokeMethod(
-                    self,
-                    "update_task",
-                    QtCore.Qt.ConnectionType.QueuedConnection,
                     QtCore.Q_ARG(str, "Getting user data..."),
                 )
 
-                user_data = user_osu(user_id_or_name, key_type, token)
+                user_data = osu_api_client.user_osu(user_id_or_name, key_type)
                 if not user_data:
                     error_msg = f"Failed to get user data '{user_id_or_name}' (type: {key_type})."
                     QtCore.QMetaObject.invokeMethod(
@@ -2641,7 +2707,11 @@ class MainWindow(QWidget):
                 )
 
                 img_mod.make_img_lost(
-                    user_id=uid, user_name=uname, max_scores=num_scores
+                    user_id=uid,
+                    user_name=uname,
+                    max_scores=num_scores,
+                    osu_api_client=osu_api_client,
+                    gui_log=gui_log,
                 )
                 QtCore.QMetaObject.invokeMethod(
                     self,
@@ -2663,6 +2733,8 @@ class MainWindow(QWidget):
                     user_name=uname,
                     max_scores=num_scores,
                     show_lost=show_lost_flag,
+                    osu_api_client=osu_api_client,
+                    gui_log=gui_log,
                 )
                 QtCore.QMetaObject.invokeMethod(
                     self,
@@ -2687,7 +2759,14 @@ class MainWindow(QWidget):
 
         threading.Thread(
             target=task,
-            args=(identifier, lookup_key, scores_count, show_lost),
+            args=(
+                identifier,
+                lookup_key,
+                scores_count,
+                show_lost,
+                self.osu_api_client,
+                self.append_log,
+            ),
             daemon=True,
         ).start()
 
@@ -2732,6 +2811,7 @@ class MainWindow(QWidget):
                     raise IndexError("Failed to extract ID/username from URL")
 
             except IndexError:
+                logger.warning("Invalid profile URL format: %s", user_input)
                 QMessageBox.warning(self, "Error", f"Invalid profile URL: {user_input}")
                 return None, None
 
@@ -2861,13 +2941,9 @@ class MainWindow(QWidget):
         )
 
     def open_api_dialog(self):
-        from osu_api import (
-            get_keys_from_keyring,
-            save_keys_to_keyring,
-            delete_keys_from_keyring,
-        )
+        from osu_api import OsuApiClient
 
-        current_client_id, current_client_secret = get_keys_from_keyring()
+        current_client_id, current_client_secret = OsuApiClient.get_keys_from_keyring()
         keys_existed_before_dialog = bool(current_client_id and current_client_secret)
 
         dialog = ApiDialog(
@@ -2893,16 +2969,23 @@ class MainWindow(QWidget):
                     )
 
                     if reply == QMessageBox.StandardButton.Yes:
-                        if delete_keys_from_keyring():
+                        logger.info("User requested to delete API keys from keyring")
+                        if OsuApiClient.delete_keys_from_keyring():
+                            logger.info("API keys successfully deleted from keyring")
                             QMessageBox.information(
                                 self,
                                 "Success",
                                 "API keys have been removed successfully.",
                             )
+                                                              
+                            OsuApiClient.reset_instance()
+                            self.osu_api_client = None
                         else:
+                            logger.error("Failed to delete API keys from keyring")
                             QMessageBox.critical(
                                 self, "Error", "Failed to remove API keys."
                             )
+
                 else:
                     QMessageBox.warning(
                         self,
@@ -2919,15 +3002,66 @@ class MainWindow(QWidget):
                 )
                 return
 
-            if save_keys_to_keyring(client_id, client_secret):
-                QMessageBox.information(self, "Success", "API keys saved successfully!")
+            if OsuApiClient.save_keys_to_keyring(client_id, client_secret):
+                logger.info("API keys successfully saved to keyring")
+
+                from config import (
+                    CACHE_DIR,
+                    API_RATE_LIMIT,
+                    API_RETRY_COUNT,
+                    API_RETRY_DELAY,
+                )
+
+                token_cache_path = os.path.join(CACHE_DIR, "token_cache.json")
+                md5_cache_path = os.path.join(CACHE_DIR, "md5_cache.json")
+
+                try:
+                                                                                              
+                    self.osu_api_client = OsuApiClient.get_instance(
+                        client_id=client_id,
+                        client_secret=client_secret,
+                        token_cache_path=token_cache_path,
+                        md5_cache_path=md5_cache_path,
+                        api_rate_limit=API_RATE_LIMIT,
+                        api_retry_count=API_RETRY_COUNT,
+                        api_retry_delay=API_RETRY_DELAY,
+                    )
+
+                                          
+                    logger.debug("Attempting to validate API token with new credentials")
+                    token = self.osu_api_client.token_osu()
+                    if token:
+                        logger.info("API token successfully obtained with new credentials")
+
+                                                            
+                        from file_parser import file_parser
+                        file_parser.reset_in_memory_caches(self.osu_api_client)
+
+                        QMessageBox.information(
+                            self,
+                            "Success",
+                            "API keys saved and validated successfully!",
+                        )
+                        logger.info("OsuApiClient instance updated with new API keys")
+                    else:
+                        logger.warning("Failed to obtain API token with new credentials")
+                        QMessageBox.warning(
+                            self,
+                            "Warning",
+                            "API keys saved, but failed to obtain authentication token. Please check your credentials.",
+                        )
+                except Exception as e:
+                    logger.error(f"Error updating API client: {e}")
+                    QMessageBox.critical(
+                        self, "Error", f"Failed to update API client: {str(e)}"
+                    )
             else:
                 QMessageBox.critical(
                     self, "Error", "Failed to save API keys to system keyring."
                 )
 
 
-def create_gui():
+def create_gui(osu_api_client=None):
     app = QApplication.instance()
     if app is None:
         app = QApplication(sys.argv)
@@ -2950,11 +3084,11 @@ def create_gui():
     if qss:
         app.setStyleSheet(qss)
         logger.debug("QSS styles SUCCESSFULLY applied to QApplication.")
-
     else:
         logger.debug("QSS styles WERE NOT applied (content empty or loading error).")
 
-    window = MainWindow()
+                                                                                                   
+    window = MainWindow(osu_api_client)
     window.show()
     return window
 

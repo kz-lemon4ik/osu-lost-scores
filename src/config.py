@@ -20,21 +20,21 @@ if os.path.exists(dotenv_path):
 else:
     logger.error("Could not find .env file: %s", mask_path_for_log(dotenv_path))
 
-# Path configurations - fallback to standard directories if not in environment
+                                                                              
 CACHE_DIR = os.environ.get("CACHE_DIR", get_standard_dir("cache"))
 RESULTS_DIR = os.environ.get("RESULTS_DIR", get_standard_dir("results"))
 MAPS_DIR = os.environ.get("MAPS_DIR", get_standard_dir("maps"))
 CSV_DIR = os.environ.get("CSV_DIR", get_standard_dir("csv"))
 LOG_DIR = get_standard_dir("log")
 
-# Ensure these directories exist
+                                
 os.makedirs(CACHE_DIR, exist_ok=True)
 os.makedirs(RESULTS_DIR, exist_ok=True)
 os.makedirs(MAPS_DIR, exist_ok=True)
 os.makedirs(CSV_DIR, exist_ok=True)
 os.makedirs(LOG_DIR, exist_ok=True)
 
-# Database file path
+                    
 DB_FILE = os.environ.get("DB_FILE", os.path.join(CACHE_DIR, "beatmap_info.db"))
 
 cutoff_env = os.environ.get("CUTOFF_DATE", "1730114220")
@@ -56,6 +56,20 @@ except ValueError:
         thread_pool_env,
     )
     THREAD_POOL_SIZE = 16
+
+                                                   
+io_thread_pool_env = os.environ.get(
+    "IO_THREAD_POOL_SIZE", str(os.cpu_count() * 2 or 32)
+)
+try:
+    IO_THREAD_POOL_SIZE = int(io_thread_pool_env)
+except ValueError:
+    logger.warning(
+        "Could not convert IO_THREAD_POOL_SIZE '%s' to number, using default value",
+        io_thread_pool_env,
+    )
+                                                                         
+    IO_THREAD_POOL_SIZE = min(32, os.cpu_count() * 2 or 16)
 
 gui_thread_pool_env = os.environ.get("GUI_THREAD_POOL_SIZE", "24")
 try:
@@ -87,17 +101,11 @@ except ValueError:
     )
     DOWNLOAD_RETRY_COUNT = 3
 
-# Ensure paths are normalized and create directories if they don't exist
+                                                                        
 CACHE_DIR = os.path.normpath(CACHE_DIR)
 RESULTS_DIR = os.path.normpath(RESULTS_DIR)
 MAPS_DIR = os.path.normpath(MAPS_DIR)
 CSV_DIR = os.path.normpath(CSV_DIR)
-
-# Ensure these directories exist
-os.makedirs(CACHE_DIR, exist_ok=True)
-os.makedirs(RESULTS_DIR, exist_ok=True)
-os.makedirs(MAPS_DIR, exist_ok=True)
-os.makedirs(CSV_DIR, exist_ok=True)
 
 logger.info(
     "Configured paths: CACHE_DIR=%s, RESULTS_DIR=%s, MAPS_DIR=%s, CSV_DIR=%s",
@@ -107,13 +115,13 @@ logger.info(
     mask_path_for_log(CSV_DIR),
 )
 
-# Logging configuration
+                       
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
 LOG_DIR = os.environ.get("LOG_DIR", get_standard_dir("log"))
 LOG_FILE = os.path.join(LOG_DIR, "log.txt")
 API_LOG_FILE = os.path.join(LOG_DIR, "api_log.txt")
 
-# Ensure log directory exists
+                             
 os.makedirs(LOG_DIR, exist_ok=True)
 
 logger.info(
@@ -124,22 +132,22 @@ logger.info(
     mask_path_for_log(API_LOG_FILE),
 )
 
-# API configuration
+                   
 api_requests_per_minute_env = os.environ.get("API_REQUESTS_PER_MINUTE", "60")
 api_retry_count_env = os.environ.get("API_RETRY_COUNT", "3")
 api_retry_delay_env = os.environ.get("API_RETRY_DELAY", "0.5")
 
 try:
     API_REQUESTS_PER_MINUTE = int(api_requests_per_minute_env)
-    # Handle special cases
+                          
     if API_REQUESTS_PER_MINUTE <= 0:
         logger.warning(
             "API_REQUESTS_PER_MINUTE set to %d, treating as unlimited. This is dangerous!",
             API_REQUESTS_PER_MINUTE,
         )
-        API_RATE_LIMIT = 0.0  # No delay between requests - dangerous!
+        API_RATE_LIMIT = 0.0                                          
     else:
-        # Derive API_RATE_LIMIT from API_REQUESTS_PER_MINUTE
+                                                            
         API_RATE_LIMIT = 60.0 / API_REQUESTS_PER_MINUTE
 except ValueError:
     logger.warning(

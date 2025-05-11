@@ -15,8 +15,6 @@ GRADES_DIR = get_resource_path("assets/grades")
 MODS_DIR = get_resource_path("assets/mod-icons")
 
 try:
-    from PIL import ImageFont
-
     TITLE_FONT = ImageFont.truetype(os.path.join(FONTS_DIR, "Exo2-Bold.otf"), 36)
     SUBTITLE_FONT = ImageFont.truetype(os.path.join(FONTS_DIR, "Exo2-Regular.otf"), 18)
     MAP_NAME_FONT = ImageFont.truetype(os.path.join(FONTS_DIR, "Exo2-Italic.otf"), 18)
@@ -31,8 +29,8 @@ try:
     BOLD_ITALIC_FONT_SMALL = ImageFont.truetype(
         os.path.join(FONTS_DIR, "Exo2-BoldItalic.otf"), 14
     )
-except Exception as e:
-    print(f"Failed to load Exo2 fonts, using default fonts. Error: {e}")
+except Exception:
+    logger.exception("Failed to load Exo2 fonts, using default:")
     TITLE_FONT = SUBTITLE_FONT = MAP_NAME_FONT = CREATOR_SMALL_FONT = VERSION_FONT = (
         SMALL_FONT
     ) = ImageFont.load_default()
@@ -84,6 +82,7 @@ MODS_RIGHT_MARGIN = 10
 MOD_ICON_MAX_SIZE = 38
 MOD_ICON_SPACING = 5
 
+
 def create_placeholder_image(filename, username, message):
     width, height = 920, 400
     img = Image.new("RGBA", (width, height), COLOR_BG)
@@ -131,41 +130,6 @@ def create_placeholder_image(filename, username, message):
     )
 
 
-def dl_img(url, path):
-    from osu_api import session, wait_osu, retry_request
-
-    if os.path.exists(path):
-        logger.debug("Image already exists locally: %s", mask_path_for_log(path))
-        return
-
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    logger.info("GET image: %s", url)
-
-                                         
-    wait_osu()
-
-                                                                              
-    @retry_request
-    def download_image():
-        resp = session.get(url, timeout=MAP_DOWNLOAD_TIMEOUT)
-        resp.raise_for_status()
-        return resp.content
-
-    try:
-        content = download_image()
-        file_size = len(content)
-        logger.debug("Download successful: received %d bytes", file_size)
-
-        with open(path, "wb") as f:
-            f.write(content)
-
-        logger.debug("Image saved to %s", mask_path_for_log(path))
-        return True
-    except Exception as e:
-        logger.error("Failed to download image: %s: %s", url, e)
-        return False
-
-
 def short_mods(mods_str):
     mlist = [m.strip() for m in mods_str.split(",") if m.strip()]
     return [m for m in mlist if m.upper() not in {"CL", "NM"}]
@@ -201,20 +165,43 @@ def since_date(date_str):
         return f"{y_rounded} years ago"
 
 
-def download_and_draw_avatar(d, user_id, user_name, avatar_url, x, y, size):
+def download_and_draw_avatar(
+    d,
+    user_id,
+    user_name,
+    avatar_url,
+    x,
+    y,
+    size,
+    osu_api_client=None,
+    gui_log=None,
+    avatar_radius=15,
+    placeholder_color=(80, 80, 80, 255),
+):
+           
+    if not osu_api_client:
+        logger.warning("No API client provided for downloading avatar")
+        d.rounded_rectangle(
+            (x, y, x + size, y + size), radius=avatar_radius, fill=placeholder_color
+        )
+        return None, False
+
     avatar_drawn = False
     avatar_filename = f"avatar_{user_name}.png"
     avatar_path = os.path.join(AVATAR_DIR, avatar_filename)
 
     if avatar_url:
         try:
-            dl_img(avatar_url, avatar_path)
+            if gui_log:
+                gui_log(f"Downloading avatar for user {user_name}", update_last=True)
+            osu_api_client.download_image(avatar_url, avatar_path, MAP_DOWNLOAD_TIMEOUT)
+
             avatar_img_raw = (
                 Image.open(avatar_path).convert("RGBA").resize((size, size))
             )
             av_mask = Image.new("L", (size, size), 0)
             ImageDraw.Draw(av_mask).rounded_rectangle(
-                (0, 0, size, size), radius=15, fill=255
+                (0, 0, size, size), radius=avatar_radius, fill=255
             )
             avatar_img_raw.putalpha(av_mask)
             return avatar_img_raw, True
@@ -229,66 +216,105 @@ def download_and_draw_avatar(d, user_id, user_name, avatar_url, x, y, size):
 
                                                        
     logger.warning(f"Using placeholder for avatar user_id {user_id}.")
-    d.rounded_rectangle((x, y, x + size, y + size), radius=15, fill=(80, 80, 80, 255))
+    d.rounded_rectangle(
+        (x, y, x + size, y + size), radius=avatar_radius, fill=placeholder_color
+    )
     return None, False
 
 
-def get_beatmap_metadata(beatmap_id, beatmap_full_name, token, metadata_cache=None):
-    from osu_api import map_osu
+def get_beatmap_metadata(
+    beatmap_id, beatmap_full_name, metadata_cache=None, osu_api_client=None
+):
+           
+    try:
+        if not osu_api_client:
+            raise ValueError("API client not provided")
 
-    if metadata_cache is None:
-        metadata_cache = {}
+        if metadata_cache is None:
+            metadata_cache = {}
 
-                                                               
-    if beatmap_id in metadata_cache:
-        return metadata_cache[beatmap_id]
-
-    raw_artist = ""
-    raw_title = ""
-    creator = ""
-    version = ""
-    cover_url = None
-
-                                           
-    if beatmap_full_name:
-        try:
-            pattern = r"(.+) - (.+) \((.+)\) \[(.+)\]"
-            match = re.match(pattern, beatmap_full_name)
-            if match:
-                raw_artist, raw_title, creator, version = match.groups()
-        except Exception:
-            logger.warning(f"Failed to parse beatmap name: {beatmap_full_name}")
-
-                              
-    if (
-        not all([raw_artist, raw_title, creator, version])
-        and beatmap_id
-        and beatmap_id.isdigit()
-    ):
-        try:
-            db_info = db_get(beatmap_id)
-            if db_info:
-                raw_artist = db_info.get("artist", raw_artist) or raw_artist
-                raw_title = db_info.get("title", raw_title) or raw_title
-                creator = db_info.get("creator", creator) or creator
-                version = db_info.get("version", version) or version
-        except Exception as db_err:
-            logger.warning(f"Error getting map data from DB {beatmap_id}: {db_err}")
-
-                         
-    if beatmap_id and beatmap_id.isdigit():
+                                                                   
         if beatmap_id in metadata_cache:
-            data = metadata_cache[beatmap_id]
-            raw_artist = data.get("artist", raw_artist) or raw_artist
-            raw_title = data.get("title", raw_title) or raw_title
-            creator = data.get("creator", creator) or creator
-            version = data.get("version", version) or version
-            cover_url = data.get("cover_url")
-        else:
+            return metadata_cache[beatmap_id]
+
+        raw_artist = ""
+        raw_title = ""
+        creator = ""
+        version = ""
+        cover_url = None
+
+                                               
+        if beatmap_full_name:
             try:
-                if not all([raw_artist, raw_title, creator, version]) or not cover_url:
+                pattern = r"(.+) - (.+) \((.+)\) \[(.+)\]"
+                match = re.match(pattern, beatmap_full_name)
+                if match:
+                    raw_artist, raw_title, creator, version = match.groups()
+                                                                                                            
+                    if all([raw_artist, raw_title, creator, version]):
+                                                                                   
+                        if beatmap_id and beatmap_id.isdigit():
+                            cover_file = os.path.join(
+                                COVER_DIR, f"cover_{beatmap_id}.png"
+                            )
+                            if os.path.exists(cover_file):
+                                                                                               
+                                cover_url = "local"
+            except Exception as e:
+                logger.warning(
+                    f"Failed to parse beatmap name '{beatmap_full_name}': {e}"
+                )
+
+                                  
+        if (
+            not all([raw_artist, raw_title, creator, version])
+            and beatmap_id
+            and beatmap_id.isdigit()
+        ):
+            try:
+                db_info = db_get(beatmap_id)
+                if db_info:
+                    raw_artist = db_info.get("artist", raw_artist) or raw_artist
+                    raw_title = db_info.get("title", raw_title) or raw_title
+                    creator = db_info.get("creator", creator) or creator
+                    version = db_info.get("version", version) or version
+            except Exception as e:
+                logger.warning(
+                    f"Error getting map data from DB for ID {beatmap_id}: {e}"
+                )
+
+                                                                                                     
+        if all([raw_artist, raw_title, creator, version]) and (
+            cover_url
+            or (
+                beatmap_id
+                and beatmap_id.isdigit()
+                and os.path.exists(os.path.join(COVER_DIR, f"cover_{beatmap_id}.png"))
+            )
+        ):
+            result = {
+                "artist": raw_artist,
+                "title": raw_title,
+                "creator": creator,
+                "version": version,
+                "cover_url": cover_url or "local",
+            }
+            metadata_cache[beatmap_id] = result
+            return result
+
+                             
+        if beatmap_id and beatmap_id.isdigit():
+            if beatmap_id in metadata_cache:
+                data = metadata_cache[beatmap_id]
+                raw_artist = data.get("artist", raw_artist) or raw_artist
+                raw_title = data.get("title", raw_title) or raw_title
+                creator = data.get("creator", creator) or creator
+                version = data.get("version", version) or version
+                cover_url = data.get("cover_url")
+            else:
+                try:
                     logger.debug("Getting beatmap data for ID %s", beatmap_id)
-                    bdata = map_osu(beatmap_id, token)
+                    bdata = osu_api_client.map_osu(beatmap_id)
                     if bdata:
                         raw_artist = bdata.get("artist") or raw_artist
                         raw_title = bdata.get("title") or raw_title
@@ -316,11 +342,12 @@ def get_beatmap_metadata(beatmap_id, beatmap_full_name, token, metadata_cache=No
                         logger.debug("Added beatmap %s to metadata cache", beatmap_id)
 
                         return result
-
-            except Exception as map_err:
-                logger.warning(
-                    "Error getting map data %s from API: %s", beatmap_id, map_err
-                )
+                except Exception as e:
+                    logger.warning(
+                        "Error getting map data for ID %s from API: %s", beatmap_id, e
+                    )
+    except Exception as e:
+        logger.error(f"Error in get_beatmap_metadata for ID {beatmap_id}: {e}")
 
                                                       
     result = {
@@ -330,11 +357,19 @@ def get_beatmap_metadata(beatmap_id, beatmap_full_name, token, metadata_cache=No
         "version": version,
         "cover_url": cover_url,
     }
-    metadata_cache[beatmap_id] = result
+    if beatmap_id:
+        metadata_cache[beatmap_id] = result
     return result
 
 
-def get_and_draw_cover(beatmap_id, cover_url, width, height):
+def get_and_draw_cover(
+    beatmap_id, cover_url, width, height, osu_api_client=None, gui_log=None
+):
+    if not osu_api_client:
+        logger.warning("No API client provided for downloading cover")
+        c_img = Image.new("RGBA", (width, height), (80, 80, 80, 255))
+        return c_img
+
     cover_file = None
     if beatmap_id and beatmap_id.isdigit():
         cover_file = os.path.join(COVER_DIR, f"cover_{beatmap_id}.png")
@@ -354,7 +389,18 @@ def get_and_draw_cover(beatmap_id, cover_url, width, height):
                            
     elif cover_url and beatmap_id:
         try:
-            dl_img(cover_url, cover_file)
+                                                                                                           
+            if cover_url != "local" and osu_api_client:
+                if gui_log:
+                    gui_log(
+                        f"Downloading cover for beatmap {beatmap_id}", update_last=True
+                    )
+                osu_api_client.download_image(
+                    cover_url, cover_file, MAP_DOWNLOAD_TIMEOUT
+                )
+            else:
+                logger.debug(f"Using existing cover for beatmap {beatmap_id}")
+
             if os.path.exists(cover_file):
                 c_img = Image.open(cover_file).convert("RGBA").resize((width, height))
         except Exception as dl_err:
@@ -368,8 +414,20 @@ def get_and_draw_cover(beatmap_id, cover_url, width, height):
     return c_img
 
 
-def _prepare_card_background(card_w, card_h, is_lost_row, show_weights, beatmap_id, cover_url):
+def _prepare_card_background(
+    card_w,
+    card_h,
+    is_lost_row,
+    show_weights,
+    beatmap_id,
+    cover_url,
+    osu_api_client=None,
+    gui_log=None,
+):
                                                                
+    if not osu_api_client:
+        raise ValueError("API client not provided")
+
                                                 
     bg_color = COLOR_CARD_LOST if show_weights and is_lost_row else COLOR_CARD
     bg_img = Image.new("RGBA", (card_w, card_h), bg_color)
@@ -377,7 +435,9 @@ def _prepare_card_background(card_w, card_h, is_lost_row, show_weights, beatmap_
                                          
     cover_w = card_w // 3
     cover_h = card_h
-    c_img = get_and_draw_cover(beatmap_id, cover_url, cover_w, cover_h)
+    c_img = get_and_draw_cover(
+        beatmap_id, cover_url, cover_w, cover_h, osu_api_client, gui_log=gui_log
+    )
 
                                 
     fade_mask = Image.new("L", (cover_w, cover_h), 255)
@@ -416,7 +476,17 @@ def _draw_grade_icon(base, d_card, grade, card_x, center_line):
     return False
 
 
-def _draw_beatmap_info(d_card, raw_title, raw_artist, creator, version, date_str, text_x, text_y_map, card_y):
+def _draw_beatmap_info(
+    d_card,
+    raw_title,
+    raw_artist,
+    creator,
+    version,
+    date_str,
+    text_x,
+    text_y_map,
+    card_y,
+):
                                                       
                        
     full_name = short_txt(f"{raw_title} by {raw_artist}", 50)
@@ -497,18 +567,22 @@ def _draw_pp_section(d_card, row, card_x, card_y, card_w, card_h, center_line):
 
 
 def draw_score_card(
-        base,
-        d_card,
-        row,
-        card_x,
-        card_y,
-        card_w,
-        card_h,
-        is_lost_row=False,
-        show_weights=False,
-        token=None,
-        metadata_cache=None,
+    base,
+    d_card,
+    row,
+    card_x,
+    card_y,
+    card_w,
+    card_h,
+    is_lost_row=False,
+    show_weights=False,
+    metadata_cache=None,
+    osu_api_client=None,
+    gui_log=None,
 ):
+    if not osu_api_client:
+        raise ValueError("API client not provided")
+
     center_line = card_y + card_h // 2
 
                       
@@ -518,7 +592,10 @@ def draw_score_card(
                                        
     if metadata_cache is None:
         metadata_cache = {}
-    metadata = get_beatmap_metadata(beatmap_id, beatmap_full_name, token, metadata_cache)
+    metadata = get_beatmap_metadata(
+        beatmap_id, beatmap_full_name, metadata_cache, osu_api_client
+    )
+
     raw_artist = metadata["artist"]
     raw_title = metadata["title"]
     creator = metadata["creator"]
@@ -526,12 +603,23 @@ def draw_score_card(
     cover_url = metadata["cover_url"]
 
                                         
-    bg_img = _prepare_card_background(card_w, card_h, is_lost_row, show_weights, beatmap_id, cover_url)
+    bg_img = _prepare_card_background(
+        card_w,
+        card_h,
+        is_lost_row,
+        show_weights,
+        beatmap_id,
+        cover_url,
+        osu_api_client,
+        gui_log,
+    )
 
                                                    
     corner_mask = Image.new("L", (card_w, card_h), 0)
     dr_corner = ImageDraw.Draw(corner_mask)
-    dr_corner.rounded_rectangle((0, 0, card_w, card_h), radius=CARD_CORNER_RADIUS, fill=255)
+    dr_corner.rounded_rectangle(
+        (0, 0, card_w, card_h), radius=CARD_CORNER_RADIUS, fill=255
+    )
     base.paste(bg_img, (card_x, card_y), corner_mask)
 
                      
@@ -542,10 +630,22 @@ def draw_score_card(
     text_x = card_x + 70
     text_y_map = card_y + 4
     date_str = row.get("Date", "")
-    _draw_beatmap_info(d_card, raw_title, raw_artist, creator, version, date_str, text_x, text_y_map, card_y)
+    _draw_beatmap_info(
+        d_card,
+        raw_title,
+        raw_artist,
+        creator,
+        version,
+        date_str,
+        text_x,
+        text_y_map,
+        card_y,
+    )
 
                      
-    shape_left = _draw_pp_section(d_card, row, card_x, card_y, card_w, card_h, center_line)
+    shape_left = _draw_pp_section(
+        d_card, row, card_x, card_y, card_w, card_h, center_line
+    )
     right_block_x = shape_left - 20
 
                                         
@@ -558,12 +658,14 @@ def draw_score_card(
                                                         
         draw_weighted_info(d_card, base, row, shape_left, center_line)
 
+
 def _format_accuracy_text(accuracy_value):
                                                                       
     try:
         return f"{float(accuracy_value):.2f}%"
     except ValueError:
         return f"{accuracy_value}%" if accuracy_value else "?.??%"
+
 
 def draw_accuracy_and_mods_lost(
     d_card, base, row, right_block_x, center_line, shape_left
@@ -606,6 +708,7 @@ def draw_accuracy_and_mods_lost(
 
                
     draw_mods(d_card, base, row, mods_edge, center_line)
+
 
 def draw_weighted_info(d_card, base, row, shape_left, center_line):
                       
@@ -697,6 +800,7 @@ def draw_weighted_info(d_card, base, row, shape_left, center_line):
     mods_right_edge = acc_block_x - ACCURACY_COLUMN_WIDTH / 2 - MODS_RIGHT_MARGIN
     draw_mods(d_card, base, row, mods_right_edge, center_line)
 
+
 def draw_mods(d_card, base, row, mods_right_edge, center_line):
                                                  
     mods_list = short_mods(row.get("Mods", ""))
@@ -753,6 +857,7 @@ def draw_header(
     baseline_y,
     title_h,
     extra_shift=0,
+    osu_api_client=None,
 ):
     d.text((margin, baseline_y), title, font=TITLE_FONT, fill=COLOR_WHITE)
     try:
@@ -780,6 +885,7 @@ def draw_header(
         x=av_x,
         y=av_y,
         size=av_size,
+        osu_api_client=osu_api_client,
     )
 
     if avatar_img and avatar_drawn:
@@ -820,22 +926,24 @@ def parse_sum(csv_path):
     return summary
 
 
-def _prepare_image_data(user_id, user_name, mode, max_scores):
+def _prepare_image_data(user_id, user_name, mode, max_scores, osu_api_client=None):
                                                          
-    from osu_api import token_osu, user_osu
-
-    token = token_osu()
-    user_data_json = None
-
                                           
     max_scores = max(1, min(100, max_scores))
 
                                            
+    user_data_json = None
     if user_id:
         try:
-            user_data_json = user_osu(str(user_id), "id", token)
-        except Exception as api_err:
-            logger.error(f"Error getting user data {user_id} for make_img: {api_err}")
+            user_data_json = osu_api_client.user_osu(str(user_id), "id")
+            if not user_data_json:
+                logger.warning(
+                    "User data not found for user_id %s (or user_name %s), image header might be incomplete.",
+                    user_id,
+                    user_name,
+                )
+        except Exception:
+            logger.exception(f"Error getting user data {user_id} for make_img:")
 
                                              
     if mode == "lost":
@@ -857,38 +965,51 @@ def _prepare_image_data(user_id, user_name, mode, max_scores):
             all_rows = list(csv.DictReader(f))
     except FileNotFoundError:
         logger.error(f"CSV file not found: {mask_path_for_log(csv_path)}")
+        error_msg = (
+            f"CSV file not found: {os.path.basename(mask_path_for_log(csv_path))}"
+        )
+        logger.error(
+            "Error: %s, creating placeholder image for user %s", error_msg, user_name
+        )
         create_placeholder_image(
             os.path.basename(out_path),
             user_name,
-            f"CSV file not found: {os.path.basename(mask_path_for_log(csv_path))}"
+            error_msg,
         )
         return None
     except Exception as csv_err:
-        logger.error(f"Error reading CSV file {mask_path_for_log(csv_path)}: {csv_err}")
+        logger.exception(f"Error reading CSV file {mask_path_for_log(csv_path)}:")
+        error_msg = f"Error reading CSV file: {str(csv_err)}"
+        logger.error(
+            "Error: %s, creating placeholder image for user %s", error_msg, user_name
+        )
         create_placeholder_image(
             os.path.basename(out_path),
             user_name,
-            f"Error reading CSV file: {str(csv_err)}"
+            error_msg,
         )
         return None
 
                            
     if not all_rows:
-        logger.info(f"No data in CSV file {mask_path_for_log(csv_path)} for image creation")
-        create_placeholder_image(
-            os.path.basename(out_path),
-            user_name,
-            f"No data to display in {mode} mode"
+        logger.warning(
+            f"No data in CSV file {mask_path_for_log(csv_path)} for image creation"
         )
+        error_msg = f"No data to display in {mode} mode"
+        logger.error(
+            "Error: %s, creating placeholder image for user %s", error_msg, user_name
+        )
+        create_placeholder_image(os.path.basename(out_path), user_name, error_msg)
         return None
 
                                                
-    total_rows_count = max(0, len(all_rows) - 5) if show_weights else max(0, len(all_rows))
+    total_rows_count = (
+        max(0, len(all_rows) - 5) if show_weights else max(0, len(all_rows))
+    )
     rows = all_rows[:max_scores]
 
                                                 
     return {
-        "token": token,
         "user_data_json": user_data_json,
         "csv_path": csv_path,
         "out_path": out_path,
@@ -897,7 +1018,7 @@ def _prepare_image_data(user_id, user_name, mode, max_scores):
         "total_rows_count": total_rows_count,
         "rows": rows,
         "baseline_offset": baseline_offset,
-        "mode": mode
+        "mode": mode,
     }
 
 
@@ -950,8 +1071,12 @@ def _process_user_statistics(user_data_json, show_weights, csv_path):
             pass
 
                                
-        pot_acc_str_raw = top_summary.get("Overall Accuracy", "0%").replace("%", "").strip()
-        delta_acc_str_raw = top_summary.get("Δ Overall Accuracy", "0%").replace("%", "").strip()
+        pot_acc_str_raw = (
+            top_summary.get("Overall Accuracy", "0%").replace("%", "").strip()
+        )
+        delta_acc_str_raw = (
+            top_summary.get("Δ Overall Accuracy", "0%").replace("%", "").strip()
+        )
         try:
             pot_acc_f = float(pot_acc_str_raw)
             stats["pot_acc_str"] = f"{pot_acc_f:.2f}%"
@@ -996,13 +1121,7 @@ def _setup_canvas_and_dimensions(rows, mode, total_rows_count):
 
     logger.info(f"Displaying {len(rows)}/{total_rows_count} scores in {mode} mode")
 
-    return {
-        "base": base,
-        "d": d,
-        "width": width,
-        "card_w": card_w,
-        "start_y": start_y
-    }
+    return {"base": base, "d": d, "width": width, "card_w": card_w, "start_y": start_y}
 
 
 def _draw_stats_section(d, stats, title_right_x, baseline_y):
@@ -1024,28 +1143,68 @@ def _draw_stats_section(d, stats, title_right_x, baseline_y):
 
                             
     draw_col("Cur PP:", stats["cur_pp_val"], stats_start_x, row1_y, COLOR_WHITE)
-    draw_col("Cur Acc:", stats["cur_acc_str"], stats_start_x + col_w, row1_y, COLOR_WHITE)
-    draw_col("Δ PP:", stats["new_diff_pp"], stats_start_x + 2 * col_w, row1_y, stats["diff_color"])
+    draw_col(
+        "Cur Acc:", stats["cur_acc_str"], stats_start_x + col_w, row1_y, COLOR_WHITE
+    )
+    draw_col(
+        "Δ PP:",
+        stats["new_diff_pp"],
+        stats_start_x + 2 * col_w,
+        row1_y,
+        stats["diff_color"],
+    )
     draw_col("Pot PP:", stats["pot_pp_val"], stats_start_x, row2_y, COLOR_WHITE)
-    draw_col("Pot Acc:", stats["pot_acc_str"], stats_start_x + col_w, row2_y, COLOR_WHITE)
-    draw_col("Δ Acc:", stats["acc_diff_str"], stats_start_x + 2 * col_w, row2_y, stats["acc_diff_color"])
+    draw_col(
+        "Pot Acc:", stats["pot_acc_str"], stats_start_x + col_w, row2_y, COLOR_WHITE
+    )
+    draw_col(
+        "Δ Acc:",
+        stats["acc_diff_str"],
+        stats_start_x + 2 * col_w,
+        row2_y,
+        stats["acc_diff_color"],
+    )
 
 
-def make_img(user_id, user_name, mode="lost", max_scores=20):
+def make_img(
+    user_id, user_name, mode="lost", max_scores=20, osu_api_client=None, gui_log=None
+):
+    logger.debug(
+        "make_img called with: user_id=%s, user_name=%s, mode=%s, max_scores=%s",
+        user_id,
+        user_name,
+        mode,
+        max_scores,
+    )
+
     if user_id is None or not user_name:
         max_scores = max(1, min(100, max_scores))
+        logger.error("Invalid parameters: Need user_id and user_name")
         raise ValueError("Need user_id and user_name")
 
+    if not osu_api_client:
+        logger.error("Invalid parameters: API client not provided")
+        raise ValueError("API client not provided")
+
                                        
-    data = _prepare_image_data(user_id, user_name, mode, max_scores)
+    data = _prepare_image_data(user_id, user_name, mode, max_scores, osu_api_client)
     if data is None:
+        logger.warning(
+            "Image data preparation failed for user %s (%s), cannot generate image",
+            user_name,
+            user_id,
+        )
         return
 
                              
-    stats = _process_user_statistics(data["user_data_json"], data["show_weights"], data["csv_path"])
+    stats = _process_user_statistics(
+        data["user_data_json"], data["show_weights"], data["csv_path"]
+    )
 
                                  
-    canvas_info = _setup_canvas_and_dimensions(data["rows"], data["mode"], data["total_rows_count"])
+    canvas_info = _setup_canvas_and_dimensions(
+        data["rows"], data["mode"], data["total_rows_count"]
+    )
     base = canvas_info["base"]
     d = canvas_info["d"]
 
@@ -1067,6 +1226,7 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
         baseline_y,
         title_h=40,
         extra_shift=extra_shift,
+        osu_api_client=osu_api_client,
     )
 
                                            
@@ -1096,12 +1256,16 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
             CARD_HEIGHT,
             is_lost_row=is_lost_row,
             show_weights=data["show_weights"],
-            token=data["token"],
-            metadata_cache=metadata_cache,                                   
+            metadata_cache=metadata_cache,
+            osu_api_client=osu_api_client,
         )
 
                                 
-    last_bottom = canvas_info["start_y"] + len(data["rows"]) * (CARD_HEIGHT + CARD_SPACING) - CARD_SPACING
+    last_bottom = (
+        canvas_info["start_y"]
+        + len(data["rows"]) * (CARD_HEIGHT + CARD_SPACING)
+        - CARD_SPACING
+    )
     final_height = last_bottom + DEFAULT_MARGIN
 
     if final_height < base.height:
@@ -1109,7 +1273,9 @@ def make_img(user_id, user_name, mode="lost", max_scores=20):
 
                     
     base.save(data["out_path"])
-    logger.info("Image saved to %s", mask_path_for_log(os.path.normpath(data["out_path"])))
+    logger.info(
+        "Image saved to %s", mask_path_for_log(os.path.normpath(data["out_path"]))
+    )
 
 
 def _adjust_max_scores_for_lost_score(max_scores, show_lost):
@@ -1148,10 +1314,57 @@ def _adjust_max_scores_for_lost_score(max_scores, show_lost):
         return max_scores
 
 
-def make_img_lost(user_id=None, user_name="", max_scores=20):
-    make_img(user_id=user_id, user_name=user_name, mode="lost", max_scores=max_scores)
+def make_img_lost(
+    user_id=None, user_name="", max_scores=20, osu_api_client=None, gui_log=None
+):
+    logger.debug(
+        "make_img_lost called with: user_id=%s, user_name=%s, max_scores=%s",
+        user_id,
+        user_name,
+        max_scores,
+    )
+
+    if not osu_api_client:
+        logger.error("Invalid parameters: API client not provided")
+        raise ValueError("API client not provided")
+
+    make_img(
+        user_id=user_id,
+        user_name=user_name,
+        mode="lost",
+        max_scores=max_scores,
+        osu_api_client=osu_api_client,
+        gui_log=gui_log,
+    )
 
 
-def make_img_top(user_id=None, user_name="", max_scores=20, show_lost=False):
+def make_img_top(
+    user_id=None,
+    user_name="",
+    max_scores=20,
+    show_lost=False,
+    osu_api_client=None,
+    gui_log=None,
+):
+    logger.debug(
+        "make_img_top called with: user_id=%s, user_name=%s, max_scores=%s, show_lost=%s",
+        user_id,
+        user_name,
+        max_scores,
+        show_lost,
+    )
+
+    if not osu_api_client:
+        logger.error("Invalid parameters: API client not provided")
+        raise ValueError("API client not provided")
+
     adjusted_max_scores = _adjust_max_scores_for_lost_score(max_scores, show_lost)
-    make_img(user_id=user_id, user_name=user_name, mode="top", max_scores=adjusted_max_scores)
+
+    make_img(
+        user_id=user_id,
+        user_name=user_name,
+        mode="top",
+        max_scores=adjusted_max_scores,
+        osu_api_client=osu_api_client,
+        gui_log=gui_log,
+    )

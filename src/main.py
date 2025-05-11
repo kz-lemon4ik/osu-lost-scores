@@ -3,13 +3,24 @@ import os
 import sys
 
 from database import db_init, db_close
-from utils import mask_path_for_log
-from config import LOG_LEVEL, LOG_FILE, LOG_DIR, API_LOG_FILE
+from utils import mask_path_for_log, ensure_app_dirs_exist, get_env_path
+from config import (
+    LOG_LEVEL,
+    LOG_FILE,
+    LOG_DIR,
+    API_LOG_FILE,
+    CACHE_DIR,
+    RESULTS_DIR,
+    MAPS_DIR,
+    CSV_DIR,
+    API_RATE_LIMIT,
+    API_RETRY_COUNT,
+    API_RETRY_DELAY,
+)
 
 from PySide6.QtWidgets import QApplication
-from gui import create_gui
-
-from utils import get_env_path
+from gui import create_gui, show_api_limit_warning
+from osu_api import OsuApiClient
 
 env_path = get_env_path()
 os.environ["DOTENV_PATH"] = env_path
@@ -27,18 +38,18 @@ log_level_map = {
 }
 numeric_level = log_level_map.get(LOG_LEVEL.upper(), logging.INFO)
 
-# Ensure log directory exists
+                             
 os.makedirs(LOG_DIR, exist_ok=True)
 
-# Настройка корневого логгера
+                             
 root_logger = logging.getLogger()
 root_logger.setLevel(numeric_level)
 
-# Очистка существующих обработчиков
+                                   
 for handler in root_logger.handlers[:]:
     root_logger.removeHandler(handler)
 
-# Настройка основного файлового логгера
+                                       
 try:
     file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8", mode="w")
     file_handler.setFormatter(log_formatter)
@@ -46,22 +57,32 @@ try:
 except Exception as e:
     print(f"Failed to configure logging to file {LOG_FILE}: {e}")
 
-# Настройка консольного логгера
+                               
 console_handler = logging.StreamHandler()
 console_handler.setFormatter(log_formatter)
 root_logger.addHandler(console_handler)
 
-# Настройка API логгера для osu_api модуля
+                                          
 api_logger = logging.getLogger("osu_api")
-api_logger.setLevel(logging.DEBUG)
+api_logger.setLevel(logging.DEBUG)                                                    
+api_logger.propagate = (
+    False                                                                   
+)
 
-# Создаем отдельный файловый обработчик для API логов
+                                                     
 try:
     api_file_handler = logging.FileHandler(API_LOG_FILE, encoding="utf-8", mode="w")
     api_file_handler.setFormatter(log_formatter)
     api_logger.addHandler(api_file_handler)
 except Exception as e:
     print(f"Failed to configure API logging to file {API_LOG_FILE}: {e}")
+                                                                                                        
+    logging.error(
+        f"API log handler setup failed, API logs will go to console/main log: {e}"
+    )
+    api_logger.propagate = (
+        True                                                                          
+    )
 
 logging.info(
     "Logging configured. Main log: %s, API log: %s",
@@ -70,48 +91,38 @@ logging.info(
 )
 logging.info("Path to .env file: %s", mask_path_for_log(os.path.normpath(env_path)))
 
-try:
-    api_file_handler = logging.FileHandler(API_LOG_FILE, encoding="utf-8", mode="w")
-    api_file_handler.setFormatter(log_formatter)
-    api_logger.addHandler(api_file_handler)
-except Exception as e:
-    print(f"Failed to configure API logging to file {API_LOG_FILE}: {e}")
-    # Если не удалось создать файл логов API, добавляем сообщения к основному логгеру
-    api_logger.propagate = True
-
-logging.info(
-    "Logging configured. Main log: %s, API log: %s",
-    mask_path_for_log(os.path.normpath(LOG_FILE)),
-    mask_path_for_log(os.path.normpath(API_LOG_FILE)),
-)
-logging.info("Path to .env file: %s", mask_path_for_log(os.path.normpath(env_path)))
+                                       
+osu_api_client = None
 
 
 def setup_api():
     try:
-        from osu_api import get_keys_from_keyring
+        token_cache_path = os.path.join(CACHE_DIR, "token_cache.json")
+        md5_cache_path = os.path.join(CACHE_DIR, "md5_cache.json")
 
-        client_id, client_secret = get_keys_from_keyring()
-        if not client_id or not client_secret:
-            logging.warning(
-                "API keys not configured. Will prompt to enter them through the interface."
-            )
-            return True
+                                                      
+        api_client = OsuApiClient.get_instance(
+            token_cache_path=token_cache_path,
+            md5_cache_path=md5_cache_path,
+            api_rate_limit=API_RATE_LIMIT,
+            api_retry_count=API_RETRY_COUNT,
+            api_retry_delay=API_RETRY_DELAY,
+        )
 
-        return True
+        if api_client:
+            logging.info("OsuApiClient instance created successfully in setup_api.")
+        else:
+            logging.warning("Failed to create OsuApiClient instance - no API keys found.")
+
+        return api_client
     except Exception as e:
-        logging.exception(f"Error setting up API: {e}")
-        return True
+        logging.exception(f"Error setting up API client in setup_api: {e}")
+        return None
 
 
 def ensure_directories_exist():
-    from utils import ensure_app_dirs_exist
-
-    # Create standard app directories
+                                     
     ensure_app_dirs_exist()
-
-    # Also ensure config directories from environment variables exist
-    from config import CACHE_DIR, RESULTS_DIR, MAPS_DIR, CSV_DIR
 
     dirs = [CACHE_DIR, RESULTS_DIR, MAPS_DIR, CSV_DIR]
     for dir_path in dirs:
@@ -136,16 +147,13 @@ def main():
 
     app = QApplication(sys.argv)
 
-    if not setup_api():
-        db_close()
-        return 1
+    osu_api_client = setup_api()
 
-    # После создания QApplication теперь безопасно показывать предупреждения
-    from gui import show_api_limit_warning
-
+                                                                    
     show_api_limit_warning()
 
-    window = create_gui()
+                                                             
+    window = create_gui(osu_api_client)
     exit_code = app.exec()
 
     db_close()
