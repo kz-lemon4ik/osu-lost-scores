@@ -1,6 +1,8 @@
-import os
 import logging
+import os
+
 from dotenv import load_dotenv
+
 from utils import get_env_path, get_standard_dir, mask_path_for_log
 
 logger = logging.getLogger(__name__)
@@ -20,21 +22,18 @@ if os.path.exists(dotenv_path):
 else:
     logger.error("Could not find .env file: %s", mask_path_for_log(dotenv_path))
 
-                                                                              
 CACHE_DIR = os.environ.get("CACHE_DIR", get_standard_dir("cache"))
 RESULTS_DIR = os.environ.get("RESULTS_DIR", get_standard_dir("results"))
 MAPS_DIR = os.environ.get("MAPS_DIR", get_standard_dir("maps"))
 CSV_DIR = os.environ.get("CSV_DIR", get_standard_dir("csv"))
 LOG_DIR = get_standard_dir("log")
 
-                                
 os.makedirs(CACHE_DIR, exist_ok=True)
 os.makedirs(RESULTS_DIR, exist_ok=True)
 os.makedirs(MAPS_DIR, exist_ok=True)
 os.makedirs(CSV_DIR, exist_ok=True)
 os.makedirs(LOG_DIR, exist_ok=True)
 
-                    
 DB_FILE = os.environ.get("DB_FILE", os.path.join(CACHE_DIR, "beatmap_info.db"))
 
 cutoff_env = os.environ.get("CUTOFF_DATE", "1730114220")
@@ -57,7 +56,6 @@ except ValueError:
     )
     THREAD_POOL_SIZE = 16
 
-                                                   
 io_thread_pool_env = os.environ.get(
     "IO_THREAD_POOL_SIZE", str(os.cpu_count() * 2 or 32)
 )
@@ -68,7 +66,7 @@ except ValueError:
         "Could not convert IO_THREAD_POOL_SIZE '%s' to number, using default value",
         io_thread_pool_env,
     )
-                                                                         
+
     IO_THREAD_POOL_SIZE = min(32, os.cpu_count() * 2 or 16)
 
 gui_thread_pool_env = os.environ.get("GUI_THREAD_POOL_SIZE", "24")
@@ -101,7 +99,9 @@ except ValueError:
     )
     DOWNLOAD_RETRY_COUNT = 3
 
-                                                                        
+check_missing_ids_env = os.environ.get("CHECK_MISSING_BEATMAP_IDS", "False").lower()
+CHECK_MISSING_BEATMAP_IDS = check_missing_ids_env in ("true", "1", "yes")
+
 CACHE_DIR = os.path.normpath(CACHE_DIR)
 RESULTS_DIR = os.path.normpath(RESULTS_DIR)
 MAPS_DIR = os.path.normpath(MAPS_DIR)
@@ -115,13 +115,11 @@ logger.info(
     mask_path_for_log(CSV_DIR),
 )
 
-                       
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
 LOG_DIR = os.environ.get("LOG_DIR", get_standard_dir("log"))
 LOG_FILE = os.path.join(LOG_DIR, "log.txt")
 API_LOG_FILE = os.path.join(LOG_DIR, "api_log.txt")
 
-                             
 os.makedirs(LOG_DIR, exist_ok=True)
 
 logger.info(
@@ -132,22 +130,20 @@ logger.info(
     mask_path_for_log(API_LOG_FILE),
 )
 
-                   
 api_requests_per_minute_env = os.environ.get("API_REQUESTS_PER_MINUTE", "60")
 api_retry_count_env = os.environ.get("API_RETRY_COUNT", "3")
 api_retry_delay_env = os.environ.get("API_RETRY_DELAY", "0.5")
 
 try:
     API_REQUESTS_PER_MINUTE = int(api_requests_per_minute_env)
-                          
+
     if API_REQUESTS_PER_MINUTE <= 0:
         logger.warning(
             "API_REQUESTS_PER_MINUTE set to %d, treating as unlimited. This is dangerous!",
             API_REQUESTS_PER_MINUTE,
         )
-        API_RATE_LIMIT = 0.0                                          
+        API_RATE_LIMIT = 0.0
     else:
-                                                            
         API_RATE_LIMIT = 60.0 / API_REQUESTS_PER_MINUTE
 except ValueError:
     logger.warning(
@@ -175,9 +171,17 @@ except ValueError:
     )
     API_RETRY_DELAY = 0.5
 
+OSU_API_LOG_LEVEL = os.environ.get("OSU_API_LOG_LEVEL", "INFO")
+
 logger.info(
-    "Configured API settings: API_REQUESTS_PER_MINUTE=%d, API_RETRY_COUNT=%s, API_RETRY_DELAY=%s",
+    "Configured API settings: API_REQUESTS_PER_MINUTE=%d, API_RETRY_COUNT=%s, API_RETRY_DELAY=%s, OSU_API_LOG_LEVEL=%s",
     API_REQUESTS_PER_MINUTE,
     API_RETRY_COUNT,
     API_RETRY_DELAY,
+    OSU_API_LOG_LEVEL,
 )
+
+
+                                      
+REPLAY_ISSUES_LOG_FILE = os.path.join(LOG_DIR, "replay_processing_issues.txt")
+MAP_DOWNLOADS_LOG_FILE = os.path.join(LOG_DIR, "map_downloads.txt")

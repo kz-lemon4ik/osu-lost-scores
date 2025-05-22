@@ -1,15 +1,18 @@
+import datetime
 import hashlib
 import json
+import logging
+import os
 import struct
 import threading
-import datetime
-import os
-import logging
-import rosu_pp_py as rosu
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 import requests
+import rosu_pp_py as rosu
+
+from config import CACHE_DIR, IO_THREAD_POOL_SIZE, MAP_DOWNLOAD_TIMEOUT, MAPS_DIR
 from database import db_get, db_save
 from utils import mask_path_for_log, process_in_batches
-from config import MAP_DOWNLOAD_TIMEOUT, MAPS_DIR, CACHE_DIR, IO_THREAD_POOL_SIZE
 
 logger = logging.getLogger(__name__)
 os.makedirs(CACHE_DIR, exist_ok=True)
@@ -22,24 +25,24 @@ class FileParser:
         self.md5_beatmapid_cache = {}
         self.md5_map = {}
 
+                                                                    
+        self.beatmap_id_to_path_map = {}
+        self.beatmap_id_to_path_lock = threading.Lock()
+
+                                                       
+        self._hit_objects_cache = {}
+        self._hit_objects_cache_lock = threading.Lock()
+
         self.osr_cache_path = os.path.join(CACHE_DIR, "osr_cache.json")
         self.md5_cache_path = os.path.join(CACHE_DIR, "osu_md5_cache.json")
 
         self.osr_cache = {}
         self.osr_cache_lock = threading.Lock()
 
-        self.not_submitted_cache_path = os.path.join(
-            CACHE_DIR, "not_submitted_cache.json"
-        )
-        self.not_submitted_cache = self.not_submitted_cache_load()
-
-                                                             
         os.makedirs(MAPS_DIR, exist_ok=True)
 
-                                               
         self.file_access_lock = threading.Lock()
 
-                                         
     def set_osu_base_path(self, path):
         if path:
             self.osu_base_path = os.path.normpath(path)
@@ -51,7 +54,6 @@ class FileParser:
         if not abs_path or not self.osu_base_path:
             return abs_path
         try:
-                                                               
             if os.path.normpath(abs_path).startswith(self.osu_base_path):
                 rel_path = os.path.relpath(abs_path, self.osu_base_path)
                 return rel_path
@@ -64,7 +66,6 @@ class FileParser:
         if not rel_path or not self.osu_base_path:
             return rel_path
         try:
-                                                       
             if not os.path.isabs(rel_path):
                 abs_path = os.path.normpath(os.path.join(self.osu_base_path, rel_path))
                 return abs_path
@@ -79,32 +80,20 @@ class FileParser:
             self.md5_map.clear()
         with self.osr_cache_lock:
             self.osr_cache.clear()
-        self.not_submitted_cache.clear()
 
-                                                                 
+                                                      
+        with self.beatmap_id_to_path_lock:
+            self.beatmap_id_to_path_map.clear()
+        with self._hit_objects_cache_lock:
+            self._hit_objects_cache.clear()
+
         if osu_api_client:
             osu_api_client.reset_caches()
 
-        logger.info("In-memory caches (MD5, OSR, NotSubmitted) have been reset.")
+        logger.info(
+            "In-memory caches (MD5, OSR, beatmap_id_to_path, hit_objects) have been reset"
+        )
 
-    def not_submitted_cache_load(self):
-        if os.path.exists(self.not_submitted_cache_path):
-            try:
-                with open(self.not_submitted_cache_path, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception as e:
-                logger.warning("Error reading not_submitted_cache: %s", e)
-                return {}
-        return {}
-
-    def not_submitted_cache_save(self, cache):
-        try:
-            with open(self.not_submitted_cache_path, "w", encoding="utf-8") as f:
-                json.dump(cache, f, indent=4)
-        except Exception as e:
-            logger.error("Error writing not_submitted_cache: %s", e)
-
-                                                                         
     def read_string(self, data, offset):
         if data[offset] == 0x00:
             return "", offset + 1
@@ -292,22 +281,18 @@ class FileParser:
         except Exception:
             return None
 
-                                                                         
         rel_path = self.to_relative_path(full_path)
 
-                                                                
         if rel_path in cache:
             saved = cache[rel_path]
             if saved.get("mtime") == mtime:
                 return saved.get("md5")
 
-                                                                                 
         if full_path in cache:
             saved = cache[full_path]
             if saved.get("mtime") == mtime:
-                                                                       
                 cache[rel_path] = saved
-                                                   
+
                 del cache[full_path]
                 return saved.get("md5")
 
@@ -317,13 +302,15 @@ class FileParser:
 
     def find_osu(self, songs_folder, progress_callback=None):
         files = []
-                           
+
+        with self.beatmap_id_to_path_lock:
+            self.beatmap_id_to_path_map = {}
+
         for root, dirs, filenames in os.walk(songs_folder):
             for file in filenames:
                 if file.endswith(".osu"):
                     files.append(os.path.join(root, file))
 
-                                                 
         if os.path.exists(MAPS_DIR) and os.path.isdir(MAPS_DIR):
             for file in os.listdir(MAPS_DIR):
                 if file.endswith(".osu"):
@@ -332,7 +319,6 @@ class FileParser:
             logger.info(
                 f"Added {len(os.listdir(MAPS_DIR))} files from MAPS_DIR to scanning"
             )
-        total = len(files)
         md5_map = {}
         cache = self.md5_load()
 
@@ -340,7 +326,6 @@ class FileParser:
             val = self.find_md5(p, cache)
             return (val, p)
 
-                                              
         results = process_in_batches(
             files,
             batch_size=min(500, len(files)),
@@ -349,36 +334,81 @@ class FileParser:
             progress_callback=progress_callback,
         )
 
-                                 
         for res in results:
             if res and res[0]:
                 md5_map[res[0]] = res[1]
 
         self.md5_save(cache)
 
-                                                                   
         self.md5_map = md5_map
 
-        logger.info(f"Total .osu files indexed: {len(md5_map)}")
+                                          
+        logger.info("Building beatmap_id to file path mapping...")
+        total_paths = len(md5_map.values())
+        processed = 0
+
+        def process_osu_file_batch(paths_batch):
+            result_dict = {}
+            for path in paths_batch:
+                if path and os.path.exists(path):
+                    try:
+                        bid = self.parse_beatmap_id(path)
+                        if bid is not None:
+                            result_dict[bid] = path
+                    except Exception as e:
+                        logger.debug(
+                            f"Error parsing beatmap ID from {mask_path_for_log(path)}: {e}"
+                        )
+            return result_dict
+
+                                                                  
+        with ThreadPoolExecutor(max_workers=IO_THREAD_POOL_SIZE) as executor:
+            path_batches = [
+                list(batch)
+                for batch in [
+                    list(md5_map.values())[i : i + 500]
+                    for i in range(0, len(md5_map.values()), 500)
+                ]
+            ]
+
+            futures = {
+                executor.submit(process_osu_file_batch, batch): i
+                for i, batch in enumerate(path_batches)
+            }
+
+            for future in as_completed(futures):
+                batch_results = future.result()
+                with self.beatmap_id_to_path_lock:
+                    self.beatmap_id_to_path_map.update(batch_results)
+
+                processed += len(path_batches[futures[future]])
+                if progress_callback:
+                    progress_callback(processed, total_paths)
+
+        logger.info(
+            f"Total .osu files indexed: {len(md5_map)}, beatmap_id mappings: {len(self.beatmap_id_to_path_map)}"
+        )
 
         return md5_map
 
     def parse_osr_info(self, osr_path, username):
+        replay_issues_logger = logging.getLogger("replay_issues")
         try:
             rep = self.parse_osr(osr_path)
             if not rep:
-                logger.warning("Failed to process osr: %s", mask_path_for_log(osr_path))
+                replay_issues_logger.warning(
+                    "Failed to process osr: %s", mask_path_for_log(osr_path)
+                )
                 return None
             if rep["game_mode"] != 0:
                 return None
             if rep["player_name"].lower() != username.lower():
                 return None
 
-                                                         
             rep["osr_path"] = osr_path
             return rep
         except Exception as e:
-            logger.exception(
+            replay_issues_logger.exception(
                 f"Unexpected error preprocessing replay {mask_path_for_log(osr_path)}: {e}"
             )
             return None
@@ -472,7 +502,7 @@ class FileParser:
                 "count50": replay["count50"],
                 "countMiss": replay["countMiss"],
                 "count300": replay["count300"],
-                "osu_file_path": mask_path_for_log(osu_path),
+                "osu_file_path": osu_path,                                             
                 "Accuracy": acc,
             }
             return result
@@ -483,143 +513,186 @@ class FileParser:
             )
             return None
 
-                    
     def process_osr_with_path(
-        self, replay_data, md5_map, not_submitted_cache, osu_api_client=None
+        self, replay_data, md5_map, osu_api_client=None, check_missing_ids=False
     ):
+        if not replay_data:
+            logger.warning("Empty replay_data provided to process_osr_with_path")
+            return None
+
+        if not osu_api_client:
+            logger.error("No API client provided in process_osr_with_path")
+            return None
+
         try:
-            if not osu_api_client:
-                logger.error("No API client provided in process_osr_with_path")
+                                                         
+            beatmap_md5 = replay_data.get("beatmap_md5")
+            osr_path = replay_data.get("osr_path")
+
+            if not beatmap_md5 or not osr_path:
+                logger.warning("Missing beatmap_md5 or osr_path in replay_data")
                 return None
 
-            beatmap_md5 = replay_data["beatmap_md5"]
-            osr_path = replay_data["osr_path"]
-
-            if beatmap_md5 not in md5_map:
-                with self.osr_cache_lock:
-                    if beatmap_md5 in not_submitted_cache:
-                        logger.debug(
-                            "md5 %s already marked as not found, skipping replay: %s",
-                            beatmap_md5,
-                            mask_path_for_log(osr_path),
-                        )
-                        return None
+                                              
+            try:
+                mtime = os.path.getmtime(osr_path)
+            except (FileNotFoundError, PermissionError, OSError) as e:
+                logger.warning(
+                    f"Could not access replay file {mask_path_for_log(osr_path)}: {e}"
+                )
                 return None
-
-            mtime = os.path.getmtime(osr_path)
-
-                                                                             
+                                                         
             rel_osr_path = self.to_relative_path(osr_path)
 
+                                         
+            cache_result = None
             with self.osr_cache_lock:
-                                                      
+                                                 
                 if (
                     rel_osr_path in self.osr_cache
                     and self.osr_cache[rel_osr_path].get("mtime") == mtime
                 ):
                     return self.osr_cache[rel_osr_path].get("result")
 
-                                                                      
+                                                                       
                 if (
                     osr_path in self.osr_cache
                     and self.osr_cache[osr_path].get("mtime") == mtime
                 ):
                     result = self.osr_cache[osr_path].get("result")
-                                                                           
+                                                                                   
                     self.osr_cache[rel_osr_path] = self.osr_cache[osr_path]
-                                                       
                     del self.osr_cache[osr_path]
                     return result
 
-            osu_path = md5_map[beatmap_md5]
-            res = self.calculate_pp_rosu(osu_path, replay_data)
+                                        
+            replay_issues_logger = logging.getLogger("replay_issues")
+            osu_path = md5_map.get(beatmap_md5)
+            if not osu_path or not os.path.exists(osu_path):
+                replay_issues_logger.warning(
+                    f"osu! file not found for MD5 {beatmap_md5}"
+                )
+                return None
 
-            if res:
-                beatmap_id = res.get("beatmap_id")
+                             
+            try:
+                res = self.calculate_pp_rosu(osu_path, replay_data)
+            except Exception as e:
+                logger.warning(f"Error calculating PP: {e}")
+                return None
 
-                if beatmap_id == 0:
+            if not res:
+                return None
+
+                                  
+            beatmap_id = res.get("beatmap_id")
+
+                                    
+            if beatmap_id == 0:
+                return None
+
+                                                      
+            elif beatmap_id is None:
+                md5 = replay_data.get("beatmap_md5")
+                if not md5:
                     return None
 
-                elif beatmap_id is None:
-                                                                                                    
-                                                                                                        
-                    md5 = replay_data.get("beatmap_md5")
-                    if md5 is None:
-                        return None
-
+                                                 
+                with self.md5_cache_lock:
                     if md5 in self.md5_beatmapid_cache:
                         res["beatmap_id"] = self.md5_beatmapid_cache[md5]
-                    else:
-                        try:
-                            beatmap_data = osu_api_client.lookup_osu(md5)
-                            if isinstance(beatmap_data, dict) and "id" in beatmap_data:
+
+                                                                                  
+                if (
+                    res.get("beatmap_id") is None
+                    and osu_api_client
+                    and check_missing_ids
+                ):
+                    try:
+                        beatmap_data = osu_api_client.lookup_osu(md5)
+
+                        if isinstance(beatmap_data, dict) and "id" in beatmap_data:
+                            new_id = beatmap_data.get("id")
+
+                            bset_id = None
+                            if (
+                                isinstance(beatmap_data, dict)
+                                and "beatmapset" in beatmap_data
+                                and isinstance(beatmap_data["beatmapset"], dict)
+                            ):
+                                bset_id = beatmap_data["beatmapset"].get("id")
+
                                                    
-                                new_id = beatmap_data.get("id")
-
-                                                                        
-                                db_save(
-                                    new_id,
-                                    beatmap_data.get("status", "unknown"),
-                                    beatmap_data.get("artist", ""),
-                                    beatmap_data.get("title", ""),
-                                    beatmap_data.get("version", ""),
-                                    beatmap_data.get("creator", ""),
-                                    beatmap_data.get("hit_objects", 0),
-                                )
-
-                                                           
-                                self.md5_beatmapid_cache[md5] = new_id
-                                res["beatmap_id"] = new_id
-
-                                                                           
-                                if "artist" not in res or not res["artist"]:
-                                    res["artist"] = beatmap_data.get("artist", "")
-                                if "title" not in res or not res["title"]:
-                                    res["title"] = beatmap_data.get("title", "")
-                                if "creator" not in res or not res["creator"]:
-                                    res["creator"] = beatmap_data.get("creator", "")
-                                if "version" not in res or not res["version"]:
-                                    res["version"] = beatmap_data.get("version", "")
-
-                            elif beatmap_data is not None:
-                                                                                                     
-                                new_id = beatmap_data
-                                self.md5_beatmapid_cache[md5] = new_id
-                                res["beatmap_id"] = new_id
-                        except Exception as e:
-                            logger.error(
-                                "Error when requesting beatmap_id by md5 (%s): %s",
-                                md5,
-                                e,
+                            db_save(
+                                new_id,
+                                beatmap_data.get("status", "unknown"),
+                                beatmap_data.get("artist", ""),
+                                beatmap_data.get("title", ""),
+                                beatmap_data.get("version", ""),
+                                beatmap_data.get("creator", ""),
+                                beatmap_data.get("hit_objects", 0),
+                                bset_id,
                             )
 
-                if res.get("beatmap_id") is None:
-                    logger.warning(
-                        f"Failed to get beatmap_id for replay {mask_path_for_log(osr_path)}"
-                    )
-                    return None
+                                                       
+                            with self.md5_cache_lock:
+                                self.md5_beatmapid_cache[md5] = new_id
+                            res["beatmap_id"] = new_id
 
-                if "player_name" in replay_data:
-                    res["player_name"] = replay_data["player_name"]
-                if "score_time" in replay_data:
-                    res["score_time"] = replay_data["score_time"]
+                                                            
+                            if "artist" not in res or not res["artist"]:
+                                res["artist"] = beatmap_data.get("artist", "")
+                            if "title" not in res or not res["title"]:
+                                res["title"] = beatmap_data.get("title", "")
+                            if "creator" not in res or not res["creator"]:
+                                res["creator"] = beatmap_data.get("creator", "")
+                            if "version" not in res or not res["version"]:
+                                res["version"] = beatmap_data.get("version", "")
 
-                with self.osr_cache_lock:
+                        elif beatmap_data is not None and not isinstance(
+                            beatmap_data, dict
+                        ):
                                                      
-                    self.osr_cache[rel_osr_path] = {"mtime": mtime, "result": res}
+                            new_id = beatmap_data
+                            with self.md5_cache_lock:
+                                self.md5_beatmapid_cache[md5] = new_id
+                            res["beatmap_id"] = new_id
+                    except Exception as e:
+                        logger.error(f"Error requesting beatmap_id by md5 ({md5}): {e}")
+
+                                                               
+            replay_issues_logger = logging.getLogger("replay_issues")
+                                                               
+            if res.get("beatmap_id") is None:
+                replay_issues_logger.warning(
+                    f"Failed to get beatmap_id for replay {mask_path_for_log(osr_path)}"
+                )
+                return None
+
+                                                           
+            if "player_name" in replay_data:
+                res["player_name"] = replay_data["player_name"]
+            if "score_time" in replay_data:
+                res["score_time"] = replay_data["score_time"]
+
+                                       
+            with self.osr_cache_lock:
+                self.osr_cache[rel_osr_path] = {"mtime": mtime, "result": res}
+
             return res
+
         except Exception as e:
             logger.exception(f"Unexpected error processing replay with path: {e}")
             return None
 
     def download_osu_file(self, beatmap_id, osu_api_client=None):
-                   
+        map_downloads_logger = logging.getLogger("map_downloads")
         try:
             if not beatmap_id:
                 logger.error("Cannot download .osu file: beatmap_id is None or 0")
                 return None
 
-            if not osu_api_client:                   
+            if not osu_api_client:
                 logger.error("No API client provided for downloading .osu file")
                 return None
 
@@ -627,62 +700,75 @@ class FileParser:
             file_path = os.path.join(MAPS_DIR, filename)
 
             if os.path.exists(file_path):
-                logger.debug(
-                    f"Beatmap file already exists: {mask_path_for_log(file_path)}"
+                map_downloads_logger.debug(
+                    "Beatmap file already exists: %s", mask_path_for_log(file_path)
                 )
                 return file_path
 
-                                                                                                         
             url = f"https://osu.ppy.sh/osu/{beatmap_id}"
-            logger.info(f"GET beatmap file: {url}")
+            map_downloads_logger.info("GET beatmap file: %s", url)
 
-            @osu_api_client._retry_request
-            def download_beatmap():
+                                               
+            def download_beatmap_content():
                 osu_api_client._wait_for_api_slot()
-                return osu_api_client.session.get(url, timeout=MAP_DOWNLOAD_TIMEOUT)
+                resp = osu_api_client.session.get(url, timeout=MAP_DOWNLOAD_TIMEOUT)
 
-            logger.debug(f"Downloading .osu file for beatmap_id {beatmap_id}")
-            response = download_beatmap()
+                if resp.status_code == 404:
+                    map_downloads_logger.warning(
+                        f"Beatmap with ID {beatmap_id} not found on server (HTTP 404)"
+                    )
+                    return None
 
-            if response.status_code == 404:
-                logger.warning(
-                    f"Beatmap with ID {beatmap_id} not found on server (HTTP 404)"
-                )
+                resp.raise_for_status()
+                return resp.content
+
+                                                       
+            download_with_retry = osu_api_client._retry_request(
+                download_beatmap_content
+            )
+
+            map_downloads_logger.debug(
+                f"Downloading .osu file for beatmap_id {beatmap_id}"
+            )
+
+            content = download_with_retry()
+
+            if content is None:
                 return None
 
-            response.raise_for_status()
-
-            file_size = len(response.content)
-            logger.debug(f"Download successful: received {file_size} bytes")
+            file_size = len(content)
+            map_downloads_logger.debug(
+                f"Download successful: received {file_size} bytes"
+            )
 
             with open(file_path, "wb") as f:
-                f.write(response.content)
+                f.write(content)
 
-            logger.debug(f"File saved to {mask_path_for_log(file_path)}")
+            map_downloads_logger.debug(f"File saved to {mask_path_for_log(file_path)}")
 
             cache = self.md5_load()
             self.find_md5(file_path, cache)
             self.md5_save(cache)
 
-            logger.info(
+            map_downloads_logger.info(
                 f"Successfully downloaded and cached .osu file for beatmap_id {beatmap_id}"
             )
             return file_path
 
         except requests.exceptions.RequestException as e:
-            logger.error(
+            map_downloads_logger.error(
                 f"RequestException downloading .osu file for beatmap_id {beatmap_id}: {e}"
             )
             return None
         except Exception as e:
-            logger.error(
+            map_downloads_logger.error(
                 f"Unexpected error downloading .osu file for beatmap_id {beatmap_id}: {e}"
             )
             return None
 
     def update_osu_md5_cache(self, new_osu_path, md5_hash):
-        with self.md5_cache_lock:
-            cache = {}
+        cache = {}
+        with self.md5_cache_lock:                                
             try:
                 if os.path.exists(self.md5_cache_path):
                     with open(self.md5_cache_path, "r", encoding="utf-8") as f:
@@ -698,9 +784,11 @@ class FileParser:
                 )
                 mtime = None
 
-                                                                             
             rel_path = self.to_relative_path(new_osu_path)
             cache[rel_path] = {"mtime": mtime, "md5": md5_hash}
+
+                                              
+            self.md5_map[md5_hash] = new_osu_path
 
             try:
                 with open(self.md5_cache_path, "w", encoding="utf-8") as f:
@@ -709,67 +797,158 @@ class FileParser:
                 logger.error(f"Error updating osu_md5_cache: {e}")
 
     def count_objs(self, osu_path, beatmap_id, gui_log=None):
+                   
         total = 0
         try:
-                                           
-            with self.file_access_lock:
-                if not os.path.exists(osu_path):
-                    logger.warning(f"File not found: {mask_path_for_log(osu_path)}")
-                    return 0
+                                                               
+            db_info = db_get(beatmap_id)
+            if db_info and db_info.get("hit_objects", 0) > 0:
+                                                                 
+                logger.debug(
+                    f"Using cached hit_objects ({db_info['hit_objects']}) from DB for beatmap_id {beatmap_id}"
+                )
+                return db_info["hit_objects"]
 
-                if gui_log:
-                    gui_log(
-                        f"Counting hit objects for beatmap {beatmap_id}",
-                        update_last=True,
-                    )
+                                                         
+            if hasattr(self, "_hit_objects_cache"):
+                with self._hit_objects_cache_lock:
+                    if beatmap_id in self._hit_objects_cache:
+                        cached_count = self._hit_objects_cache[beatmap_id]
+                        logger.debug(
+                            f"Using in-memory cached hit_objects ({cached_count}) for beatmap_id {beatmap_id}"
+                        )
+                        return cached_count
 
-                with open(osu_path, "r", encoding="utf-8", errors="ignore") as f:
-                    in_hit = False
-                    for line in f:
-                        line = line.strip()
-                        if line.startswith("[HitObjects]"):
-                            in_hit = True
-                            continue
-                        if in_hit and line and not line.startswith("//"):
-                            total += 1
+                                                                  
+            metadata = {
+                "artist": "",
+                "title": "",
+                "creator": "",
+                "version": "",
+                "beatmapset_id": None,
+            }
+
+                                                
+            if not osu_path or not os.path.exists(osu_path):
+                logger.warning(
+                    f"File not found or path is None for beatmap_id {beatmap_id}: {mask_path_for_log(osu_path)}"
+                )
+                return 0
+
+                                  
+            with open(osu_path, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+
+                                                              
+            in_metadata = False
+            for line in content.split("\n"):
+                line = line.strip()
+                if line.startswith("[Metadata]"):
+                    in_metadata = True
+                    continue
+
+                if in_metadata and line.startswith("[") and line.endswith("]"):
+                    break
+
+                if in_metadata:
+                    if line.lower().startswith("artist:"):
+                        parts = line.split(":", 1)
+                        if len(parts) == 2:
+                            metadata["artist"] = parts[1].strip()
+
+                    elif line.lower().startswith("title:"):
+                        parts = line.split(":", 1)
+                        if len(parts) == 2:
+                            metadata["title"] = parts[1].strip()
+
+                    elif line.lower().startswith("creator:"):
+                        parts = line.split(":", 1)
+                        if len(parts) == 2:
+                            metadata["creator"] = parts[1].strip()
+
+                    elif line.lower().startswith("version:"):
+                        parts = line.split(":", 1)
+                        if len(parts) == 2:
+                            metadata["version"] = parts[1].strip()
+
+                    elif line.lower().startswith("beatmapsetid:"):
+                        parts = line.split(":", 1)
+                        if len(parts) == 2:
+                            beatmapset_id_val = parts[1].strip()
+                            if beatmapset_id_val.isdigit():
+                                metadata["beatmapset_id"] = beatmapset_id_val
+
+                                                        
+            hit_objects_pos = content.find("[HitObjects]")
+            if hit_objects_pos == -1:
+                                                         
+                db_save(
+                    beatmap_id,
+                    (
+                        db_info["status"]
+                        if db_info and db_info.get("status")
+                        else "unknown"
+                    ),
+                    metadata["artist"],
+                    metadata["title"],
+                    metadata["version"],
+                    metadata["creator"],
+                    0,             
+                    metadata["beatmapset_id"],
+                )
+                return 0
+
+                                                
+            section_text = content[hit_objects_pos + len("[HitObjects]") :]
+
+                                                    
+            next_section_pos = section_text.find("\n[")
+            if next_section_pos != -1:
+                section_text = section_text[:next_section_pos]
+
+                                                                          
+            lines = section_text.strip().split("\n")
+            total = sum(
+                1
+                for line in lines
+                if line.strip() and not line.strip().startswith("//")
+            )
+
+                                                                           
+            db_save(
+                beatmap_id,
+                db_info["status"] if db_info and db_info.get("status") else "unknown",
+                metadata["artist"],
+                metadata["title"],
+                metadata["version"],
+                metadata["creator"],
+                total,
+                metadata["beatmapset_id"],
+            )
+
+                                                         
+            with self._hit_objects_cache_lock:
+                self._hit_objects_cache[beatmap_id] = total
+
+            logger.debug(f"Locally counted {total} objects for beatmap_id {beatmap_id}")
+
         except Exception as e:
             logger.error(
                 "Error reading .osu file %s: %s", mask_path_for_log(osu_path), e
             )
             return 0
 
-                                                                        
-                                                   
-        db_info = db_get(beatmap_id)
-        if db_info:
-            if not db_info["hit_objects"]:
-                db_save(
-                    beatmap_id,
-                    db_info["status"],
-                    db_info["artist"],
-                    db_info["title"],
-                    db_info["version"],
-                    db_info["creator"],
-                    total,
-                )
-        else:
-            metadata = self.parse_osu_metadata(osu_path)
-            db_save(
-                beatmap_id,
-                "unknown",
-                metadata.get("artist", ""),
-                metadata.get("title", ""),
-                metadata.get("version", ""),
-                metadata.get("creator", ""),
-                total,
-            )
-
         return total
 
     def parse_osu_metadata(self, osu_path):
-        result = {"artist": "", "title": "", "creator": "", "version": ""}
+        result = {
+            "artist": "",
+            "title": "",
+            "creator": "",
+            "version": "",
+            "beatmapset_id": None,
+        }
         try:
-                                           
             with self.file_access_lock:
                 if not os.path.exists(osu_path):
                     logger.warning(f"File not found: {mask_path_for_log(osu_path)}")
@@ -806,32 +985,65 @@ class FileParser:
                                 parts = line.split(":", 1)
                                 if len(parts) == 2:
                                     result["version"] = parts[1].strip()
+
+                            elif line.lower().startswith("beatmapsetid:"):
+                                parts = line.split(":", 1)
+                                if len(parts) == 2:
+                                    bset_id = parts[1].strip()
+                                    if bset_id.isdigit():
+                                        result["beatmapset_id"] = bset_id
         except Exception as e:
             logger.exception(
                 "Error parsing .osu file %s: %s", mask_path_for_log(osu_path), e
             )
         return result
 
-    def grade_osu(self, beatmap_id, c300, c100, c50, cMiss):
+    def grade_osu(self, beatmap_id, c300, c100, c50, cMiss, osu_file_path=None):
         db_info = db_get(beatmap_id)
 
         total = 0
         if db_info:
             total = db_info.get("hit_objects", 0)
+            if total > 0:
+                logger.debug(
+                    f"Using hit_objects ({total}) from DB for grade calculation, beatmap_id: {beatmap_id}"
+                )
+
         if not total:
-            osu_file = None
-            for md5, path in self.md5_map.items():
-                if path and os.path.exists(path):
-                    bid = self.parse_beatmap_id(path)
-                    if bid == beatmap_id:
-                        osu_file = path
-                        break
+                                                                   
+            osu_file = osu_file_path
+            if osu_file:
+                logger.debug(
+                    f"For beatmap_id {beatmap_id} using provided path: {mask_path_for_log(osu_file)}"
+                )
+
+                                                                          
+            if not osu_file:
+                with self.beatmap_id_to_path_lock:
+                    osu_file = self.beatmap_id_to_path_map.get(beatmap_id)
+                    if osu_file:
+                        logger.debug(
+                            f"For beatmap_id {beatmap_id} found path in beatmap_id_to_path_map: {mask_path_for_log(osu_file)}"
+                        )
+
+                                                                                   
+            if not osu_file:
+                logger.debug(
+                    f"For beatmap_id {beatmap_id} searching in md5_map (slow path)"
+                )
+                for md5, path in self.md5_map.items():
+                    if path and os.path.exists(path):
+                        bid = self.parse_beatmap_id(path)
+                        if bid == beatmap_id:
+                            osu_file = path
+                            logger.debug(
+                                f"For beatmap_id {beatmap_id} found path via md5_map: {mask_path_for_log(osu_file)}"
+                            )
+                            break
 
             if osu_file:
                 total = self.count_objs(osu_file, beatmap_id)
-                logger.debug(
-                    f"Locally counted {total} objects for beatmap_id {beatmap_id}"
-                )
+                                                                               
 
             if not total:
                 logger.warning(
@@ -843,31 +1055,31 @@ class FileParser:
         p300 = (c300_corrected / total) * 100 if total else 0
         p50 = (c50 / total) * 100 if total else 0
 
+                           
         if p300 == 100:
-            return "SS"
+            rank = "SS"
         elif p300 > 90 and p50 <= 1 and cMiss == 0:
-            return "S"
+            rank = "S"
         elif p300 > 90:
-            return "A"
+            rank = "A"
         elif p300 > 80 and cMiss == 0:
-            return "A"
+            rank = "A"
         elif p300 > 80:
-            return "B"
+            rank = "B"
         elif p300 > 70 and cMiss == 0:
-            return "B"
+            rank = "B"
         elif p300 > 60:
-            return "C"
+            rank = "C"
         else:
-            return "D"
+            rank = "D"
+
+        logger.debug(
+            f"Grade for beatmap_id {beatmap_id}: {rank} (p300: {p300:.2f}%, p50: {p50:.2f}%, hits: {total})"
+        )
+        return rank
 
     def get_calc_acc(self):
-                                                                            
         return self.calc_acc
 
     def get_sort_mods(self):
-                                                                             
         return self.sort_mods
-
-    def get_not_submitted_cache(self):
-                                                                                     
-        return self.not_submitted_cache

@@ -1,15 +1,3 @@
-/* Основные цвета из backup_gui.py */
-/*
-BG_COLOR = "#251a37"
-FG_COLOR = "#302444"
-ACCENT_COLOR = "#ee4bbd"
-NORMAL_BORDER_COLOR = "#4A3F5F"
-SUBTLE_BORDER_COLOR = "#302444"
-TEXT_COLOR = "#FFFFFF"
-PLACEHOLDER_COLOR = "#A0A0A0"
-*/
-
-/* Общие стили для всего приложения */
 QWidget {
     background-color: #251a37;
     color: #FFFFFF;

@@ -1,15 +1,16 @@
-import requests
-import threading
-import time
-import os
-import logging
 import functools
 import json
+import logging
+import os
+import threading
+import time
+
 import keyring
-from utils import mask_path_for_log, get_env_path
+import requests
 from requests.adapters import HTTPAdapter
 
-                                          
+from utils import get_env_path, mask_path_for_log
+
 logger = logging.getLogger(__name__)
 
 KEYRING_SERVICE = "osu_lost_scores_analyzer"
@@ -38,22 +39,20 @@ class OsuApiClient:
         self.api_retry_count = api_retry_count
         self.api_retry_delay = api_retry_delay
 
-                             
         self.token_cache_path = token_cache_path
         self.md5_cache_path = md5_cache_path
 
-                        
         self.session = requests.Session()
         adapter = HTTPAdapter(pool_connections=20, pool_maxsize=20)
         self.session.mount("https://", adapter)
         self.session.mount("http://", adapter)
 
-                                   
         self.api_lock = threading.Lock()
         self.last_call = 0
 
         self.token_cache = None
         self.token_cache_lock = threading.Lock()
+        self._logged_cached_token_usage = False
 
         self.md5_to_id_cache = {}
         self.md5_to_id_cache_lock = threading.Lock()
@@ -61,24 +60,26 @@ class OsuApiClient:
         self.in_progress_lookups = {}
         self.in_progress_lock = threading.Lock()
 
-                                          
         self._load_token_from_file()
         self._load_md5_cache_from_file()
 
     _instance = None
 
     @classmethod
-    def get_instance(cls, client_id=None, client_secret=None, token_cache_path=None,
-                     md5_cache_path=None, api_rate_limit=1.0, api_retry_count=3,
-                     api_retry_delay=0.5):
-                   
+    def get_instance(
+        cls,
+        client_id=None,
+        client_secret=None,
+        token_cache_path=None,
+        md5_cache_path=None,
+        api_rate_limit=1.0,
+        api_retry_count=3,
+        api_retry_delay=0.5,
+    ):
         if cls._instance is None:
-                                                                    
-                                                       
             if not client_id or not client_secret:
                 client_id, client_secret = cls.get_keys_from_keyring()
 
-                                                
             if client_id and client_secret:
                 cls._instance = cls(
                     client_id=client_id,
@@ -87,13 +88,12 @@ class OsuApiClient:
                     md5_cache_path=md5_cache_path,
                     api_rate_limit=api_rate_limit,
                     api_retry_count=api_retry_count,
-                    api_retry_delay=api_retry_delay
+                    api_retry_delay=api_retry_delay,
                 )
         elif client_id and client_secret:
-                                                                                      
             cls._instance.client_id = client_id
             cls._instance.client_secret = client_secret
-                                                                          
+
             with cls._instance.token_cache_lock:
                 cls._instance.token_cache = None
 
@@ -101,11 +101,11 @@ class OsuApiClient:
 
     @classmethod
     def reset_instance(cls):
-                   
+        if cls._instance:
+            cls._instance._logged_cached_token_usage = False
         cls._instance = None
 
     def _load_token_from_file(self):
-                                      
         if not self.token_cache_path:
             return
 
@@ -120,12 +120,10 @@ class OsuApiClient:
             logger.warning(f"Failed to load token from file: {e}")
 
     def _save_token_to_file(self):
-                                    
         if not self.token_cache_path or not self.token_cache:
             return
 
         try:
-                                                                  
             os.makedirs(
                 os.path.dirname(os.path.abspath(self.token_cache_path)), exist_ok=True
             )
@@ -137,7 +135,6 @@ class OsuApiClient:
             logger.warning(f"Failed to save token to file: {e}")
 
     def _load_md5_cache_from_file(self):
-                                            
         if not self.md5_cache_path:
             return
 
@@ -154,20 +151,16 @@ class OsuApiClient:
             logger.warning(f"Failed to load MD5 cache from file: {e}")
 
     def _save_md5_cache_to_file(self):
-                                          
         if not self.md5_cache_path:
             return
 
         try:
-                                                                  
             os.makedirs(
                 os.path.dirname(os.path.abspath(self.md5_cache_path)), exist_ok=True
             )
 
             with self.md5_to_id_cache_lock:
-                cache_copy = dict(
-                    self.md5_to_id_cache
-                )                                                           
+                cache_copy = dict(self.md5_to_id_cache)
 
             with open(self.md5_cache_path, "w", encoding="utf-8") as f:
                 json.dump(cache_copy, f, indent=2)
@@ -178,12 +171,10 @@ class OsuApiClient:
             logger.warning(f"Failed to save MD5 cache to file: {e}")
 
     def _wait_for_api_slot(self):
-                                                                                                    
         with self.api_lock:
             now = time.time()
             diff = now - self.last_call
 
-                                                                    
             if self.api_rate_limit > 0 and diff < self.api_rate_limit:
                 delay = self.api_rate_limit - diff
                 logger.debug(
@@ -194,8 +185,6 @@ class OsuApiClient:
             self.last_call = time.time()
 
     def _retry_request(self, func):
-                                                                                          
-
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             func_name = func.__name__
@@ -206,31 +195,32 @@ class OsuApiClient:
             retries = 0
             while retries < self.api_retry_count:
                 try:
-                    logger.debug(
-                        f"Executing {func_name} (attempt {retries + 1}/{self.api_retry_count + 1})"
-                    )
+                    if retries > 0:
+                        logger.debug(
+                            f"Executing {func_name} (attempt {retries + 1}/{self.api_retry_count + 1})"
+                        )
                     response = func(*args, **kwargs)
                     return response
                 except requests.exceptions.HTTPError as e:
-                    status_code = e.response.status_code if hasattr(e, 'response') else None
+                    status_code = (
+                        e.response.status_code if hasattr(e, "response") else None
+                    )
 
-                                                         
-                    if status_code == 401:                                     
+                    if status_code == 401:
                         logger.error(f"Authentication error (401) in {func_name}: {e}")
                         with self.token_cache_lock:
                             self.token_cache = None
                         logger.info("Token invalidated due to 401 error")
-                                                             
+
                         raise
 
-                    elif status_code == 404:             
+                    elif status_code == 404:
                         logger.warning(f"Resource not found (404) in {func_name}: {e}")
-                                                             
+
                         raise
 
-                    elif status_code == 429:                     
-                                                                   
-                        wait_time = self.api_retry_delay * (4 ** retries)
+                    elif status_code == 429:
+                        wait_time = self.api_retry_delay * (4**retries)
                         logger.warning(
                             f"Rate limit exceeded (429) in {func_name}. Waiting {wait_time}s before retry"
                         )
@@ -238,8 +228,7 @@ class OsuApiClient:
                         retries += 1
                         continue
 
-                                                                                 
-                    wait_time = self.api_retry_delay * (2 ** retries)
+                    wait_time = self.api_retry_delay * (2**retries)
                     logger.warning(
                         f"HTTP error in {func_name} (status={status_code}): {e}. Retry {retries + 1}/{self.api_retry_count} after {wait_time}s"
                     )
@@ -247,8 +236,7 @@ class OsuApiClient:
                     retries += 1
 
                 except requests.exceptions.ConnectionError as e:
-                                                                         
-                    wait_time = self.api_retry_delay * (3 ** retries)
+                    wait_time = self.api_retry_delay * (3**retries)
                     logger.warning(
                         f"Connection error in {func_name}: {e}. Retry {retries + 1}/{self.api_retry_count} after {wait_time}s"
                     )
@@ -256,8 +244,7 @@ class OsuApiClient:
                     retries += 1
 
                 except requests.exceptions.RequestException as e:
-                                            
-                    wait_time = self.api_retry_delay * (2 ** retries)
+                    wait_time = self.api_retry_delay * (2**retries)
                     logger.warning(
                         f"Request error in {func_name}: {e}. Retry {retries + 1}/{self.api_retry_count} after {wait_time}s"
                     )
@@ -265,7 +252,6 @@ class OsuApiClient:
                     retries += 1
 
                 except Exception as e:
-                                                                          
                     logger.error(f"Unexpected error in {func_name}: {e}")
                     raise
 
@@ -277,13 +263,13 @@ class OsuApiClient:
         return wrapper
 
     def token_osu(self):
-                                     
         logger.debug("token_osu() called - checking cache")
 
-                                     
         with self.token_cache_lock:
             if self.token_cache is not None:
-                logger.debug("Using cached TOKEN")
+                if not self._logged_cached_token_usage:
+                    logger.debug("Using cached TOKEN")
+                    self._logged_cached_token_usage = True
                 return self.token_cache
 
         logger.info("TOKEN_CACHE miss - requesting new token")
@@ -306,7 +292,7 @@ class OsuApiClient:
 
             if resp.status_code == 401:
                 logger.error(
-                    "Invalid API credentials. Check your Client ID and Client Secret."
+                    "Invalid API credentials. Check your Client ID and Client Secret"
                 )
                 logger.error("Server response: %s", resp.text)
                 return None
@@ -317,11 +303,9 @@ class OsuApiClient:
             if token:
                 logger.info("API token successfully received")
 
-                                                     
                 with self.token_cache_lock:
                     self.token_cache = token
 
-                                        
                 self._save_token_to_file()
 
                 return token
@@ -333,7 +317,6 @@ class OsuApiClient:
             return None
 
     def user_osu(self, identifier, lookup_key):
-                                                     
         token = self.token_osu()
         if not token:
             return None
@@ -356,7 +339,7 @@ class OsuApiClient:
 
             if resp.status_code == 404:
                 logger.error(
-                    "User '%s' (lookup type: %s) not found.", identifier, lookup_key
+                    "User '%s' (lookup type: %s) not found", identifier, lookup_key
                 )
                 return None
 
@@ -377,7 +360,6 @@ class OsuApiClient:
             raise
 
     def top_osu(self, user_id, limit=200):
-                                                  
         token = self.token_osu()
         if not token:
             return []
@@ -450,7 +432,6 @@ class OsuApiClient:
         return all_scores
 
     def map_osu(self, beatmap_id):
-                                              
         token = self.token_osu()
         if not token:
             return None
@@ -474,7 +455,7 @@ class OsuApiClient:
 
             if resp.status_code == 404:
                 logger.warning("Beatmap with ID %s not found", beatmap_id)
-                                                                       
+
                 return {
                     "status": "not_found",
                     "artist": "",
@@ -498,7 +479,6 @@ class OsuApiClient:
             sp = data.get("count_spinners", 0)
             hobj = c + s + sp
 
-                                                          
             result = {
                 "id": beatmap_id,
                 "status": data.get("status", "unknown"),
@@ -507,7 +487,7 @@ class OsuApiClient:
                 "version": data.get("version", ""),
                 "creator": bset.get("creator", ""),
                 "hit_objects": hobj,
-                "beatmapset": bset,                                                                      
+                "beatmapset": bset,
             }
 
             logger.debug(
@@ -530,157 +510,106 @@ class OsuApiClient:
             raise
 
     def lookup_osu(self, checksum):
-                                      
-        try:
-            if not checksum:
-                logger.error("Empty checksum provided to lookup_osu")
-                return None
-
-                                                                                                    
-            with self.md5_to_id_cache_lock:
-                if checksum in self.md5_to_id_cache:
-                    cached_id = self.md5_to_id_cache[checksum]
-                    logger.info(
-                        f"Using cached beatmap_id {cached_id} for checksum {checksum}"
-                    )
-
-                                                                            
-                    if cached_id is None:
-                        return None
-
-                                                                             
-                    try:
-                        beatmap_data = self.map_osu(cached_id)
-                        if beatmap_data:
-                            return beatmap_data
-                    except Exception as e:
-                        logger.error(
-                            f"Error getting beatmap data for cached ID {cached_id}: {e}"
-                        )
-
-                                                                                         
-                    return cached_id
-        except Exception as e:
-            logger.error(f"Unexpected error in lookup_osu for checksum {checksum}: {e}")
+        if not checksum:
+            logger.error("Empty checksum provided to lookup_osu")
             return None
 
+                               
+        with self.md5_to_id_cache_lock:
+            if checksum in self.md5_to_id_cache:
+                cached_id = self.md5_to_id_cache[checksum]
+                logger.debug(f"Cache hit for checksum {checksum}: {cached_id}")
+
+                if cached_id is None:
+                    return None
+
+                                                                     
+                try:
+                    beatmap_data = self.map_osu(cached_id)
+                    if beatmap_data:
+                        return beatmap_data
+                except Exception as e:
+                    logger.warning(f"Error getting data for cached ID {cached_id}: {e}")
+
+                return cached_id
+
                                                                
-        wait_event = None
+        wait_needed = False
+        lookup_event = None
+
         with self.in_progress_lock:
-                                                                                   
             if checksum in self.in_progress_lookups:
-                wait_event = self.in_progress_lookups[checksum]["event"]
+                                                                      
+                wait_needed = True
+                lookup_event = self.in_progress_lookups[checksum]["event"]
                 self.in_progress_lookups[checksum]["waiters"] += 1
                 logger.debug(
-                    f"Waiting for in-progress lookup of checksum {checksum}, now has {self.in_progress_lookups[checksum]['waiters']} waiters"
+                    f"Will wait for in-progress lookup of {checksum}, waiters: {self.in_progress_lookups[checksum]['waiters']}"
                 )
             else:
-                                                                    
-                wait_event = threading.Event()
+                                                        
+                lookup_event = threading.Event()
                 self.in_progress_lookups[checksum] = {
-                    "event": wait_event,
+                    "event": lookup_event,
                     "waiters": 0,
                     "result": None,
                 }
-                logger.debug(f"Starting new lookup for checksum {checksum}")
+                logger.debug(f"Created new lookup entry for {checksum}")
 
-                                           
-        if wait_event and self.in_progress_lookups[checksum]["waiters"] > 0:
-            logger.debug(f"Waiting for completion of checksum {checksum} lookup")
-            wait_event.wait()                                  
+                                                       
+        if wait_needed:
+            logger.debug(f"Waiting for completion of {checksum} lookup")
+            lookup_event.wait(timeout=30)                     
 
-                                                                      
             with self.in_progress_lock:
-                result = self.in_progress_lookups[checksum]["result"]
-                self.in_progress_lookups[checksum]["waiters"] -= 1
+                if checksum in self.in_progress_lookups:
+                    result = self.in_progress_lookups[checksum]["result"]
+                    self.in_progress_lookups[checksum]["waiters"] -= 1
 
-                                                           
-                if self.in_progress_lookups[checksum]["waiters"] <= 0:
-                                                                           
-                    if (
-                        checksum in self.in_progress_lookups
-                        and self.in_progress_lookups[checksum]["waiters"] == 0
-                    ):
+                                                                       
+                    if self.in_progress_lookups[checksum]["waiters"] <= 0:
                         del self.in_progress_lookups[checksum]
-                        logger.debug(
-                            f"Removed in-progress entry for checksum {checksum}"
-                        )
+                        logger.debug(f"Removed in-progress entry for {checksum}")
 
-            logger.debug(
-                f"Returning cached result for checksum {checksum} after waiting: {result}"
-            )
-            return result
-
-                                                                                 
-        try:
-                                                                                   
-            with self.md5_to_id_cache_lock:
-                if checksum in self.md5_to_id_cache:
-                    cached_id = self.md5_to_id_cache[checksum]
-                    logger.info(
-                        f"Using cached beatmap_id {cached_id} for checksum {checksum} (after recheck)"
+                    return result
+                else:
+                                                         
+                    logger.warning(
+                        f"Lookup entry for {checksum} not found after waiting"
                     )
+                    return None
 
-                                                                                 
-                    full_data = None
-                    if cached_id is not None:
-                        try:
-                            full_data = self.map_osu(cached_id)
-                        except Exception as e:
-                            logger.error(
-                                f"Error getting beatmap data for cached ID {cached_id}: {e}"
-                            )
-
-                                                                   
-                    with self.in_progress_lock:
-                        if checksum in self.in_progress_lookups:
-                            self.in_progress_lookups[checksum]["result"] = (
-                                full_data if full_data else cached_id
-                            )
-                            self.in_progress_lookups[checksum][
-                                "event"
-                            ].set()                                   
-
-                    return full_data if full_data else cached_id
-
-                                         
+                                   
+        try:
+                                                
             lookup_result = self._retry_request(self._lookup_beatmap)(checksum)
             return lookup_result
 
         except Exception as e:
-            logger.error(
-                "Error when looking up beatmap by checksum %s: %s", checksum, e
-            )
+            logger.error(f"Error in lookup for checksum {checksum}: {e}")
 
-                                                                   
+                                                                                
             with self.in_progress_lock:
                 if checksum in self.in_progress_lookups:
                     self.in_progress_lookups[checksum]["result"] = None
                     self.in_progress_lookups[checksum]["event"].set()
 
-                                     
-            raise
-
+            return None
         finally:
-                                                                        
+                                                        
             with self.in_progress_lock:
                 if (
                     checksum in self.in_progress_lookups
                     and self.in_progress_lookups[checksum]["waiters"] == 0
                 ):
                     del self.in_progress_lookups[checksum]
-                    logger.debug(
-                        f"Cleanup: removed in-progress entry for checksum {checksum}"
-                    )
+                    logger.debug(f"Cleanup: removed entry for {checksum}")
 
     def _lookup_beatmap(self, checksum):
-                                                         
         try:
             if not checksum:
                 logger.error("Empty checksum provided to _lookup_beatmap")
-                return self._set_in_progress_result_and_return(
-                    checksum, None
-                )                            
+                return self._set_in_progress_result_and_return(checksum, None)
 
             self._wait_for_api_slot()
             url = "https://osu.ppy.sh/api/v2/beatmaps/lookup"
@@ -688,16 +617,12 @@ class OsuApiClient:
             token = self.token_osu()
             if not token:
                 logger.error("Failed to get token for lookup_osu")
-                return self._set_in_progress_result_and_return(
-                    checksum, None
-                )                            
+                return self._set_in_progress_result_and_return(checksum, None)
         except Exception as e:
             logger.error(
                 f"Error initializing _lookup_beatmap for checksum {checksum}: {e}"
             )
-            return self._set_in_progress_result_and_return(
-                checksum, None
-            )                            
+            return self._set_in_progress_result_and_return(checksum, None)
 
         headers = {
             "Authorization": f"Bearer {token}",
@@ -710,17 +635,15 @@ class OsuApiClient:
             response = self.session.get(url, headers=headers, params=params)
 
             if response.status_code == 404:
-                logger.warning("Beatmap with checksum %s not found.", checksum)
-                                                  
+                logger.warning("Beatmap with checksum %s not found", checksum)
+
                 with self.md5_to_id_cache_lock:
                     self.md5_to_id_cache[checksum] = None
 
-                                                  
                 self._save_md5_cache_to_file()
 
                 result = None
 
-                                                               
                 with self.in_progress_lock:
                     if checksum in self.in_progress_lookups:
                         self.in_progress_lookups[checksum]["result"] = result
@@ -728,16 +651,13 @@ class OsuApiClient:
 
                 return result
 
-                                                        
             if response.status_code == 401:
                 logger.warning(
-                    "Authorization failed (401) for lookup_osu. Invalidating token."
+                    "Authorization failed (401) for lookup_osu. Invalidating token"
                 )
                 with self.token_cache_lock:
                     self.token_cache = None
-                return self._set_in_progress_result_and_return(
-                    checksum, None
-                )                            
+                return self._set_in_progress_result_and_return(checksum, None)
 
             response.raise_for_status()
 
@@ -747,7 +667,6 @@ class OsuApiClient:
                 logger.warning("Empty API response for checksum %s", checksum)
                 result = None
 
-                                                               
                 with self.in_progress_lock:
                     if checksum in self.in_progress_lookups:
                         self.in_progress_lookups[checksum]["result"] = result
@@ -759,25 +678,19 @@ class OsuApiClient:
             logger.error(
                 f"Request error in _lookup_beatmap for checksum {checksum}: {e}"
             )
-            return self._set_in_progress_result_and_return(
-                checksum, None
-            )                            
+            return self._set_in_progress_result_and_return(checksum, None)
 
         beatmap_id = data.get("id")
 
-                                   
         if beatmap_id:
             with self.md5_to_id_cache_lock:
                 self.md5_to_id_cache[checksum] = beatmap_id
                 logger.info(f"Cached beatmap_id {beatmap_id} for checksum {checksum}")
 
-                                              
             self._save_md5_cache_to_file()
 
-                                                       
         bset = data.get("beatmapset", {})
 
-                                                        
         c = data.get("count_circles", 0)
         s = data.get("count_sliders", 0)
         sp = data.get("count_spinners", 0)
@@ -796,7 +709,6 @@ class OsuApiClient:
             "count_spinners": sp,
         }
 
-                                                                       
         with self.in_progress_lock:
             if checksum in self.in_progress_lookups:
                 self.in_progress_lookups[checksum]["result"] = result
@@ -805,17 +717,13 @@ class OsuApiClient:
         return result
 
     def _set_in_progress_result_and_return(self, checksum, result_value):
-                                                                               
-                                                                    
-                                                           
-                                                          
         self._set_in_progress_result(checksum, result_value)
         return result_value
 
     def reset_caches(self):
-                                                       
         with self.token_cache_lock:
             self.token_cache = None
+            self._logged_cached_token_usage = False
 
         with self.md5_to_id_cache_lock:
             cache_size = len(self.md5_to_id_cache)
@@ -825,7 +733,6 @@ class OsuApiClient:
             f"All osu_api caches have been reset (cleared {cache_size} MD5-to-ID mappings)"
         )
 
-                             
         try:
             if self.token_cache_path and os.path.exists(self.token_cache_path):
                 os.remove(self.token_cache_path)
@@ -838,7 +745,6 @@ class OsuApiClient:
             logger.warning(f"Failed to remove cache files: {e}")
 
     def download_image(self, url, path, timeout=30):
-                                                                                   
         try:
             if os.path.exists(path):
                 logger.debug(
@@ -849,10 +755,8 @@ class OsuApiClient:
             os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
             logger.info("GET image: %s", url)
 
-                                            
             self._wait_for_api_slot()
 
-                                                        
             @self._retry_request
             def download_image_content():
                 resp = self.session.get(url, timeout=timeout)
@@ -873,7 +777,6 @@ class OsuApiClient:
             return False
 
     def _set_in_progress_result(self, checksum, result):
-                                                                            
         try:
             with self.in_progress_lock:
                 if checksum in self.in_progress_lookups:
@@ -934,7 +837,6 @@ class OsuApiClient:
             return False
 
     def _set_in_progress_result(self, checksum, result):
-                                                                            
         try:
             with self.in_progress_lock:
                 if checksum in self.in_progress_lookups:

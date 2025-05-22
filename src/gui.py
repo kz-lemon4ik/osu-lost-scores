@@ -1,76 +1,76 @@
-import os
-import sys
-import platform
-import threading
-import logging
-import time
 import json
-import subprocess
-import shutil
-import pandas as pd
+import logging
+import os
 import os.path
-from functools import partial
+import platform
+import shutil
+import subprocess
+import sys
+import threading
+import time
 from datetime import datetime
-from utils import get_resource_path, mask_path_for_log, get_standard_dir
-from database import db_close, db_init
-from analyzer import file_parser
-from config import (
-    GUI_THREAD_POOL_SIZE,
-    DB_FILE,
-    CACHE_DIR,
-    MAPS_DIR,
-    RESULTS_DIR,
-    CSV_DIR,
-)
+from functools import partial
 
-
+import pandas as pd
 from PySide6 import QtCore, QtGui
 from PySide6.QtCore import (
-    Qt,
-    Signal,
-    QRunnable,
-    QThreadPool,
-    QObject,
-    Slot,
-    QPropertyAnimation,
-    QEasingCurve,
     QAbstractTableModel,
+    QEasingCurve,
     QModelIndex,
-    QSize,
+    QObject,
     QPoint,
+    QPropertyAnimation,
     QRect,
+    QRunnable,
+    QSize,
+    Qt,
+    QThreadPool,
+    Signal,
+    Slot,
 )
 from PySide6.QtGui import (
-    QPixmap,
-    QPainter,
+    QColor,
     QFontDatabase,
     QIcon,
-    QColor,
-    QShortcut,
     QKeySequence,
+    QPainter,
+    QPixmap,
+    QShortcut,
 )
 from PySide6.QtWidgets import (
     QApplication,
-    QWidget,
-    QVBoxLayout,
+    QCheckBox,
+    QDialog,
+    QFileDialog,
+    QFrame,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
-    QPushButton,
-    QProgressBar,
-    QTextEdit,
-    QFileDialog,
-    QMessageBox,
     QMenu,
-    QFrame,
-    QDialog,
-    QCheckBox,
-    QHeaderView,
-    QTabWidget,
-    QTableView,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
     QSizePolicy,
+    QTableView,
+    QTabWidget,
+    QTextEdit,
     QToolTip,
+    QVBoxLayout,
+    QWidget,
 )
+
+from analyzer import file_parser
+from config import (
+    CACHE_DIR,
+    CSV_DIR,
+    DB_FILE,
+    GUI_THREAD_POOL_SIZE,
+    MAPS_DIR,
+    RESULTS_DIR,
+)
+from database import db_close, db_init
+from utils import get_resource_path, get_standard_dir, mask_path_for_log
 
 try:
     import pyperclip
@@ -78,12 +78,12 @@ try:
     PYPERCLIP_AVAILABLE = True
 except ImportError:
     print(
-        "WARNING: pyperclip not found (pip install pyperclip). Copy/paste may not work correctly."
+        "WARNING: pyperclip not found (pip install pyperclip). Copy/paste may not work correctly"
     )
     PYPERCLIP_AVAILABLE = False
 
 import generate_image as img_mod
-from analyzer import scan_replays, make_top
+from analyzer import make_top, scan_replays
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +91,9 @@ ICON_PATH = get_resource_path("assets/icons")
 FONT_PATH = get_resource_path("assets/fonts")
 BACKGROUND_FOLDER_PATH = get_resource_path("assets/background")
 BACKGROUND_IMAGE_PATH = get_resource_path("assets/background/bg.png")
+APP_ICON_PATH = get_resource_path(
+    "assets/app_icon/icon.png"
+)                                      
 CONFIG_PATH = os.path.join(get_standard_dir("config"), "gui_config.json")
 
 os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
@@ -106,11 +109,11 @@ def load_qss():
     try:
         with open(style_path, "r", encoding="utf-8") as f:
             qss_content = f.read()
-            logger.debug("QSS file successfully read (%d bytes).", len(qss_content))
+            logger.debug("QSS file successfully read (%d bytes)", len(qss_content))
 
             return qss_content
     except Exception as e:
-        logger.debug("ERROR loading QSS file: %s", e)
+        logger.warning("ERROR loading QSS file: %s", e)
 
         return ""
 
@@ -118,7 +121,6 @@ def load_qss():
 def show_api_limit_warning():
     from config import API_REQUESTS_PER_MINUTE
 
-                                                               
     if 60 < API_REQUESTS_PER_MINUTE <= 1200:
         QMessageBox.warning(
             None,
@@ -126,10 +128,9 @@ def show_api_limit_warning():
             f"High API request rate detected\n\nCurrent setting: {API_REQUESTS_PER_MINUTE} requests per minute\n\n"
             f"WARNING: peppy prohibits using more than 60 requests per minute.\n"
             f"Burst spikes up to 1200 requests per minute are possible, but proceed at your own risk.\n"
-            f"It may result in API/website usage ban.",
+            f"It may result in API/website usage ban",
         )
 
-                                        
     elif API_REQUESTS_PER_MINUTE > 1200:
         QMessageBox.critical(
             None,
@@ -138,20 +139,18 @@ def show_api_limit_warning():
             f"WARNING: This exceeds the maximum burst limit of 1200 requests per minute.\n"
             f"Program operation is not guaranteed - you will likely encounter 429 errors\n"
             f"and temporary API bans.\n\n"
-            f"Please consider reducing API_REQUESTS_PER_MINUTE to at most 1200.",
+            f"Please consider reducing API_REQUESTS_PER_MINUTE to at most 1200",
         )
 
-                                      
     elif 0 < API_REQUESTS_PER_MINUTE < 60:
         QMessageBox.information(
             None,
             "Conservative API Rate",
             f"Low API request rate detected\n\nCurrent setting: {API_REQUESTS_PER_MINUTE} requests per minute\n\n"
             f"This is below the permitted rate of 60 requests per minute.\n"
-            f"Consider setting API_REQUESTS_PER_MINUTE=60 for optimal performance.",
+            f"Consider setting API_REQUESTS_PER_MINUTE=60 for optimal performance",
         )
 
-                                            
     elif API_REQUESTS_PER_MINUTE <= 0:
         QMessageBox.critical(
             None,
@@ -160,7 +159,7 @@ def show_api_limit_warning():
             "You have disabled API rate limiting (API_REQUESTS_PER_MINUTE=0).\n\n"
             "This is extremely dangerous and will almost certainly result in\n"
             "your IP being temporarily banned from the osu! API.\n\n"
-            "Please set API_REQUESTS_PER_MINUTE to at least 1 and at most 1200.",
+            "Please set API_REQUESTS_PER_MINUTE to at least 1 and at most 1200",
         )
 
 
@@ -178,25 +177,65 @@ class Worker(QRunnable):
         self.args = args
         self.kwargs = kwargs
         self.signals = WorkerSignals()
-        if "progress_callback" in self.fn.__code__.co_varnames:
-            self.kwargs["progress_callback"] = partial(self.emit_progress)
-        if "gui_log" in self.fn.__code__.co_varnames:
-            self.kwargs["gui_log"] = partial(self.emit_log)
+
+                                                                    
+        try:
+            fn_code = self.fn.__code__
+
+            if "progress_callback" in fn_code.co_varnames:
+                self.kwargs["progress_callback"] = partial(self.emit_progress)
+
+            if "gui_log" in fn_code.co_varnames:
+                self.kwargs["gui_log"] = partial(self.emit_log)
+        except AttributeError:
+                                                                           
+            try:
+                import inspect
+
+                sig = inspect.signature(self.fn)
+
+                if "progress_callback" in sig.parameters:
+                    self.kwargs["progress_callback"] = partial(self.emit_progress)
+
+                if "gui_log" in sig.parameters:
+                    self.kwargs["gui_log"] = partial(self.emit_log)
+            except Exception as e:
+                logger.warning(f"Failed to inspect function {self.fn.__name__}: {e}")
 
     @Slot()
     def run(self):
         try:
             self.fn(*self.args, **self.kwargs)
         except Exception as e:
-            self.signals.error.emit(str(e))
+            logger.exception(f"Error in worker thread executing {self.fn.__name__}")
+                                                                                   
+            import traceback
+
+            error_message = f"{str(e)}\n\n{traceback.format_exc()}"
+            self.signals.error.emit(str(e))                                      
         finally:
             self.signals.finished.emit()
 
     def emit_progress(self, current, total):
-        self.signals.progress.emit(current, total)
+        try:
+                                               
+            current = max(0, min(int(current), total))
+            total = max(1, int(total))
+            self.signals.progress.emit(current, total)
+        except Exception as e:
+            logger.warning(f"Error emitting progress: {e}")
 
     def emit_log(self, message, update_last=False):
-        self.signals.log.emit(message, update_last)
+        try:
+                                                
+            if message is None:
+                message = "None"
+            else:
+                message = str(message)
+
+            self.signals.log.emit(message, bool(update_last))
+        except Exception as e:
+            logger.warning(f"Error emitting log: {e}")
 
 
 class IconButton(QPushButton):
@@ -349,7 +388,7 @@ class ApiDialog(QDialog):
         layout.addWidget(self.help_label)
 
         self.clear_hint_label = QLabel(
-            "Tip: To delete saved API keys, leave both fields empty and click 'Save'."
+            "Tip: To delete saved API keys, leave both fields empty and click 'Save'"
         )
         self.clear_hint_label.setObjectName("clearHintLabel")
         self.clear_hint_label.setWordWrap(True)
@@ -963,7 +1002,7 @@ class ResultsWindow(QDialog):
 
                 self.calculate_lost_scores_stats(lost_scores_df)
             else:
-                empty_df = pd.DataFrame({"Status": ["No data found. Run scan first."]})
+                empty_df = pd.DataFrame({"Status": ["No data found. Run scan first"]})
                 model = PandasTableModel(empty_df)
                 self.lost_scores_view.setModel(model)
 
@@ -1011,7 +1050,7 @@ class ResultsWindow(QDialog):
                     model = PandasTableModel(empty_df)
                     self.parsed_top_view.setModel(model)
             else:
-                empty_df = pd.DataFrame({"Status": ["No data found. Run scan first."]})
+                empty_df = pd.DataFrame({"Status": ["No data found. Run scan first"]})
                 model = PandasTableModel(empty_df)
                 self.parsed_top_view.setModel(model)
 
@@ -1070,7 +1109,7 @@ class ResultsWindow(QDialog):
                     model = PandasTableModel(empty_df)
                     self.top_with_lost_view.setModel(model)
             else:
-                empty_df = pd.DataFrame({"Status": ["No data found. Run scan first."]})
+                empty_df = pd.DataFrame({"Status": ["No data found. Run scan first"]})
                 model = PandasTableModel(empty_df)
                 self.top_with_lost_view.setModel(model)
 
@@ -1426,13 +1465,11 @@ class ResultsWindow(QDialog):
 
             self.stats_panel_layout.addWidget(delta_pp_label)
 
-                            
             delta_acc = self.stats_data["top_with_lost"].get(
                 "Δ Overall Accuracy", "N/A"
             )
             delta_acc_label = QLabel(f"Δ Accuracy: {delta_acc}")
 
-                                                                 
             if isinstance(delta_acc, str):
                 if delta_acc.startswith("+"):
                     delta_acc_label.setProperty("class", "StatsLabel PositiveValue")
@@ -1659,16 +1696,81 @@ class ResultsWindow(QDialog):
         self.highlight_current_result(current_table)
 
 
+class SettingsDialog(QDialog):
+    def __init__(self, parent=None, config=None):
+        super().__init__(parent)
+        self.setWindowTitle("Settings")
+        self.setFixedSize(450, 250)
+        self.setObjectName("settingsDialog")
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+                          
+        self.include_unranked_checkbox = QCheckBox("Include unranked/loved beatmaps")
+        self.include_unranked_checkbox.setObjectName("includeUnrankedCheckbox")
+        if config and "include_unranked" in config:
+            self.include_unranked_checkbox.setChecked(config["include_unranked"])
+
+        self.show_lost_checkbox = QCheckBox("Show at least one lost score")
+        self.show_lost_checkbox.setObjectName("showLostCheckbox")
+        if config and "show_lost" in config:
+            self.show_lost_checkbox.setChecked(config["show_lost"])
+
+        self.check_missing_ids_checkbox = QCheckBox("Check missing beatmap IDs")
+        self.check_missing_ids_checkbox.setObjectName("checkMissingIdsCheckbox")
+        if config and "check_missing_ids" in config:
+            self.check_missing_ids_checkbox.setChecked(config["check_missing_ids"])
+
+        self.clean_scan_checkbox = QCheckBox("Perform clean scan (reset cache)")
+        self.clean_scan_checkbox.setObjectName("cleanScanCheckbox")
+        if config and "clean_scan" in config:
+            self.clean_scan_checkbox.setChecked(config["clean_scan"])
+
+                                       
+        layout.addWidget(self.include_unranked_checkbox)
+        layout.addWidget(self.show_lost_checkbox)
+        layout.addWidget(self.check_missing_ids_checkbox)
+        layout.addWidget(self.clean_scan_checkbox)
+
+        layout.addStretch()
+
+                            
+        button_layout = QHBoxLayout()
+        self.cancel_button = QPushButton("Cancel")
+        self.cancel_button.clicked.connect(self.reject)
+        self.ok_button = QPushButton("OK")
+        self.ok_button.clicked.connect(self.accept)
+
+        button_layout.addWidget(self.cancel_button)
+        button_layout.addWidget(self.ok_button)
+
+        layout.addLayout(button_layout)
+
+
 class MainWindow(QWidget):
     def __init__(self, osu_api_client=None):
         super().__init__()
-        self.osu_api_client = osu_api_client                                
+        self.osu_api_client = osu_api_client
         self.setWindowTitle("osu! Lost Scores Analyzer")
-        self.setGeometry(100, 100, 650, 500)
-        self.setFixedSize(650, 500)
+        self.setGeometry(100, 100, 650, 780)                         
+        self.setFixedSize(650, 780)
         self.setObjectName("mainWindow")
 
-                                                        
+                                     
+        if os.path.exists(APP_ICON_PATH):
+            app_icon = QIcon(APP_ICON_PATH)
+            self.setWindowIcon(app_icon)
+                                                                      
+            app = QApplication.instance()
+            if app:
+                app.setWindowIcon(app_icon)
+        else:
+            logger.warning(
+                f"Application icon not found at: {mask_path_for_log(APP_ICON_PATH)}"
+            )
+
         if not osu_api_client:
             logger.warning("No API client provided to MainWindow")
 
@@ -1737,10 +1839,10 @@ class MainWindow(QWidget):
             self.results_button.setEnabled(has_data)
 
             if has_data:
-                logger.debug("Results data found. 'See Full Results' button enabled.")
+                logger.debug("Results data found. 'See Full Results' button enabled")
             else:
                 logger.debug(
-                    "No results data found. 'See Full Results' button disabled."
+                    "No results data found. 'See Full Results' button disabled"
                 )
 
         except Exception as e:
@@ -1803,6 +1905,8 @@ class MainWindow(QWidget):
             self.include_unranked_checkbox.setChecked(self.config["include_unranked"])
         if "show_lost" in self.config:
             self.show_lost_checkbox.setChecked(self.config["show_lost"])
+        if "check_missing_ids" in self.config:
+            self.check_missing_ids_checkbox.setChecked(self.config["check_missing_ids"])
         if "clean_scan" in self.config:
             self.clean_scan_checkbox.setChecked(self.config["clean_scan"])
 
@@ -1818,9 +1922,15 @@ class MainWindow(QWidget):
                 except ValueError:
                     self.config["scores_count"] = 10
 
-            self.config["include_unranked"] = self.include_unranked_checkbox.isChecked()
-            self.config["show_lost"] = self.show_lost_checkbox.isChecked()
-            self.config["clean_scan"] = self.clean_scan_checkbox.isChecked()
+                                                                            
+            if "include_unranked" not in self.config:
+                self.config["include_unranked"] = False
+            if "show_lost" not in self.config:
+                self.config["show_lost"] = False
+            if "check_missing_ids" not in self.config:
+                self.config["check_missing_ids"] = False
+            if "clean_scan" not in self.config:
+                self.config["clean_scan"] = False
 
             with open(CONFIG_PATH, "w", encoding="utf-8") as f:
                 json.dump(self.config, f, indent=4)
@@ -1864,6 +1974,10 @@ class MainWindow(QWidget):
             os.path.join("assets", "background", "bg.png")
         )
         self.background_pixmap = None
+        self.scaled_background_pixmap = (
+            None                                                  
+        )
+
         if os.path.exists(BACKGROUND_IMAGE_PATH):
             try:
                 self.background_pixmap = QPixmap(BACKGROUND_IMAGE_PATH)
@@ -1874,10 +1988,20 @@ class MainWindow(QWidget):
                         mask_path_for_log(os.path.normpath(BACKGROUND_IMAGE_PATH)),
                     )
                 else:
-                    logger.info("Background image loaded.")
+                                                
+                    orig_width = self.background_pixmap.width()
+                    orig_height = self.background_pixmap.height()
+                    self.scaled_background_pixmap = self.background_pixmap.scaled(
+                        orig_width // 2,
+                        orig_height // 2,
+                        Qt.AspectRatioMode.IgnoreAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation,
+                    )
+                    logger.info("Background image loaded")
             except Exception as e:
                 logger.error("Error loading background: %s", e)
                 self.background_pixmap = None
+                self.scaled_background_pixmap = None
         else:
             logger.warning(
                 "Background file not found: %s",
@@ -1886,19 +2010,36 @@ class MainWindow(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        if hasattr(self, "background_pixmap") and self.background_pixmap:
-            scaled_pixmap = self.background_pixmap.scaled(
-                self.size(),
-                Qt.AspectRatioMode.IgnoreAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            painter.drawPixmap(self.rect(), scaled_pixmap)
-        else:
+
+        if hasattr(self, "scaled_background_pixmap") and self.scaled_background_pixmap:
+                                                       
+            window_width = self.width()
+            window_height = self.height()
+            bg_width = self.scaled_background_pixmap.width()
+            bg_height = self.scaled_background_pixmap.height()
+
+                                                                                           
+            repeats_x = max(1, (window_width + bg_width - 1) // bg_width)
+            repeats_y = max(1, (window_height + bg_height - 1) // bg_height)
+
+                                                          
+            for y in range(repeats_y):
+                for x in range(repeats_x):
+                    painter.drawPixmap(
+                        x * bg_width, y * bg_height, self.scaled_background_pixmap
+                    )
+        elif hasattr(self, "background_pixmap") and self.background_pixmap:
+                                                                     
             painter.fillRect(self.rect(), QColor("#251a37"))
+            painter.drawPixmap(self.rect(), self.background_pixmap)
+        else:
+                                         
+            painter.fillRect(self.rect(), QColor("#251a37"))
+
         painter.end()
 
     def initUI(self):
-        window_height = 835
+        window_height = 780                                                  
         self.setGeometry(100, 100, 650, window_height)
         self.setFixedSize(650, window_height)
 
@@ -1940,39 +2081,48 @@ class MainWindow(QWidget):
         url_label.setObjectName("urlLabel")
 
         self.profile_entry = QLineEdit(self)
-        self.profile_entry.setGeometry(50, 215, 550, 40)
+        self.profile_entry.setGeometry(50, 215, 350, 40)                               
         self.profile_entry.setObjectName("profileEntry")
-        self.profile_entry.setPlaceholderText("e.g., https://osu.ppy.sh/users/2")
+        self.profile_entry.setPlaceholderText("e.g., https://osu.ppy.sh/users/8674298")
+
+                                                       
+        self.api_button = QPushButton("API Keys", self)
+        self.api_button.setGeometry(410, 215, 190, 40)
+        self.api_button.setObjectName("apiButton")
+        self.api_button.clicked.connect(self.open_api_dialog)
 
         scores_label = QLabel("Number of scores to display", self)
         scores_label.setGeometry(50, 270, 550, 30)
         scores_label.setObjectName("scoresLabel")
 
         self.scores_count_entry = QLineEdit(self)
-
         self.scores_count_entry.setGeometry(50, 305, 350, 40)
         self.scores_count_entry.setObjectName("scoresCountEntry")
-        self.api_button = QPushButton("API Keys", self)
-        self.api_button.setGeometry(410, 305, 190, 40)
-        self.api_button.setObjectName("apiButton")
-        self.api_button.clicked.connect(self.open_api_dialog)
-        checkbox_y = 365
+        self.scores_count_entry.setPlaceholderText("For example, 10")
 
-        self.include_unranked_checkbox = QCheckBox(
-            "Include unranked/loved beatmaps", self
-        )
-        self.include_unranked_checkbox.setGeometry(50, checkbox_y, 550, 25)
+                                                         
+        self.settings_button = QPushButton("Settings", self)
+        self.settings_button.setGeometry(410, 305, 190, 40)
+        self.settings_button.setObjectName("settingsButton")
+        self.settings_button.clicked.connect(self.open_settings_dialog)
+
+                                                               
+                                                          
+        self.include_unranked_checkbox = QCheckBox("Include unranked/loved beatmaps")
+        self.include_unranked_checkbox.setVisible(False)            
         self.include_unranked_checkbox.setObjectName("includeUnrankedCheckbox")
 
-        self.show_lost_checkbox = QCheckBox("Show at least one lost score", self)
-        self.show_lost_checkbox.setGeometry(50, checkbox_y + 35, 550, 25)
+        self.show_lost_checkbox = QCheckBox("Show at least one lost score")
+        self.show_lost_checkbox.setVisible(False)            
         self.show_lost_checkbox.setObjectName("showLostCheckbox")
 
-        self.clean_scan_checkbox = QCheckBox("Perform clean scan (reset cache)", self)
-        self.clean_scan_checkbox.setGeometry(50, checkbox_y + 70, 550, 25)
-        self.clean_scan_checkbox.setObjectName("cleanScanCheckbox")
+        self.check_missing_ids_checkbox = QCheckBox("Check missing beatmap IDs")
+        self.check_missing_ids_checkbox.setVisible(False)            
+        self.check_missing_ids_checkbox.setObjectName("checkMissingIdsCheckbox")
 
-        self.scores_count_entry.setPlaceholderText("For example, 10")
+        self.clean_scan_checkbox = QCheckBox("Perform clean scan (reset cache)")
+        self.clean_scan_checkbox.setVisible(False)            
+        self.clean_scan_checkbox.setObjectName("cleanScanCheckbox")
 
         validator = QtGui.QIntValidator(1, 100, self)
         self.scores_count_entry.setValidator(validator)
@@ -1989,9 +2139,10 @@ class MainWindow(QWidget):
         self.action_img.setGeometry(0, 0, 0, 0)
         self.action_img.clicked.connect(self.start_img)
 
-        btn_y = 470
+        btn_y = 385                                           
         self.btn_all = QPushButton("Start Scan", self)
         self.btn_all.setGeometry(50, btn_y, 550, 50)
+
         self.btn_all.setObjectName("btnAll")
         self.btn_all.clicked.connect(self.start_all_processes)
 
@@ -2071,8 +2222,6 @@ class MainWindow(QWidget):
                 cursor.insertText(full_gui_message)
                 self.log_textbox.ensureCursorVisible()
 
-                                                                         
-                                                       
                 gui_log_messages = [
                     "button enabled",
                     "button disabled",
@@ -2110,11 +2259,11 @@ class MainWindow(QWidget):
 
     @Slot()
     def task_finished(self):
-        logger.info("Background task completed.")
+        logger.info("Replay scanning stage completed")
 
         if not self.scan_completed.is_set():
             self.progress_bar.setValue(80)
-            self.current_task = "Replay scanning completed"
+            self.current_task = "Replay scanning stage completed"
             self.status_label.setText(self.current_task)
         self.scan_completed.set()
 
@@ -2155,7 +2304,7 @@ class MainWindow(QWidget):
             QMessageBox.warning(
                 self,
                 "Error",
-                "Please specify osu! folder and profile input (URL/ID/Username).",
+                "Please specify osu! folder and profile input (URL/ID/Username)",
             )
             return
 
@@ -2163,7 +2312,7 @@ class MainWindow(QWidget):
             QMessageBox.warning(
                 self,
                 "Error",
-                "No API client configured. Please set up your API keys first.",
+                "No API client configured. Please set up your API keys first",
             )
             return
 
@@ -2190,19 +2339,19 @@ class MainWindow(QWidget):
 
         self.has_error = False
 
-        if self.clean_scan_checkbox.isChecked():
-                                                                           
+        clean_scan = self.clean_scan_checkbox.isChecked()
+        if clean_scan:
             reply = QMessageBox.question(
                 self,
                 "Confirm Cache Clearing",
-                "Are you sure you want to clear the cache and database? This action cannot be undone.",
+                "Are you sure you want to clear the cache and database? This action cannot be undone",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
 
             if reply != QMessageBox.StandardButton.Yes:
                 logger.info("Cache clearing cancelled by user")
-                self.append_log("Cache clearing cancelled by user.", False)
+                self.append_log("Cache clearing cancelled by user", False)
                 return
 
             logger.info("Starting clean scan with cache reset")
@@ -2211,7 +2360,7 @@ class MainWindow(QWidget):
             try:
                 self.append_log("Closing database connection before cleaning...", False)
                 db_close()
-                logger.info("Database connection closed for cache cleaning.")
+                logger.info("Database connection closed for cache cleaning")
 
                 db_path = DB_FILE
                 if os.path.exists(db_path):
@@ -2240,19 +2389,25 @@ class MainWindow(QWidget):
                     f"Folders to clean absolute paths: {mask_path_for_log(folders_to_clean)}"
                 )
 
+                folder_names = [
+                    os.path.basename(os.path.normpath(f)) for f in folders_to_clean
+                ]
+                self.append_log(
+                    f"Starting cache and data cleanup for directories: {folder_names}",
+                    False,
+                )
+
+                cleanup_errors = []
+
                 for folder in folders_to_clean:
                     abs_folder_path = os.path.abspath(folder)
                     if os.path.exists(abs_folder_path):
-                        self.append_log(
-                            f"Deleting folder: {mask_path_for_log(abs_folder_path)}",
-                            False,
-                        )
                         try:
                             shutil.rmtree(abs_folder_path)
                         except OSError as e:
-                            logger.error(
-                                f"Error removing directory {abs_folder_path}: {e}"
-                            )
+                            error_msg = f"Error removing directory {mask_path_for_log(abs_folder_path)}: {e}"
+                            logger.error(error_msg)
+                            cleanup_errors.append(error_msg)
 
                             if os.path.exists(abs_folder_path):
                                 for item in os.listdir(abs_folder_path):
@@ -2273,31 +2428,35 @@ class MainWindow(QWidget):
                                                 mask_path_for_log(item_path),
                                             )
                                     except Exception as ex_inner:
-                                        logger.exception(
-                                            f"Failed to delete item {mask_path_for_log(item_path)}:"
-                                        )
-
+                                        error_msg = f"Failed to delete item {mask_path_for_log(item_path)}"
+                                        logger.exception(f"{error_msg}:")
+                                        cleanup_errors.append(error_msg)
                                         raise e from ex_inner
                             else:
                                 raise
 
                         if not os.path.exists(abs_folder_path):
                             os.makedirs(abs_folder_path, exist_ok=True)
-                            self.append_log(
-                                f"Folder recreated: {abs_folder_path}", False
-                            )
                     else:
                         os.makedirs(abs_folder_path, exist_ok=True)
-                        self.append_log(
-                            f"Folder created (did not exist): {abs_folder_path}", False
-                        )
 
-                self.append_log(
-                    "Re-initializing database connection after cleaning...", False
-                )
+                if cleanup_errors:
+                    self.append_log(
+                        f"Cache and data cleanup completed with {len(cleanup_errors)} errors",
+                        False,
+                    )
+                    for error in cleanup_errors:
+                        self.append_log(f"Cleanup error: {error}", False)
+                else:
+                    self.append_log(
+                        "Cache and data cleanup completed",
+                        False,
+                    )
                 db_init()
-                logger.info("Database re-initialized after cache cleaning.")
-
+                self.append_log(
+                    f"Database re-initialized after cache cleaning (path: {mask_path_for_log(DB_FILE)})",
+                    False,
+                )
                 self.append_log("Resetting in-memory caches...", False)
                 file_parser.reset_in_memory_caches(self.osu_api_client)
 
@@ -2310,14 +2469,16 @@ class MainWindow(QWidget):
                 self.append_log(f"Error clearing cache: {e}", False)
 
                 try:
-                    logger.info("Attempting DB re-initialization after cache error")
+                    logger.info("Attempting DB re-initialization after cache error...")
 
                     self.append_log(
                         "Attempting DB re-initialization after cache error...", False
                     )
                     db_init()
                 except Exception as db_err:
-                    logger.exception("Failed to re-initialize DB after cache error:")
+                    logger.exception(
+                        f"Failed to re-initialize DB after cache error: {db_err}"
+                    )
 
                     self.append_log(
                         f"Failed to re-initialize DB after cache error: {db_err}", False
@@ -2334,12 +2495,11 @@ class MainWindow(QWidget):
         self.btn_all.setDisabled(True)
         self.browse_button.setDisabled(True)
         self.api_button.setDisabled(True)
+        self.settings_button.setDisabled(True)
         self.game_entry.setReadOnly(True)
         self.profile_entry.setReadOnly(True)
         self.scores_count_entry.setReadOnly(True)
         self.include_unranked_checkbox.setEnabled(False)
-        self.show_lost_checkbox.setEnabled(False)
-        self.clean_scan_checkbox.setEnabled(False)
         self.results_button.setEnabled(False)
 
         self.scan_completed.clear()
@@ -2355,77 +2515,82 @@ class MainWindow(QWidget):
         threading.Thread(target=self._run_sequence, daemon=True).start()
 
     def _run_sequence(self):
+        stages = [
+            {
+                "name": "scan_replays",
+                "action": self.action_scan,
+                "event": self.scan_completed,
+                "timeout": 1800,                                 
+                "error_message": "Replay scanning exceeded timeout - process may be stalled",
+            },
+            {
+                "name": "potential_top",
+                "action": self.action_top,
+                "event": self.top_completed,
+                "timeout": 900,                                             
+                "error_message": "Potential top creation exceeded timeout",
+            },
+            {
+                "name": "image_creation",
+                "action": self.action_img,
+                "event": self.img_completed,
+                "timeout": 600,                                     
+                "error_message": "Image creation exceeded timeout - API may be unresponsive",
+            },
+        ]
+
         try:
-            QtCore.QMetaObject.invokeMethod(
-                self.action_scan, "click", QtCore.Qt.ConnectionType.QueuedConnection
-            )
+                                                  
+            for stage in stages:
+                                                               
+                QtCore.QMetaObject.invokeMethod(
+                    stage["action"], "click", QtCore.Qt.ConnectionType.QueuedConnection
+                )
 
-            max_wait_time = 3600
-            wait_start = time.time()
+                                                              
+                wait_start = time.time()
+                check_interval = 0.1
+                progress_log_interval = 5.0                                     
+                last_progress_log = time.time()
 
-            while not self.scan_completed.is_set():
-                if time.time() - wait_start > max_wait_time:
+                while not stage["event"].is_set():
+                    elapsed = time.time() - wait_start
+
+                                       
+                    if elapsed > stage["timeout"]:
+                        error_msg = stage["error_message"]
+                        logger.error(
+                            f"Timeout ({stage['timeout']} sec) for {stage['name']}: {error_msg}"
+                        )
+
+                        QtCore.QMetaObject.invokeMethod(
+                            self,
+                            "task_error",
+                            QtCore.Qt.ConnectionType.QueuedConnection,
+                            QtCore.Q_ARG(
+                                str, f"{error_msg} ({stage['timeout']} seconds)"
+                            ),
+                        )
+                        return
+
+                                                                    
+                    if time.time() - last_progress_log > progress_log_interval:
+                        last_progress_log = time.time()
+                        logger.debug(
+                            f"Still waiting for {stage['name']} completion ({int(elapsed)}s elapsed)"
+                        )
+
+                                                            
+                    time.sleep(check_interval)
+
+                                                                              
+                if self.has_error:
                     logger.error(
-                        "Maximum wait time exceeded for replay scanning phase - process may be stalled or unresponsive"
-                    )
-                    QtCore.QMetaObject.invokeMethod(
-                        self,
-                        "task_error",
-                        QtCore.Qt.ConnectionType.QueuedConnection,
-                        QtCore.Q_ARG(str, "Scan timeout exceeded"),
+                        f"{stage['name']} completed with error, aborting sequence"
                     )
                     return
 
-                time.sleep(0.1)
-
-            if self.has_error:
-                logger.error("Scanning completed with error, aborting sequence")
-                return
-
-            QtCore.QMetaObject.invokeMethod(
-                self.action_top, "click", QtCore.Qt.ConnectionType.QueuedConnection
-            )
-
-            wait_start = time.time()
-
-            while not self.top_completed.is_set():
-                if time.time() - wait_start > max_wait_time:
-                    logger.error(
-                        "Maximum wait time exceeded for potential top creation phase - process may be hanging or deadlocked"
-                    )
-                    QtCore.QMetaObject.invokeMethod(
-                        self,
-                        "task_error",
-                        QtCore.Qt.ConnectionType.QueuedConnection,
-                        QtCore.Q_ARG(str, "Top creation timeout exceeded"),
-                    )
-                    return
-                time.sleep(0.1)
-
-            if self.has_error:
-                logger.error("Top creation completed with error, aborting sequence")
-                return
-
-            QtCore.QMetaObject.invokeMethod(
-                self.action_img, "click", QtCore.Qt.ConnectionType.QueuedConnection
-            )
-
-            wait_start = time.time()
-
-            while not self.img_completed.is_set():
-                if time.time() - wait_start > max_wait_time:
-                    logger.error(
-                        "Maximum wait time exceeded for image creation phase - API server may be unresponsive"
-                    )
-                    QtCore.QMetaObject.invokeMethod(
-                        self,
-                        "task_error",
-                        QtCore.Qt.ConnectionType.QueuedConnection,
-                        QtCore.Q_ARG(str, "Image creation timeout exceeded"),
-                    )
-                    return
-                time.sleep(0.1)
-
+                                           
             if not self.has_error:
                 QtCore.QMetaObject.invokeMethod(
                     self,
@@ -2440,8 +2605,8 @@ class MainWindow(QWidget):
                 QtCore.Qt.ConnectionType.QueuedConnection,
                 QtCore.Q_ARG(str, f"Sequential launch error: {e}"),
             )
-
         finally:
+                                                                      
             QtCore.QMetaObject.invokeMethod(
                 self, "enable_all_button", QtCore.Qt.ConnectionType.QueuedConnection
             )
@@ -2461,7 +2626,6 @@ class MainWindow(QWidget):
 
         self.enable_results_button()
 
-                                                
         self.results_button.setEnabled(True)
 
         if os.path.exists(results_path) and os.path.isdir(results_path):
@@ -2477,7 +2641,7 @@ class MainWindow(QWidget):
         QMessageBox.information(
             self,
             "Done",
-            "Analysis completed! You can find results in the 'results' folder. Click 'See Full Results' to view detailed data.",
+            "Analysis completed! You can find results in the 'results' folder. Click 'See Full Results' to view detailed data",
         )
         self.save_config()
         self.enable_all_button()
@@ -2490,9 +2654,7 @@ class MainWindow(QWidget):
         self.game_entry.setReadOnly(False)
         self.profile_entry.setReadOnly(False)
         self.scores_count_entry.setReadOnly(False)
-        self.include_unranked_checkbox.setEnabled(True)
-        self.show_lost_checkbox.setEnabled(True)
-        self.clean_scan_checkbox.setEnabled(True)
+        self.settings_button.setDisabled(False)
 
     def start_scan(self):
         game_dir = self.game_entry.text().strip()
@@ -2501,7 +2663,7 @@ class MainWindow(QWidget):
             QMessageBox.warning(
                 self,
                 "Error",
-                "Please specify osu! folder and profile input (URL/ID/Username).",
+                "Please specify osu! folder and profile input (URL/ID/Username)",
             )
             self.scan_completed.set()
             return
@@ -2510,7 +2672,7 @@ class MainWindow(QWidget):
             QMessageBox.warning(
                 self,
                 "Error",
-                "No API client configured. Please set up your API keys first.",
+                "No API client configured. Please set up your API keys first",
             )
             self.scan_completed.set()
             return
@@ -2524,14 +2686,17 @@ class MainWindow(QWidget):
         self.progress_bar.setValue(0)
 
         include_unranked = self.include_unranked_checkbox.isChecked()
+        check_missing_ids = self.check_missing_ids_checkbox.isChecked()
         worker = Worker(
             scan_replays,
             game_dir,
             identifier,
             lookup_key,
             include_unranked=include_unranked,
-            osu_api_client=self.osu_api_client,                   
+            check_missing_ids=check_missing_ids,
+            osu_api_client=self.osu_api_client,
         )
+
         worker.signals.progress.connect(self.update_progress_bar)
         worker.signals.log.connect(self.append_log)
         worker.signals.finished.connect(self.task_finished)
@@ -2545,7 +2710,7 @@ class MainWindow(QWidget):
             QMessageBox.warning(
                 self,
                 "Error",
-                "Please specify osu! folder and profile input (URL/ID/Username).",
+                "Please specify osu! folder and profile input (URL/ID/Username)",
             )
             self.top_completed.set()
             return
@@ -2554,7 +2719,7 @@ class MainWindow(QWidget):
             QMessageBox.warning(
                 self,
                 "Error",
-                "No API client configured. Please set up your API keys first.",
+                "No API client configured. Please set up your API keys first",
             )
             self.top_completed.set()
             return
@@ -2571,7 +2736,7 @@ class MainWindow(QWidget):
             game_dir,
             identifier,
             lookup_key,
-            osu_api_client=self.osu_api_client,                   
+            osu_api_client=self.osu_api_client,
         )
         worker.signals.log.connect(self.append_log)
         worker.signals.progress.connect(self.update_progress_bar)
@@ -2581,8 +2746,9 @@ class MainWindow(QWidget):
 
     @Slot()
     def top_finished(self):
+        logger.info("Potential top generation stage completed")
         self.progress_bar.setValue(85)
-        self.current_task = "Potential top created"
+        self.current_task = "Potential top generation stage completed"
         self.status_label.setText(self.current_task)
         self.top_completed.set()
 
@@ -2602,7 +2768,7 @@ class MainWindow(QWidget):
 
         if not user_input:
             QMessageBox.warning(
-                self, "Error", "Please specify profile input (URL/ID/Username)."
+                self, "Error", "Please specify profile input (URL/ID/Username)"
             )
             self.img_completed.set()
             return
@@ -2611,7 +2777,7 @@ class MainWindow(QWidget):
             QMessageBox.warning(
                 self,
                 "Error",
-                "No API client configured. Please set up your API keys first.",
+                "No API client configured. Please set up your API keys first",
             )
             self.img_completed.set()
             return
@@ -2643,7 +2809,7 @@ class MainWindow(QWidget):
         ):
             try:
                 if not osu_api_client:
-                    error_msg = "No API client provided."
+                    error_msg = "No API client provided"
                     QtCore.QMetaObject.invokeMethod(
                         self,
                         "img_error",
@@ -2669,7 +2835,7 @@ class MainWindow(QWidget):
 
                 user_data = osu_api_client.user_osu(user_id_or_name, key_type)
                 if not user_data:
-                    error_msg = f"Failed to get user data '{user_id_or_name}' (type: {key_type})."
+                    error_msg = f"Failed to get user data '{user_id_or_name}' (type: {key_type})"
                     QtCore.QMetaObject.invokeMethod(
                         self,
                         "img_error",
@@ -2777,9 +2943,10 @@ class MainWindow(QWidget):
 
     @Slot()
     def img_finished(self):
-        self.append_log("Images created (in 'results' folder).", False)
+        logger.info("Image creation stage completed")
+        self.append_log("Images created (in 'results' folder)", False)
         self.progress_bar.setValue(100)
-        self.current_task = "Images created"
+        self.current_task = "Image creation stage completed"
         self.status_label.setText(self.current_task)
         self.img_completed.set()
 
@@ -2937,7 +3104,7 @@ class MainWindow(QWidget):
                 return
 
         self.append_log(
-            "osu! folder not found automatically. Please specify path manually.", False
+            "osu! folder not found automatically. Please specify path manually", False
         )
 
     def open_api_dialog(self):
@@ -2975,22 +3142,22 @@ class MainWindow(QWidget):
                             QMessageBox.information(
                                 self,
                                 "Success",
-                                "API keys have been removed successfully.",
+                                "API keys have been removed successfully",
                             )
-                                                              
+
                             OsuApiClient.reset_instance()
                             self.osu_api_client = None
                         else:
                             logger.error("Failed to delete API keys from keyring")
                             QMessageBox.critical(
-                                self, "Error", "Failed to remove API keys."
+                                self, "Error", "Failed to remove API keys"
                             )
 
                 else:
                     QMessageBox.warning(
                         self,
                         "Empty API Keys",
-                        "API keys cannot be empty. Please enter valid Client ID and Client Secret.",
+                        "API keys cannot be empty. Please enter valid Client ID and Client Secret",
                     )
                 return
 
@@ -2998,25 +3165,24 @@ class MainWindow(QWidget):
                 QMessageBox.warning(
                     self,
                     "Incomplete API Keys",
-                    "Both Client ID and Client Secret are required.",
+                    "Both Client ID and Client Secret are required",
                 )
                 return
 
             if OsuApiClient.save_keys_to_keyring(client_id, client_secret):
-                logger.info("API keys successfully saved to keyring")
+                logger.debug("API keys successfully saved to keyring")
 
                 from config import (
-                    CACHE_DIR,
                     API_RATE_LIMIT,
                     API_RETRY_COUNT,
                     API_RETRY_DELAY,
+                    CACHE_DIR,
                 )
 
                 token_cache_path = os.path.join(CACHE_DIR, "token_cache.json")
                 md5_cache_path = os.path.join(CACHE_DIR, "md5_cache.json")
 
                 try:
-                                                                                              
                     self.osu_api_client = OsuApiClient.get_instance(
                         client_id=client_id,
                         client_secret=client_secret,
@@ -3027,14 +3193,17 @@ class MainWindow(QWidget):
                         api_retry_delay=API_RETRY_DELAY,
                     )
 
-                                          
-                    logger.debug("Attempting to validate API token with new credentials")
+                    logger.debug(
+                        "Attempting to validate API token with new credentials"
+                    )
                     token = self.osu_api_client.token_osu()
                     if token:
-                        logger.info("API token successfully obtained with new credentials")
+                        logger.info(
+                            "API token successfully obtained with new credentials"
+                        )
 
-                                                            
                         from file_parser import file_parser
+
                         file_parser.reset_in_memory_caches(self.osu_api_client)
 
                         QMessageBox.information(
@@ -3044,11 +3213,13 @@ class MainWindow(QWidget):
                         )
                         logger.info("OsuApiClient instance updated with new API keys")
                     else:
-                        logger.warning("Failed to obtain API token with new credentials")
+                        logger.warning(
+                            "Failed to obtain API token with new credentials"
+                        )
                         QMessageBox.warning(
                             self,
                             "Warning",
-                            "API keys saved, but failed to obtain authentication token. Please check your credentials.",
+                            "API keys saved, but failed to obtain authentication token. Please check your credentials",
                         )
                 except Exception as e:
                     logger.error(f"Error updating API client: {e}")
@@ -3057,14 +3228,48 @@ class MainWindow(QWidget):
                     )
             else:
                 QMessageBox.critical(
-                    self, "Error", "Failed to save API keys to system keyring."
+                    self, "Error", "Failed to save API keys to system keyring"
                 )
+
+    def open_settings_dialog(self):
+        settings_dialog = SettingsDialog(self, self.config)
+        result = settings_dialog.exec()
+
+        if result == QDialog.DialogCode.Accepted:
+                                      
+            self.config["include_unranked"] = (
+                settings_dialog.include_unranked_checkbox.isChecked()
+            )
+            self.config["show_lost"] = settings_dialog.show_lost_checkbox.isChecked()
+            self.config["check_missing_ids"] = (
+                settings_dialog.check_missing_ids_checkbox.isChecked()
+            )
+            self.config["clean_scan"] = settings_dialog.clean_scan_checkbox.isChecked()
+
+                                                                                                 
+            self.include_unranked_checkbox.setChecked(self.config["include_unranked"])
+            self.show_lost_checkbox.setChecked(self.config["show_lost"])
+            self.check_missing_ids_checkbox.setChecked(self.config["check_missing_ids"])
+            self.clean_scan_checkbox.setChecked(self.config["clean_scan"])
+
+                                 
+            self.save_config()
 
 
 def create_gui(osu_api_client=None):
     app = QApplication.instance()
     if app is None:
         app = QApplication(sys.argv)
+
+                                                        
+    if os.path.exists(APP_ICON_PATH):
+        app_icon = QIcon(APP_ICON_PATH)
+        app.setWindowIcon(app_icon)
+        logger.info("Application icon set successfully")
+    else:
+        logger.warning(
+            f"Application icon not found at: {mask_path_for_log(APP_ICON_PATH)}"
+        )
 
     font_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "fonts"
@@ -3083,11 +3288,10 @@ def create_gui(osu_api_client=None):
     qss = load_qss()
     if qss:
         app.setStyleSheet(qss)
-        logger.debug("QSS styles SUCCESSFULLY applied to QApplication.")
+        logger.debug("QSS styles SUCCESSFULLY applied to QApplication")
     else:
-        logger.debug("QSS styles WERE NOT applied (content empty or loading error).")
+        logger.debug("QSS styles WERE NOT applied (content empty or loading error)")
 
-                                                                                                   
     window = MainWindow(osu_api_client)
     window.show()
     return window
@@ -3108,9 +3312,9 @@ if __name__ == "__main__":
     qss = load_qss()
     if qss:
         app.setStyleSheet(qss)
-        logger.debug("QSS styles SUCCESSFULLY applied to QApplication (from __main__).")
+        logger.debug("QSS styles SUCCESSFULLY applied to QApplication (from __main__)")
     else:
-        logger.debug("QSS styles WERE NOT applied (from __main__).")
+        logger.debug("QSS styles WERE NOT applied (from __main__)")
 
     window = create_gui()
     sys.exit(app.exec())
