@@ -1,349 +1,119 @@
+
 import calendar
 import csv
 import datetime
 import logging
 import os
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import requests
+from concurrent.futures import ThreadPoolExecutor
 
-from config import (
-    CSV_DIR,
-    CUTOFF_DATE,
-    IO_THREAD_POOL_SIZE,
-    MAP_DOWNLOADS_LOG_FILE,
-    MAPS_DIR,
-    REPLAY_ISSUES_LOG_FILE,
-    THREAD_POOL_SIZE,
+from app_config import CSV_DIR, CUTOFF_DATE, IO_THREAD_POOL_SIZE, RESULTS_DIR, MAPS_DIR
+from database import db_get_map, db_init, db_update_from_api, db_upsert_from_scan
+from file_parser import file_parser
+from generate_image import create_summary_badge
+from path_utils import mask_path_for_log
+from utils import (
+    process_in_batches,
+    track_parallel_progress,
 )
-from database import db_get, db_init, db_save
-from file_parser import FileParser
-from utils import mask_path_for_log, process_in_batches, track_parallel_progress
 
-file_parser = FileParser()
 logger = logging.getLogger(__name__)
+asset_downloads_logger = logging.getLogger("asset_downloads")
 
-
-def batch_process_beatmap_statuses(
-    beatmap_ids,
-    osu_api_client,
-    include_unranked=False,
-    gui_log=None,
-    progress_callback=None,
-    base_progress=60,
-    check_missing_ids=False,
-):
-    if not beatmap_ids:
-        return {}
-
-    logger.debug(f"Batch processing {len(beatmap_ids)} unique beatmaps")
-
-    def process_db_beatmap(beatmap_id):
-        db_info = db_get(beatmap_id)
-
-        need_api_update = False
-                                                                               
-                                         
-        if not include_unranked:
-            if not db_info or db_info.get("status") == "unknown":
-                need_api_update = True
-        elif not db_info:
-            need_api_update = check_missing_ids
-
-        return {
-            "beatmap_id": beatmap_id,
-            "db_info": db_info,
-            "need_api_update": need_api_update,
-        }
-
-    db_results = {}
-    ids_to_fetch = set()
-
-    with ThreadPoolExecutor(max_workers=THREAD_POOL_SIZE) as executor:
-        future_to_beatmap = {
-            executor.submit(process_db_beatmap, bid): bid for bid in beatmap_ids
-        }
-
-        completed = 0
-        total = len(beatmap_ids)
-
-        for future in as_completed(future_to_beatmap):
-            completed += 1
-
-            try:
-                result = future.result()
-                beatmap_id = result["beatmap_id"]
-
-                if result["need_api_update"]:
-                                                                                             
-                                                                                      
-                    if not include_unranked:
-                        ids_to_fetch.add(beatmap_id)
-                    else:
-                        db_results[beatmap_id] = result["db_info"]
-                else:
-                    db_results[beatmap_id] = result["db_info"]
-
-                                                                               
-                                                                                  
-                if not result["need_api_update"] and beatmap_id not in db_results:
-                    db_results[beatmap_id] = (
-                        result["db_info"] if result["db_info"] else {}
-                    )
-
-                if completed % 10 == 0 or completed == total:
-                    if progress_callback:
-                        progress_callback(
-                            base_progress + int((completed / total) * 10), 100
-                        )
-            except Exception as e:
-                logger.error(f"Error processing database entry: {e}")
-
-    if ids_to_fetch:
-        logger.info(f"Need to fetch {len(ids_to_fetch)} beatmaps from API")
-        if gui_log:
-            gui_log(
-                f"Need to fetch {len(ids_to_fetch)} beatmaps from API", update_last=True
-            )
-
-        def process_api_beatmap(beatmap_id):
-            try:
-                info_api = osu_api_client.map_osu(beatmap_id)
-
-                if info_api and isinstance(info_api, dict) and "status" in info_api:
-                                                           
-                    bset_id = None
-                    if "beatmapset" in info_api and isinstance(
-                        info_api["beatmapset"], dict
-                    ):
-                        bset_id = info_api["beatmapset"].get("id")
-
-                    db_save(
-                        beatmap_id,
-                        info_api["status"],
-                        info_api["artist"],
-                        info_api["title"],
-                        info_api["version"],
-                        info_api["creator"],
-                        info_api.get("hit_objects", 0),
-                        bset_id,
-                    )
-                    return {"beatmap_id": beatmap_id, "info": info_api}
-                else:
-                    db_info = {
-                        "status": "not_found",
-                        "artist": "",
-                        "title": "",
-                        "version": "",
-                        "creator": "",
-                        "hit_objects": 0,
-                        "beatmapset_id": None,
-                    }
-                    db_save(
-                        beatmap_id,
-                        db_info["status"],
-                        db_info["artist"],
-                        db_info["title"],
-                        db_info["version"],
-                        db_info["creator"],
-                        0,
-                        None,
-                    )
-                    return {"beatmap_id": beatmap_id, "info": db_info}
-
-            except Exception as e:
-                logger.error(f"Error fetching API data for beatmap {beatmap_id}: {e}")
-                return {"beatmap_id": beatmap_id, "error": True}
-
-        api_max_workers = min(5, THREAD_POOL_SIZE)
-        total_api = len(ids_to_fetch)
-
-        with ThreadPoolExecutor(max_workers=api_max_workers) as executor:
-            future_to_api = {
-                executor.submit(process_api_beatmap, bid): bid for bid in ids_to_fetch
-            }
-
-            api_results = track_parallel_progress(
-                future_to_api,
-                total_api,
-                progress_callback=progress_callback,
-                gui_log=gui_log,
-                progress_message="Fetching data for map",
-                start_progress=base_progress + 10,
-                progress_range=10,
-                update_every=1,                                
-            )
-
-            for result in api_results:
-                if result and "error" not in result and "beatmap_id" in result:
-                    beatmap_id = result["beatmap_id"]
-                    db_results[beatmap_id] = result["info"]
-
-    return db_results
-
-
-def find_lost_scores(scores):
+def find_lost_scores(scores, cutoff_date):
+    
     if not scores:
         logger.warning("Empty score list in find_lost_scores")
-        return []
+        return [], 0
 
     logger.debug("find_lost_scores received %d scores for analysis", len(scores))
 
-                                                                                  
-                              
-    batch_size = min(2000, len(scores))
-
     def validate_and_preprocess_score(rec):
         try:
-            if not isinstance(rec, dict):
-                logger.warning("Score is not a dictionary: %s", type(rec))
+            if not isinstance(rec, dict) or not all(
+                    required_key in rec for required_key in ["mods", "pp", "total_score", "score_time"]):
                 return None
-
-            if "beatmap_id" not in rec or rec["beatmap_id"] is None:
-                logger.debug("Skipping score due to missing beatmap_id: %s", rec)
-                return None
-
-            if not all(key in rec for key in ["mods", "pp", "total_score"]):
-                logger.warning(
-                    "Score does not contain all required keys: %s", rec.keys()
-                )
-                return None
-
             rec_copy = rec.copy()
-
-            try:
-                rec_copy["pp_float"] = float(rec_copy["pp"])
-            except (ValueError, TypeError):
-                logger.warning("Failed to convert PP to number: %s", rec_copy.get("pp"))
-                rec_copy["pp_float"] = 0.0
-
-            try:
-                rec_copy["total_int"] = int(rec_copy["total_score"])
-            except (ValueError, TypeError):
-                logger.warning(
-                    "Failed to convert total_score to number: %s",
-                    rec_copy.get("total_score"),
-                )
-                rec_copy["total_int"] = 0
-
+            rec_copy["pp_float"] = float(rec.get("pp", 0.0))
+            rec_copy["total_int"] = int(rec.get("total_score", 0))
+            map_identifier = rec.get("beatmap_md5")
+            rec_copy["map_identifier"] = map_identifier
+            if not map_identifier:
+                return None
+            rec_copy["timestamp"] = calendar.timegm(time.strptime(rec["score_time"], "%d-%m-%Y %H-%M-%S"))
             return rec_copy
-        except Exception as e:
-            logger.warning("Error checking score: %s", e)
+        except (ValueError, TypeError) as e:
+            logger.warning("Could not preprocess score, skipping. Score: %s, Error: %s", rec, e)
             return None
 
-                                                                       
     max_workers = min(IO_THREAD_POOL_SIZE, max(4, os.cpu_count() or 8))
-
     processed_scores = process_in_batches(
         scores,
-        batch_size=batch_size,
+        batch_size=min(2000, len(scores)),
         max_workers=max_workers,
         process_func=validate_and_preprocess_score,
     )
-
     valid_scores = [score for score in processed_scores if score is not None]
 
-    if not valid_scores:
-        logger.warning("No valid scores for analysis")
-        return []
+    groups_by_mod = {}
+    scores_by_map = {}
 
-                                                                
-    groups = {}
-    for rec in valid_scores:
-        try:
-            key = (rec["beatmap_id"], tuple(rec["mods"]))
-            groups.setdefault(key, []).append(rec)
-        except Exception as e:
-            logger.warning("Error grouping score: %s", e)
+    for score_record in valid_scores:
+        key = (score_record["map_identifier"], tuple(sorted(score_record.get("mods", []))))
+        groups_by_mod.setdefault(key, []).append(score_record)
+        scores_by_map.setdefault(score_record["map_identifier"], []).append(score_record)
+
+    preliminary_lost_scores = []
+    total_candidates_found = 0
+
+    for group_key, group_scores in groups_by_mod.items():
+        if len(group_scores) < 2:
             continue
 
-                                                        
-    possible_lost = {}
-
-                                                                               
-    def process_batch_of_groups(batch_items):
-        batch_results = []
-
-        for key, recs in batch_items:
-            try:
-                if len(recs) < 2:
-                    continue
-
-                best_pp = max(recs, key=lambda s: s["pp_float"])
-                best_total = max(recs, key=lambda s: s["total_int"])
-
-                if not all(k in best_pp for k in ["total_score", "pp", "beatmap_id"]):
-                    logger.warning("best_pp does not contain required keys")
-                    continue
-
-                if not all(k in best_total for k in ["total_score", "pp"]):
-                    logger.warning("best_total does not contain required keys")
-                    continue
-
-                pp_better = best_pp["pp_float"] > best_total["pp_float"]
-                score_worse = best_pp["total_int"] < best_total["total_int"]
-
-                if score_worse and pp_better:
-                    batch_results.append((best_pp["beatmap_id"], best_pp))
-            except Exception as e:
-                logger.warning(f"Error processing score group: {e}")
-
-        return batch_results
-
-                                                           
-    groups_list = list(groups.items())
-    groups_batch_size = min(500, max(50, len(groups_list) // max_workers))
-
-                                
-    groups_batches = [
-        groups_list[i : i + groups_batch_size]
-        for i in range(0, len(groups_list), groups_batch_size)
-    ]
-
-                                          
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        batch_results_list = list(executor.map(process_batch_of_groups, groups_batches))
-
-                                        
-    for batch_results in batch_results_list:
-        for bid, score in batch_results:
-            possible_lost.setdefault(bid, []).append(score)
-
-                                        
-    map_scores = {}
-    for rec in valid_scores:
-        map_scores.setdefault(rec["beatmap_id"], []).append(rec)
-
-                                  
-    lost_results = []
-
-    for bid, candidates in possible_lost.items():
         try:
-            if not candidates:
+            candidate_score = max(group_scores, key=lambda s: s["pp_float"])
+
+            best_score_overall_in_group = max(group_scores, key=lambda s: s["total_int"])
+            if candidate_score is not best_score_overall_in_group and candidate_score["pp_float"] > \
+                    best_score_overall_in_group["pp_float"]:
+                total_candidates_found += 1
+
+            scores_in_valid_range = [s for s in group_scores if s["timestamp"] < cutoff_date]
+            if not scores_in_valid_range:
                 continue
 
-            candidate = max(candidates, key=lambda s: s["pp_float"])
-            all_scores = map_scores.get(bid, [])
+            best_score_play_in_range = max(scores_in_valid_range, key=lambda s: s["total_int"])
 
-            if not all_scores:
+            if candidate_score is best_score_play_in_range:
                 continue
 
-            best_score = max(all_scores, key=lambda s: s["pp_float"])
+            pp_is_better = candidate_score["pp_float"] > best_score_play_in_range["pp_float"]
+            score_is_worse = candidate_score["total_int"] < best_score_play_in_range["total_int"]
 
-            if candidate["pp_float"] >= best_score["pp_float"]:
-                lost_results.append(candidate)
-        except Exception as e:
-            logger.warning(f"Error processing potentially lost score: {e}")
+            if pp_is_better and score_is_worse and candidate_score["timestamp"] < cutoff_date:
+                preliminary_lost_scores.append(candidate_score)
+        except (KeyError, ValueError, TypeError) as group_exc:
+            logger.warning(f"Error processing score group {group_key}: {group_exc}")
 
-                          
-    try:
-        lost_results.sort(key=lambda s: s["pp_float"], reverse=True)
-    except Exception as e:
-        logger.warning(f"Error sorting results: {e}")
+    final_lost_results = []
+    for candidate in preliminary_lost_scores:
+        map_id = candidate["map_identifier"]
+        all_scores_on_map = scores_by_map.get(map_id, [])
+        if not all_scores_on_map:
+            continue
 
-    return lost_results
+        true_best_pp_on_map = max(all_scores_on_map, key=lambda s: s["pp_float"])
 
+        if candidate is true_best_pp_on_map:
+            final_lost_results.append(candidate)
 
-def parse_top(raw, osu_api_client):
+    final_lost_results.sort(key=lambda s: s["pp_float"], reverse=True)
+
+    return final_lost_results, total_candidates_found
+
+def parse_top(raw):
+    
     calc_acc = file_parser.get_calc_acc()
 
     def format_date(iso_str):
@@ -352,17 +122,27 @@ def parse_top(raw, osu_api_client):
         try:
             dt = datetime.datetime.strptime(iso_str, "%Y-%m-%dT%H:%M:%SZ")
             return dt.strftime("%d-%m-%Y %H-%M-%S")
-        except Exception:
+        except (ValueError, TypeError):
             return iso_str
 
     def process_score(score):
         try:
-            s_id = score.get("id", "")
-            created_raw = score.get("created_at", "")
-            created = format_date(created_raw)
-            pp_val = round(float(score.get("pp", 0)))
-            total = score.get("score", 0)
-            mods = score.get("mods", [])
+            beatmap_api_data = score.get("beatmap", {})
+            beatmap_id = beatmap_api_data.get("id")
+            if beatmap_id is None:
+                return None
+
+            map_db_data = db_get_map(beatmap_id, by="id")
+
+            final_map_data = {}
+            if map_db_data:
+                final_map_data.update(map_db_data)
+
+            final_map_data.update(score.get("beatmapset", {}))
+            final_map_data.update(beatmap_api_data)
+
+            full_name = f"{final_map_data.get('artist', '')} - {final_map_data.get('title', '')} ({final_map_data.get('creator', '')}) [{final_map_data.get('version', '')}]"
+
             stats = score.get("statistics", {})
             c100 = stats.get("count_100", 0)
             c50 = stats.get("count_50", 0)
@@ -370,39 +150,25 @@ def parse_top(raw, osu_api_client):
             c300 = stats.get("count_300", 0)
             acc = calc_acc(c300, c100, c50, cmiss)
 
-            beatmap = score.get("beatmap", {})
-            beatmapset = score.get("beatmapset", {})
-            bid = beatmap.get("id")
-            if bid is None:
-                return None
-
-            artist = beatmapset.get("artist", "")
-            title = beatmapset.get("title", "")
-            creator = beatmapset.get("creator", "")
-            version = beatmap.get("version", "")
-            full_name = f"{artist} - {title} ({creator}) [{version}]"
-
-            status = beatmap.get("status", "unknown")
-            rank = score.get("rank", "")
-
             return {
-                "Score ID": s_id,
-                "PP": pp_val,
-                "Beatmap ID": bid,
+                "Score ID": score.get("id", ""),
+                "PP": round(float(score.get("pp", 0))),
+                "Beatmap ID": beatmap_id,
+                "Beatmap MD5": final_map_data.get("md5_hash", ""),
                 "Beatmap": full_name,
-                "Mods": ", ".join(mods) if mods else "NM",
-                "Score": total,
+                "Mods": ", ".join(score.get("mods", [])) if score.get("mods") else "NM",
+                "Score": score.get("score", 0),
                 "100": c100,
                 "50": c50,
                 "Misses": cmiss,
-                "Status": status,
+                "Status": final_map_data.get("status", "unknown"),
                 "Accuracy": acc,
-                "Score Date": created,
-                "total_score": total,
-                "Rank": rank,
+                "Score Date": format_date(score.get("created_at", "")),
+                "total_score": score.get("score", 0),
+                "Rank": score.get("rank", ""),
             }
-        except Exception as e:
-            logger.exception("Error in top result: %s", e)
+        except (ValueError, TypeError, KeyError) as e:
+            logger.exception("Error processing single top score: %s", e)
             return None
 
     processed_scores = process_in_batches(
@@ -411,599 +177,526 @@ def parse_top(raw, osu_api_client):
         max_workers=IO_THREAD_POOL_SIZE,
         process_func=process_score,
     )
-
     parsed = [score for score in processed_scores if score is not None]
-
     return parsed
 
-
 def calc_weight(data):
+    
     ranked = sorted(data, key=lambda x: x["PP"], reverse=True)
     for i, entry in enumerate(ranked):
-        mult = 0.95**i
+        mult = 0.95 ** i
         entry["weight_%"] = round(mult * 100, 2)
         entry["weight_PP"] = round(entry["PP"] * mult, 2)
     return ranked
 
+def announce_phase_start(phase_key, phase_definitions, gui_log, phase_logger):
+    
+    phase_info = phase_definitions.get(phase_key)
+    user_title = phase_info.get("user_title")
+    technical_name = phase_info.get("name", phase_key)
 
-def save_csv(filename, data, extra=None, fields=None):
-    if not data:
-        return
-    cols = fields if fields else list(data[0].keys())
-    with open(filename, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=cols)
-        writer.writeheader()
-        for row in data:
-            writer.writerow({k: row.get(k, "") for k in cols})
-        if extra:
-            for row in extra:
-                writer.writerow({k: row.get(k, "") for k in cols})
-
+    if gui_log:
+        gui_log(user_title, update_last=True)
+        gui_log(user_title, update_last=False)
+    if phase_logger:
+        phase_logger.info(f"--- {technical_name} ---")
 
 def scan_replays(
-    game_dir,
-    user_identifier,
-    lookup_key,
-    progress_callback=None,
-    gui_log=None,
-    include_unranked=False,
-    check_missing_ids=False,
-    osu_api_client=None,
+        game_dir,
+        user_identifier,
+        lookup_key,
+        progress_callback=None,
+        progress_logger=None,
+        gui_log=None,
+        include_unranked=False,
+        check_missing_ids=False,
+        osu_api_client=None,
 ):
+    
     if not osu_api_client:
         raise ValueError("API client not provided")
 
+    summary_stats = {
+        "maps_to_resolve": 0,
+        "maps_resolved": 0,
+        "maps_downloaded": 0,
+        "maps_not_found_resolve": 0,
+    }
+    phase_definitions = {
+        "init": {
+            "name": "Initialization",
+            "user_title": "Initializing...",
+            "weight": 1,
+        },
+        "osu_scan": {
+            "name": "Scanning .osu files",
+            "user_title": "Scanning beatmap files...",
+            "weight": 15,
+        },
+        "osr_parse": {
+            "name": "Parsing local replays",
+            "user_title": "Parsing local replays...",
+            "weight": 5,
+        },
+        "resolve_missing": {
+            "name": "Resolving missing maps",
+            "user_title": "Resolving missing maps...",
+            "weight": 20,
+        },
+        "precache_top": {
+            "name": "Pre-caching top scores",
+            "user_title": "Pre-caching top scores...",
+            "weight": 2,
+        },
+        "pp_calc": {
+            "name": "Calculating PP",
+            "user_title": "Calculating PP...",
+            "weight": 40,
+        },
+        "find_lost": {
+            "name": "Finding lost scores",
+            "user_title": "Finding lost scores...",
+            "weight": 2,
+        },
+        "deferred_lookup": {
+            "name": "Deferred map lookup",
+            "user_title": "Looking up map details...",
+            "weight": 8,
+        },
+        "validate_status": {
+            "name": "Validating map statuses",
+            "user_title": "Validating map statuses...",
+            "weight": 7,
+        },
+        "saving": {
+            "name": "Saving results",
+            "user_title": "Saving results...",
+            "weight": 1,
+        },
+    }
+
+    progress_map = {}
+
+    def report_progress(phase_key, current, total):
+        if progress_callback and total > 0:
+            base, range_percentage = progress_map.get(phase_key, (0, 0))
+            overall_progress = base + (current / total) * range_percentage
+            progress_callback(int(overall_progress), 100)
+
     if progress_callback:
         progress_callback(0, 100)
-    if gui_log:
-        gui_log("Initializing...", update_last=True)
 
-    logger.debug(
-        "scan_replays called with: game_dir=%s, user_identifier=%s, lookup_key=%s, include_unranked=%s",
-        mask_path_for_log(game_dir),
-        user_identifier,
-        lookup_key,
-        include_unranked,
-    )
-
-    if not os.path.isdir(game_dir):
-        error_msg = f"Game directory does not exist: {mask_path_for_log(game_dir)}"
-        logger.error("Game directory does not exist: %s", mask_path_for_log(game_dir))
-        if gui_log:
-            gui_log(error_msg, False)
-        raise ValueError(error_msg)
+    announce_phase_start("init", phase_definitions, gui_log, phase_logger=logger)
 
     songs = os.path.join(game_dir, "Songs")
-    replays = os.path.join(game_dir, "Data", "r")
+    replays_dir = os.path.join(game_dir, "Data", "r")
+    if not os.path.isdir(songs) or not os.path.isdir(replays_dir):
+        error_msg = f"Game directory '{mask_path_for_log(game_dir)}' is invalid or missing Songs/Data/r folders"
+        if gui_log:
+            gui_log(error_msg, update_last=False)
+        raise ValueError(error_msg)
 
     file_parser.set_osu_base_path(game_dir)
-
-    if not os.path.isdir(songs):
-        error_msg = f"Songs directory not found: {mask_path_for_log(songs)}"
-        logger.error("Songs directory not found: %s", mask_path_for_log(songs))
-        if gui_log:
-            gui_log(error_msg, False)
-        raise ValueError(error_msg)
-
-    logger.info("Starting .osu file scan in: %s", mask_path_for_log(songs))
-
-    if not os.path.isdir(replays):
-        error_msg = f"Replays directory not found: {mask_path_for_log(replays)}"
-        logger.error("Replays directory not found: %s", mask_path_for_log(replays))
-        if gui_log:
-            gui_log(error_msg, False)
-        raise ValueError(error_msg)
-
-    try:
-        db_init()
-    except Exception as e:
-        error_msg = f"Database initialization error: {e}"
-        logger.exception("Database initialization error:")
-        if gui_log:
-            gui_log(error_msg, False)
-        raise
+    db_init()
 
     try:
         user_json = osu_api_client.user_osu(user_identifier, lookup_key)
         if not user_json:
-            error_msg = f"Error: Failed to get user data '{user_identifier}' (type: {lookup_key})"
-            logger.error(
-                "Error: Failed to get user data '%s' (type: %s)",
-                user_identifier,
-                lookup_key,
-            )
-
-            if gui_log:
-                gui_log(error_msg, False)
             raise ValueError(f"User not found: {user_identifier}")
-
-        username = user_json["username"]
-        user_id = user_json["id"]
-
-        profile_link = f"https://osu.ppy.sh/users/{user_id}"
-        logger.debug("User found: %s (ID: %s)", username, user_id)
+        username, user_id = user_json["username"], user_json["id"]
         if gui_log:
-            gui_log(f"User found: {username} ({profile_link})", False)
-    except Exception as e:
-        error_msg = f"Error getting user data: {e}"
-        logger.exception("Error getting user data:")
+            gui_log(
+                f"User found: {username} (https://osu.ppy.sh/users/{user_id})", False
+            )
+    except requests.exceptions.RequestException as e:
+        logger.exception("Failed to get user data for %s", user_identifier)
         if gui_log:
-            gui_log(error_msg, False)
+            gui_log(f"Error getting user data: {e}", False)
         raise
 
-    gui_log("Scanning .osu files in Songs: 0%", update_last=True)
-    last_songs_update = {"time": 0}
+    start_time = time.time()
+    all_replay_files = [f for f in os.listdir(replays_dir) if f.endswith(".osr")]
+    summary_stats["total_replays"] = len(all_replay_files)
 
-    def update_songs(curr, tot):
-        now = time.time()
-        if now - last_songs_update["time"] >= 1 or curr == tot:
-            last_songs_update["time"] = now
-            pct = int((curr / tot) * 100)
-            if gui_log:
-                gui_log(f"Scanning .osu files in Songs: {pct}%", update_last=True)
+    all_possible_phases = [
+        "osu_scan",
+        "osr_parse",
+        "resolve_missing",
+        "precache_top",
+        "pp_calc",
+        "deferred_lookup",
+        "validate_status",
+    ]
 
-            if progress_callback:
-                progress_callback(int(pct * 0.1), 100)
+    total_weight = sum(phase_definitions[p]["weight"] for p in all_possible_phases)
+    current_progress_base = 0
+    for key in all_possible_phases:
+        weight = phase_definitions[key]["weight"]
+        percentage = (weight / total_weight) * 100 if total_weight > 0 else 0
+        progress_map[key] = (current_progress_base, percentage)
+        current_progress_base += percentage
 
-    md5_map = file_parser.find_osu(songs, progress_callback=update_songs)
+    all_replay_files = [f for f in os.listdir(replays_dir) if f.endswith(".osr")]
+    summary_stats["total_replays"] = len(all_replay_files)
 
-    if progress_callback:
-        progress_callback(10, 100)
+    announce_phase_start("osu_scan", phase_definitions, gui_log, phase_logger=logger)
 
-    gui_log("Scanning .osu files in Songs: 100%", update_last=True)
-    gui_log(f"{len(md5_map)} osu files found in Songs", update_last=False)
-    cutoff = CUTOFF_DATE
-
-    rep_files = [f for f in os.listdir(replays) if f.endswith(".osr")]
-    total_rep = len(rep_files)
-    gui_log(f"Processed 0/{total_rep} replays", update_last=True)
-
-    logger.info(
-        "Starting .osr file scan in: %s for user: %s",
-        mask_path_for_log(replays),
-        username,
+    phase_key_osu_scan = "osu_scan"
+    file_parser.find_osu(
+        songs,
+        progress_callback=lambda c, t: report_progress(phase_key_osu_scan, c, t),
+        gui_log=gui_log,
+        progress_logger=progress_logger,
     )
 
-    start = time.time()
-
-    if gui_log:
-        gui_log("Phase 1: Preliminary scanning of replays...", update_last=False)
-
-    replay_data_list = []
-
-    md5_to_lookup = set()
-
-    count = 0
-    last_replay_update = {"time": 0}
-    replay_errors_count = 0
-
-    def update_replay_phase1(curr, tot):
-        if progress_callback:
-            progress_callback(10 + int((curr / tot) * 20), 100)
-
+    announce_phase_start("osr_parse", phase_definitions, gui_log, phase_logger=logger)
+    phase_key_osr_parse = "osr_parse"
     with ThreadPoolExecutor(max_workers=IO_THREAD_POOL_SIZE) as executor:
         futures = {
             executor.submit(
-                file_parser.parse_osr_info, os.path.join(replays, f), username
+                file_parser.parse_osr_info, os.path.join(replays_dir, f), username
             ): f
-            for f in rep_files
+            for f in all_replay_files
         }
+        all_replay_data = [
+            r
+            for r in track_parallel_progress(
+                futures,
+                len(all_replay_files),
+                progress_callback=lambda c, t: report_progress(
+                    phase_key_osr_parse, c, t
+                ),
+                gui_log=gui_log,
+                progress_logger=logger,
+                log_interval_sec=5,
+                progress_message="Parsing .osr files",
+                gui_update_step=1000,
+            )
+            if r
+        ]
 
-        for fut in as_completed(futures):
-            count += 1
-            update_replay_phase1(count, total_rep)
-            osr_filename = futures[fut]
+    summary_stats["parsed_replays"] = len(all_replay_data)
+    replays_with_osu, replays_missing_osu = [], []
+    for r_data in all_replay_data:
+        if r_data.get("beatmap_md5") and db_get_map(
+                r_data.get("beatmap_md5"), by="md5"
+        ):
+            replays_with_osu.append(r_data)
+        else:
+            replays_missing_osu.append(r_data)
 
-            try:
-                replay_data = fut.result()
-                if replay_data:
-                    if replay_data["beatmap_md5"] not in md5_map:
-                        if check_missing_ids:
-                            md5_to_lookup.add(replay_data["beatmap_md5"])
+    replays_for_pp_calc = [(r, None) for r in replays_with_osu]
 
-                    replay_data_list.append(replay_data)
-                else:
-                    replay_errors_count += 1
+    announce_phase_start("resolve_missing", phase_definitions, gui_log, phase_logger=logger)
 
-            except Exception as e:
-                replay_issues_logger = logging.getLogger("replay_issues")
-                replay_issues_logger.exception(
-                    "Error in Phase 1 processing replay %s: %s",
-                    mask_path_for_log(osr_filename),
-                    e,
-                )
-                replay_errors_count += 1
+    if check_missing_ids and replays_missing_osu:
+        base_resolve, range_resolve = progress_map.get(
+            "resolve_missing", (current_progress_base, 0)
+        )
+        md5_to_replays_map = {}
+        for r_data in replays_missing_osu:
+            md5 = r_data.get("beatmap_md5")
+            if md5:
+                md5_to_replays_map.setdefault(md5, []).append(r_data)
+
+        unique_md5s_to_process = list(md5_to_replays_map.keys())
+        total_md5s = len(unique_md5s_to_process)
+        summary_stats["maps_to_resolve"] = total_md5s
+        logger.info(f"Resolving {total_md5s} missing maps via API...")
+
+        stats = {"resolved": 0, "downloaded": 0, "not_found": 0}
+        last_log_time = time.time()
+
+        for i, md5 in enumerate(unique_md5s_to_process):
+            report_progress("resolve_missing", i + 1, total_md5s)
+            progress_message = f"Resolving maps {i + 1}/{total_md5s}..."
+            if gui_log:
+                gui_log(progress_message, update_last=True)
 
             now = time.time()
-            if now - last_replay_update["time"] >= 1 or count == total_rep:
-                last_replay_update["time"] = now
-                gui_log(
-                    f"Phase 1: Processed {count}/{total_rep} replays", update_last=True
-                )
+            if now - last_log_time > 60 or (i + 1) == total_md5s:
+                logger.info(progress_message)
+                last_log_time = now
 
-    if replay_errors_count > 0:
-        logger.info(
-            "Replay parsing: Encountered %d errors/warnings. Details in %s",
-            replay_errors_count,
-            mask_path_for_log(REPLAY_ISSUES_LOG_FILE),
-        )
-        if gui_log:
-            gui_log(
-                f"Encountered {replay_errors_count} issues during replay parsing. See log for details",
-                update_last=False,
-            )
-    if gui_log:
-        gui_log(
-            f"Phase 2: Looking up {len(md5_to_lookup)} unique beatmap IDs...",
-            update_last=False,
-        )
-
-    if progress_callback:
-        progress_callback(30, 100)
-
-    md5_results = {}
-
-    if not check_missing_ids:
-        if gui_log:
-            gui_log(
-                "Skipping beatmap ID lookups as 'Check missing beatmap IDs' is disabled",
-                update_last=False,
-            )
-    else:
-        md5_list = list(md5_to_lookup)
-        total_md5 = len(md5_list)
-
-        for i, md5 in enumerate(md5_list):
             try:
-                if gui_log and (i % 1 == 0 or i == total_md5 - 1):
-                    gui_log(
-                        f"Looking up beatmap ID {i + 1}/{total_md5}", update_last=True
+                lookup_result = osu_api_client.lookup_osu(md5)
+                if lookup_result and "beatmap_id" in lookup_result:
+                    stats["resolved"] += 1
+                    beatmap_id = lookup_result["beatmap_id"]
+                    target_save_path = os.path.join(MAPS_DIR, f"beatmap_{beatmap_id}.osu")
+
+                    new_path = osu_api_client.download_osu_file(
+                        beatmap_id, target_save_path
                     )
-
-                if progress_callback:
-                    progress_callback(30 + int((i / total_md5) * 15), 100)
-
-                beatmap_id = osu_api_client.lookup_osu(md5)
-                md5_results[md5] = beatmap_id
-
-            except Exception as e:
-                logger.exception(f"Error looking up MD5 {md5}: {e}")
-                md5_results[md5] = None
-
-    if gui_log:
-        gui_log("Phase 3: Downloading missing .osu files...", update_last=False)
-
-    if progress_callback:
-        progress_callback(45, 100)
-
-    if not check_missing_ids:
-        if gui_log:
-            gui_log(
-                "Skipping .osu file downloads as 'Check missing beatmap IDs' is disabled",
-                update_last=False,
-            )
-    else:
-        download_ids = [bid for md5, bid in md5_results.items() if bid is not None]
-        total_downloads = len(download_ids)
-        downloads_completed = 0
-        download_attempts = 0
-        download_successes = 0
-        download_failures = 0
-        map_downloads_logger = logging.getLogger("map_downloads")
-
-        map_downloads_logger.debug(
-            "Processing %d beatmap MD5 to ID mappings for download", len(md5_results)
-        )
-
-        for i, (md5, beatmap_info) in enumerate(md5_results.items()):
-            if beatmap_info is not None and isinstance(beatmap_info, dict):
-                actual_beatmap_id = beatmap_info.get("id")
-                if actual_beatmap_id:
-                    try:
-                        if gui_log:
-                            downloads_completed += 1
-                            gui_log(
-                                f"Downloading missing maps {downloads_completed}/{total_downloads}",
-                                update_last=True,
-                            )
-
-                        if progress_callback and total_downloads > 0:
-                            progress_callback(
-                                45 + int((downloads_completed / total_downloads) * 15),
-                                100,
-                            )
-
-                        maps_dir_files = [
-                            f for f in os.listdir(MAPS_DIR) if f.endswith(".osu")
-                        ]
-                        found_in_maps = False
-                        osu_file_path_for_md5 = None
-
-                        for maps_file in maps_dir_files:
-                            file_path = os.path.join(MAPS_DIR, maps_file)
-                            try:
-                                file_md5 = file_parser.get_md5(file_path)
-                                if file_md5 == md5:
-                                    osu_file_path_for_md5 = file_path
-                                    map_downloads_logger.info(
-                                        "Found existing .osu file in MAPS_DIR for md5 %s: %s",
-                                        md5,
-                                        mask_path_for_log(osu_file_path_for_md5),
-                                    )
-                                    found_in_maps = True
-                                    break
-                            except Exception as e:
-                                map_downloads_logger.warning(
-                                    f"Error checking file MD5 {mask_path_for_log(file_path)}: {e}"
-                                )
-
-                        if not found_in_maps and md5 in md5_map:
-                            osu_file_path_for_md5 = md5_map[md5]
-                            map_downloads_logger.info(
-                                "Found existing .osu file in Songs for md5 %s: %s",
-                                md5,
-                                mask_path_for_log(osu_file_path_for_md5),
-                            )
-                            found_in_maps = True
-
-                        if not found_in_maps:
-                            download_attempts += 1
-                            new_osu_path = file_parser.download_osu_file(
-                                actual_beatmap_id, osu_api_client
-                            )
-                            if new_osu_path:
-                                download_successes += 1
-                                osu_file_path_for_md5 = new_osu_path
-                                md5_map[md5] = new_osu_path
-                                file_parser.update_osu_md5_cache(new_osu_path, md5)
-                                map_downloads_logger.info(
-                                    "Downloaded new .osu file for beatmap_id %s by md5 %s",
-                                    actual_beatmap_id,
-                                    md5,
-                                )
-                            else:
-                                download_failures += 1
-                                map_downloads_logger.warning(
-                                    f"Download failed for beatmap_id {actual_beatmap_id}"
-                                )
-
-                        if osu_file_path_for_md5 and md5 not in md5_map:
-                            md5_map[md5] = osu_file_path_for_md5
-
-                    except Exception as e:
-                        download_failures += 1
-                        map_downloads_logger.error(
-                            f"Error processing download for beatmap_id {actual_beatmap_id}: {e}"
-                        )
-
-                                              
-        if download_attempts > 0:
-            logger.info(
-                "Map downloads: Attempted to download %d maps (%d succeeded, %d failed). See %s for details",
-                download_attempts,
-                download_successes,
-                download_failures,
-                mask_path_for_log(MAP_DOWNLOADS_LOG_FILE),
-            )
-            if gui_log:
-                gui_log(
-                    f"Downloaded {download_successes} maps ({download_failures} failed)",
-                    update_last=False,
+                    if new_path:
+                        stats["downloaded"] += 1
+                        rel_path = file_parser.to_relative_path(new_path)
+                        update_data = {
+                            "file_path": rel_path,
+                            "last_modified": int(os.path.getmtime(new_path)),
+                            "beatmap_id": lookup_result.get("beatmap_id"),
+                            "beatmapset_id": lookup_result.get("beatmapset_id"),
+                            "artist": lookup_result.get("artist"),
+                            "title": lookup_result.get("title"),
+                            "creator": lookup_result.get("creator"),
+                            "version": lookup_result.get("version"),
+                            "api_status": lookup_result.get("api_status"),
+                            "lookup_status": "found",
+                        }
+                        db_upsert_from_scan(md5, update_data)
+                        for r_data in md5_to_replays_map[md5]:
+                            replays_for_pp_calc.append((r_data, lookup_result))
+                else:
+                    stats["not_found"] += 1
+            except (requests.exceptions.RequestException, IOError, OSError) as e:
+                asset_downloads_logger.exception(
+                    "Failed to resolve/download map for MD5 %s: %s", md5, e
                 )
-    if gui_log:
-        gui_log("Phase 4: Calculating PP values...", update_last=False)
 
-    if progress_callback:
-        progress_callback(60, 100)
+        summary_stats.update(
+            {
+                "maps_resolved": stats["resolved"],
+                "maps_downloaded": stats["downloaded"],
+                "maps_not_found_resolve": stats["not_found"],
+            }
+        )
+        logger.info(
+            f"Missing maps phase finished: {stats['resolved']} resolved, {stats['downloaded']} downloaded, {stats['not_found']} not found"
+        )
+        current_progress_base += range_resolve
+
+    announce_phase_start("precache_top", phase_definitions, gui_log, phase_logger=logger)
+    try:
+        top_scores = osu_api_client.top_osu(user_id, limit=200)
+        if top_scores:
+            unique_maps_to_cache = {
+                (s["beatmap"]["id"], s["beatmapset"]["id"]): (
+                    s["beatmap"],
+                    s["beatmapset"],
+                )
+                for s in top_scores
+                if s.get("beatmap") and s.get("beatmapset")
+            }
+            for beatmap, beatmapset in unique_maps_to_cache.values():
+                beatmap_id = beatmap.get("id")
+                if not beatmap_id:
+                    continue
+
+                map_data_from_db = db_get_map(beatmap_id, by="id")
+                if not map_data_from_db or not map_data_from_db.get("md5_hash"):
+                    continue
+
+                hit_objects = (
+                        beatmap.get("count_circles", 0)
+                        + beatmap.get("count_sliders", 0)
+                        + beatmap.get("count_spinners", 0)
+                )
+
+                update_data = {
+                    "api_status": beatmap.get("status", "ranked"),
+                    "artist": beatmapset.get("artist", ""),
+                    "title": beatmapset.get("title", ""),
+                    "version": beatmap.get("version", ""),
+                    "creator": beatmapset.get("creator", ""),
+                    "hit_objects": hit_objects,
+                    "beatmapset_id": beatmapset.get("id"),
+                }
+                db_update_from_api(beatmap_id, update_data)
+
+            summary_stats["precached_maps"] = len(unique_maps_to_cache)
+            logger.info(f"Pre-caching complete for {len(unique_maps_to_cache)} maps")
+
+    except requests.exceptions.RequestException as e:
+        logger.exception("Could not pre-cache top scores data", e)
+
+    report_progress("precache_top", 1, 1)
+
+    announce_phase_start("pp_calc", phase_definitions, gui_log, phase_logger=logger)
+    phase_key_pp = "pp_calc"
+    base_pp, range_pp = progress_map.get(phase_key_pp, (current_progress_base, 0))
+    summary_stats["replays_for_pp_calc"] = len(replays_for_pp_calc)
+    logger.info(f"Processing {len(replays_for_pp_calc)} replays for PP calculation")
 
     score_list = []
-    total_replays = len(replay_data_list)
-
-    def update_pp_progress(curr, tot):
-        if progress_callback:
-            progress_callback(60 + int((curr / tot) * 10), 100)
-
-    pp_calculation_issues = 0
-
-    with ThreadPoolExecutor(max_workers=IO_THREAD_POOL_SIZE) as executor:
-        futures = {
-            executor.submit(
-                file_parser.process_osr_with_path,
-                replay_data,
-                md5_map,
-                osu_api_client,
-                check_missing_ids,
-            ): replay_data
-            for replay_data in replay_data_list
-        }
-
-        results = track_parallel_progress(
-            futures,
-            total_replays,
-            progress_callback=update_pp_progress,
-            gui_log=gui_log,
-            progress_message="Phase 4: Calculated PP for",
-            start_progress=0,
-            progress_range=100,
-            update_every=500,
-        )
-
-        for res in results:
-            if res is not None:
-                score_list.append(res)
-            else:
-                pp_calculation_issues += 1
-
-    file_parser.osr_save(file_parser.osr_cache)
-
-    if pp_calculation_issues > 0:
-        logger.info(
-            "PP calculation stage completed. Encountered %d issues with missing .osu files or beatmap IDs. Details in %s",
-            pp_calculation_issues,
-            mask_path_for_log(REPLAY_ISSUES_LOG_FILE),
-        )
-        if gui_log:
-            gui_log(
-                f"PP calculation completed with {pp_calculation_issues} issues. See log for details",
-                update_last=False,
+    if replays_for_pp_calc:
+        with ThreadPoolExecutor(max_workers=IO_THREAD_POOL_SIZE) as executor:
+            futures = {
+                executor.submit(
+                    file_parser.process_osr_with_path, r_info[0], r_info[1]
+                ): r_info[0]
+                for r_info in replays_for_pp_calc
+            }
+            results = track_parallel_progress(
+                futures,
+                len(replays_for_pp_calc),
+                progress_callback=lambda c, t: report_progress(phase_key_pp, c, t),
+                gui_log=gui_log,
+                progress_logger=logger,
+                log_interval_sec=5,
+                progress_message="Calculating PP",
+                gui_update_step=1000,
             )
-    file_parser.osr_save(file_parser.osr_cache)
-
-    elapsed = time.time() - start
-    logger.info(
-        "Replay scanning completed in %.2f sec. %d scores found",
-        elapsed,
-        len(score_list),
-    )
-
-    gui_log(
-        f"Replay scanning completed in {elapsed:.2f} sec. {len(score_list)} found results",
-        update_last=False,
-    )
-
-    if gui_log:
-        gui_log("Processing lost scores...", update_last=False)
-    if progress_callback:
-        progress_callback(70, 100)
-
-    lost = find_lost_scores(score_list)
-    lost = [
-        r
-        for r in lost
-        if calendar.timegm(time.strptime(r["score_time"], "%d-%m-%Y %H-%M-%S")) < cutoff
-    ]
-    logger.info("%d lost scores found (before cutoff)", len(lost))
-
-    logger.info("Include unranked/loved beatmaps: %s", include_unranked)
-
-    if include_unranked:
-        logger.info(
-            f"ENABLED unranked/loved maps. Getting information locally. Total scores: {len(lost)}"
-        )
-
-                                                            
-        for rec in lost:
-            rec["Status"] = "unknown"
-
-                                                                       
-        maps_to_process = []
-        beatmap_id_processed = (
-            set()
-        )                                                                
-
-        for rec in lost:
-            beatmap_id = rec.get("beatmap_id")
-            if not beatmap_id:
-                continue
-
-                                                    
-            if beatmap_id in beatmap_id_processed:
-                continue
-
-            osu_file_path = rec.get("osu_file_path")
-            if not osu_file_path or not os.path.exists(osu_file_path):
-                continue
-
-                                                
-            db_info = db_get(beatmap_id)
-            if not db_info or db_info.get("hit_objects", 0) == 0:
-                maps_to_process.append((beatmap_id, osu_file_path))
-                beatmap_id_processed.add(
-                    beatmap_id
-                )                                       
-
-                                                                     
-        total_maps = len(maps_to_process)
-        if total_maps > 0:
-            logger.info(f"Need to count hit objects for {total_maps} maps")
-
-                                                
-            for i, (beatmap_id, osu_file_path) in enumerate(maps_to_process):
-                try:
-                    hit_objects = file_parser.count_objs(
-                        osu_file_path, beatmap_id, gui_log
-                    )
-                                                                  
-                except Exception as e:
-                    logger.warning(f"Error processing beatmap {beatmap_id}: {e}")
-
-                                    
-                if i % 20 == 0 or i == total_maps - 1:
-                    if gui_log:
-                        gui_log(
-                            f"Processing map {i + 1}/{total_maps}", update_last=True
-                        )
-                    if progress_callback:
-                        progress_callback(80 + int((i / total_maps) * 15), 100)
-        else:
-            logger.info("No maps require hit object counting")
-
-        logger.info("ENABLED unranked/loved maps. Total scores: %d", len(lost))
+            score_list = [res for res in results if res is not None]
 
     else:
-        unique_beatmap_ids = set(
-            rec["beatmap_id"] for rec in lost if "beatmap_id" in rec
+        logger.info("Skipping PP calculation: no replays found")
+
+    summary_stats["calculated_scores"] = len(score_list)
+    logger.info(f"PP calculation finished. Found {len(score_list)} valid scores")
+
+    current_progress_base += range_pp
+
+    announce_phase_start("find_lost", phase_definitions, gui_log, phase_logger=logger)
+
+    lost, total_lost_count_pre_filter = find_lost_scores(score_list, CUTOFF_DATE)
+
+    summary_stats["lost_scores_pre_filter"] = total_lost_count_pre_filter
+    summary_stats["lost_scores_found"] = len(lost)
+
+    logger.info(
+        f"Filtered out {total_lost_count_pre_filter - len(lost)} scores. Final count: {len(lost)}"
+    )
+
+    announce_phase_start("deferred_lookup", phase_definitions, gui_log, phase_logger=logger)
+    md5s_to_lookup = {
+        r["beatmap_md5"]
+        for r in lost
+        if not r.get("beatmap_id") and r.get("beatmap_md5")
+    }
+    run_deferred_lookup = bool(md5s_to_lookup)
+
+    if run_deferred_lookup:
+        base_deferred, range_deferred = progress_map.get(
+            "deferred_lookup", (current_progress_base, 0)
         )
+        total_to_lookup = len(md5s_to_lookup)
+        summary_stats["maps_to_lookup_deferred"] = total_to_lookup
+        logger.info(f"Performing deferred lookup for {total_to_lookup} maps...")
 
-        if gui_log:
-            gui_log(f"Checking status for {len(lost)} beatmaps...", update_last=False)
+        last_log_time = time.time()
+        for i, md5 in enumerate(md5s_to_lookup):
+            report_progress("deferred_lookup", i + 1, total_to_lookup)
+            progress_message = f"Looking up map details {i + 1}/{total_to_lookup}..."
+            if gui_log:
+                gui_log(progress_message, update_last=True)
 
-        db_results = batch_process_beatmap_statuses(
-            unique_beatmap_ids,
-            osu_api_client,
-            include_unranked,
+            now = time.time()
+            if logger and (now - last_log_time > 15 or (i + 1) == total_to_lookup):
+                logger.info(progress_message)
+                last_log_time = now
+
+            osu_api_client.lookup_osu(md5)
+
+        logger.info("Deferred lookup phase finished")
+        current_progress_base += range_deferred
+    else:
+        logger.info("Skipping deferred lookup: no candidates found")
+        report_progress("deferred_lookup", 1, 1)
+
+    final_lost_list = []
+
+    announce_phase_start("validate_status", phase_definitions, gui_log, phase_logger=logger)
+    ids_to_revalidate = []
+    if not include_unranked:
+        md5s_to_check = {rec["beatmap_md5"] for rec in lost if rec.get("beatmap_md5")}
+        for md5 in md5s_to_check:
+            map_data = db_get_map(md5, by="md5")
+            if (
+                    map_data
+                    and map_data.get("beatmap_id")
+                    and map_data.get("api_status") in [None, "unknown"]
+            ):
+                ids_to_revalidate.append(map_data["beatmap_id"])
+    run_validate_status = bool(ids_to_revalidate)
+
+    if run_validate_status:
+        base_validate, range_validate = progress_map.get(
+            "validate_status", (current_progress_base, 0)
+        )
+        unique_ids = sorted(list(set(ids_to_revalidate)))
+        summary_stats["maps_to_validate"] = len(unique_ids)
+        logger.info(f"Validating map status for {len(unique_ids)} maps...")
+
+        api_results = osu_api_client.maps_osu(
+            unique_ids,
             gui_log=gui_log,
-            progress_callback=progress_callback,
-            base_progress=80,
-            check_missing_ids=check_missing_ids,
+            logger=logger,
+            progress_callback=lambda c, t: report_progress("validate_status", c, t),
         )
 
-        for i, rec in enumerate(lost):
-            if "beatmap_id" in rec:
-                db_ = db_results.get(rec["beatmap_id"], {})
-                if db_ is None:
-                    db_ = {}
-                rec["Status"] = db_.get("status", "unknown")
+        for beatmap_id, beatmap_data in api_results.items():
+            update_data = {
+                "beatmapset_id": beatmap_data.get("beatmapset", {}).get("id"),
+                "api_status": beatmap_data.get("status", "unknown"),
+                "artist": beatmap_data.get("beatmapset", {}).get("artist"),
+                "title": beatmap_data.get("beatmapset", {}).get("title"),
+                "creator": beatmap_data.get("beatmapset", {}).get("creator"),
+                "version": beatmap_data.get("version"),
+            }
+            db_update_from_api(beatmap_id, update_data)
 
-                if i % 5 == 0 or i == len(lost) - 1:
-                    if gui_log:
-                        gui_log(
-                            f"Getting information about map {rec['beatmap_id']} ({i + 1}/{len(lost)})",
-                            update_last=True,
-                        )
-                    if progress_callback:
-                        progress_callback(80 + int((i / len(lost)) * 10), 100)
+        found_ids = set(api_results.keys())
+        deleted_ids = [bid for bid in unique_ids if bid not in found_ids]
+        for beatmap_id in deleted_ids:
+            db_update_from_api(beatmap_id, {"api_status": "deleted"})
 
-        original_count = len(lost)
-                                                                              
-                                           
-        if not include_unranked:
-            lost = [
-                r
-                for r in lost
-                if r.get("Status") in ["ranked", "approved"]
-                and r.get("Status") != "not_found"
-            ]
-        filtered_count = len(lost)
+        summary_stats["maps_validated"] = len(found_ids)
+        summary_stats["maps_deleted_on_validate"] = len(deleted_ids)
         logger.info(
-            f"Filtered {original_count - filtered_count} scores, remaining: {filtered_count}"
+            f"Status validation finished: {len(found_ids)} statuses updated, {len(deleted_ids)} maps not found (deleted)"
         )
+        current_progress_base += range_validate
+    else:
+        reason = (
+            "unranked maps included"
+            if include_unranked
+            else "no maps require validation"
+        )
+        logger.info(f"Skipping map status validation: {reason}")
+        report_progress("validate_status", 1, 1)
 
-    for rec in lost:
-        db_info = db_get(rec["beatmap_id"])
-        if not db_info or not db_info.get("hit_objects", 0):
-            pass
+    processed_md5s = set()
+    for original_score in lost:
+        md5 = original_score.get("beatmap_md5")
+        if not md5 or md5 in processed_md5s:
+            continue
 
-    if gui_log:
-        gui_log("Saving results...", update_last=True)
-    if progress_callback:
-        progress_callback(90, 100)
+        final_map_data = db_get_map(md5, by="md5")
+        if not final_map_data:
+            continue
 
-    if lost:
+        processed_md5s.add(md5)
+        status = final_map_data.get("api_status")
+
+        if include_unranked or (status in ["ranked", "approved"]):
+            final_score_obj = original_score.copy()
+            final_score_obj.update(final_map_data)
+            final_lost_list.append(final_score_obj)
+
+    logger.info(
+        f"Filtered out {total_lost_count_pre_filter - len(final_lost_list)} scores. Final count: {len(final_lost_list)}"
+    )
+    summary_stats["lost_scores_found"] = len(final_lost_list)
+
+    final_lost_count = len(final_lost_list)
+    try:
+        summary_path = os.path.join(CSV_DIR, "lost_scores_summary.csv")
+        os.makedirs(os.path.dirname(summary_path), exist_ok=True)
+        with open(summary_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["key", "value"])
+            writer.writerow(["pre_filter_count", total_lost_count_pre_filter])
+            writer.writerow(["post_filter_count", final_lost_count])
+    except IOError as e:
+        logger.exception("Failed to save lost scores summary: %s", e)
+
+    announce_phase_start("saving", phase_definitions, gui_log, phase_logger=logger)
+    if final_lost_list:
         out_file = os.path.join(CSV_DIR, "lost_scores.csv")
         fields = [
             "PP",
             "Beatmap ID",
+            "Beatmap MD5",
             "Beatmap",
             "Mods",
             "100",
@@ -1014,90 +707,82 @@ def scan_replays(
             "Date",
             "Rank",
         ]
-
-        csv_dir = os.path.dirname(out_file)
-        os.makedirs(csv_dir, exist_ok=True)
-
+        os.makedirs(os.path.dirname(out_file), exist_ok=True)
         while True:
             try:
                 with open(out_file, "w", newline="", encoding="utf-8") as csvf:
+                    # noinspection PyTypeChecker
                     writer = csv.DictWriter(csvf, fieldnames=fields)
                     writer.writeheader()
-                    for rec in lost:
-                        c100 = rec.get("count100", 0)
-                        c50 = rec.get("count50", 0)
-                        cMiss = rec.get("countMiss", 0)
-                        c300 = rec.get("count300", 0)
-
+                    for rec in final_lost_list:
                         rank_ = file_parser.grade_osu(
-                            rec["beatmap_id"],
-                            c300,
-                            c100,
-                            c50,
-                            cMiss,
+                            rec.get("beatmap_id"),
+                            rec.get("count300", 0),
+                            rec.get("count50", 0),
+                            rec.get("countMiss", 0),
                             rec.get("osu_file_path"),
                         )
-
                         writer.writerow(
                             {
                                 "PP": rec["pp"],
                                 "Beatmap ID": rec["beatmap_id"],
+                                "Beatmap MD5": rec.get("beatmap_md5"),
                                 "Beatmap": f"{rec.get('artist', '')} - {rec.get('title', '')} ({rec.get('creator', '')}) [{rec.get('version', '')}]",
                                 "Mods": (
                                     ", ".join(file_parser.sort_mods(rec["mods"]))
                                     if rec["mods"]
                                     else "NM"
                                 ),
-                                "100": c100,
-                                "50": c50,
-                                "Misses": cMiss,
+                                "100": rec.get("count100", 0),
+                                "50": rec.get("count50", 0),
+                                "Misses": rec.get("countMiss", 0),
                                 "Accuracy": rec["Accuracy"],
                                 "Score": rec.get("total_score", ""),
                                 "Date": rec.get("score_time", ""),
                                 "Rank": rank_,
                             }
                         )
-                gui_log("File lost_scores.csv saved", update_last=True)
+                if gui_log:
+                    gui_log("File lost_scores.csv saved", update_last=True)
                 break
             except PermissionError:
                 logger.warning(
                     "File %s is busy, retrying in 0.5 sec", mask_path_for_log(out_file)
                 )
                 time.sleep(0.5)
-            except Exception as e:
+            except (IOError, csv.Error) as e:
                 logger.exception("Error writing %s: %s", mask_path_for_log(out_file), e)
                 break
+
     else:
-        logger.info("Empty: lost scores not written")
+        logger.info("Empty list: lost_scores.csv not written")
 
-    if progress_callback:
-        progress_callback(100, 100)
-
+    elapsed = time.time() - start_time
+    summary_stats["total_time_seconds"] = int(elapsed)
+    logger.info("Full analysis finished in %.2f seconds", elapsed)
+    return summary_stats
 
 def make_top(
-    game_dir,
-    user_identifier,
-    lookup_key,
-    gui_log=None,
-    progress_callback=None,
-    osu_api_client=None,
+        game_dir,
+        user_identifier,
+        lookup_key,
+        gui_log=None,
+        progress_callback=None,
+        osu_api_client=None,
+        include_unranked=False,
 ):
     if not osu_api_client:
         raise ValueError("API client not provided")
-
     if progress_callback:
         progress_callback(0, 100)
-
     if gui_log:
         gui_log("Initializing potential top creation...", update_last=True)
-
     logger.debug(
         "make_top called with: game_dir=%s, user_identifier=%s, lookup_key=%s",
         mask_path_for_log(game_dir),
         user_identifier,
         lookup_key,
     )
-
     lost_path = os.path.join(CSV_DIR, "lost_scores.csv")
     if not os.path.exists(lost_path):
         error_message = (
@@ -1109,40 +794,39 @@ def make_top(
         return
 
     start = time.time()
-    gui_log("Creating potential top...", update_last=False)
-
+    if gui_log:
+        gui_log("Creating potential top...", update_last=False)
     db_init()
-
     if progress_callback:
         progress_callback(10, 100)
 
     user_json = osu_api_client.user_osu(user_identifier, lookup_key)
     if not user_json:
-        gui_log(
-            f"Error: Failed to get user data '{user_identifier}' (type: {lookup_key})",
-            False,
-        )
+        if gui_log:
+            gui_log(
+                f"Error: Failed to get user data '{user_identifier}' (type: {lookup_key})",
+                False,
+            )
         raise ValueError(f"User not found: {user_identifier}")
+
     username = user_json["username"]
     user_id = user_json["id"]
-    gui_log(f"User information received: {username}", update_last=False)
-
+    if gui_log:
+        gui_log(f"User information received: {username}", update_last=False)
     if progress_callback:
         progress_callback(30, 100)
 
     stats = user_json.get("statistics", {})
     overall_pp = stats.get("pp", 0)
     overall_acc_from_api = float(stats.get("hit_accuracy", 0.0))
-
     if gui_log:
         gui_log("Requesting top results...", update_last=False)
     if progress_callback:
         progress_callback(50, 100)
 
     raw_top = osu_api_client.top_osu(user_id, limit=200)
-    top_data = parse_top(raw_top, osu_api_client)
+    top_data = parse_top(raw_top)
     top_data = calc_weight(top_data)
-
     total_weight_pp = sum(item["weight_PP"] for item in top_data)
     diff = overall_pp - total_weight_pp
 
@@ -1152,7 +836,6 @@ def make_top(
         progress_callback(70, 100)
 
     parsed_file = os.path.join(CSV_DIR, "parsed_top.csv")
-
     table_fields = [
         "PP",
         "Beatmap ID",
@@ -1169,6 +852,7 @@ def make_top(
         "Score ID",
         "Rank",
     ]
+
     rows_list = []
     for row in top_data:
         new_row = {
@@ -1190,22 +874,11 @@ def make_top(
         rows_list.append(new_row)
 
     with open(parsed_file, "w", newline="", encoding="utf-8") as f:
+        # noinspection PyTypeChecker
         writer = csv.DictWriter(f, fieldnames=table_fields)
         writer.writeheader()
         for row in rows_list:
             writer.writerow(row)
-        f.write("\n")
-
-        summary_data = [
-            ("Sum weight_PP", round(total_weight_pp)),
-            ("Overall PP", round(overall_pp)),
-            ("Difference", round(diff)),
-            ("Overall Accuracy", f"{round(overall_acc_from_api, 2)}%"),
-        ]
-
-        csv_writer = csv.writer(f)
-        for label, val in summary_data:
-            csv_writer.writerow([label, val])
 
     if gui_log:
         gui_log("Merging with lost scores...", update_last=False)
@@ -1220,7 +893,7 @@ def make_top(
     for entry in top_data:
         try:
             bid = int(entry["Beatmap ID"])
-        except Exception:
+        except (KeyError, ValueError, TypeError):
             continue
         if bid in top_dict:
             if entry["PP"] > top_dict[bid]["PP"]:
@@ -1231,11 +904,13 @@ def make_top(
     for lost in lost_scores:
         try:
             bid = int(lost["Beatmap ID"])
-        except Exception:
+        except (KeyError, ValueError, TypeError):
             continue
+
         lost_entry = {
             "PP": int(round(float(lost["PP"]))),
             "Beatmap ID": bid,
+            "Beatmap MD5": lost.get("Beatmap MD5"),
             "Status": "ranked",
             "Beatmap": lost["Beatmap"],
             "Mods": lost["Mods"] if lost["Mods"] else "NM",
@@ -1269,9 +944,10 @@ def make_top(
     acc_sum_lost = 0
     ranked_lost = sorted(top_with_lost, key=lambda x: x["PP"], reverse=True)
     for i, entry in enumerate(ranked_lost):
-        mult = 0.95**i
+        mult = 0.95 ** i
         tot_weight_lost += mult
         acc_sum_lost += float(entry["Accuracy"]) * mult
+
     overall_acc_lost = acc_sum_lost / tot_weight_lost if tot_weight_lost else 0
     delta_acc = overall_acc_lost - overall_acc_from_api
 
@@ -1279,6 +955,7 @@ def make_top(
     table_fields2 = [
         "PP",
         "Beatmap ID",
+        "Beatmap MD5",
         "Status",
         "Beatmap",
         "Mods",
@@ -1293,11 +970,13 @@ def make_top(
         "weight_PP",
         "Score ID",
     ]
+
     prep_rows = []
     for row in top_with_lost:
         new_r = {
             "PP": row["PP"],
             "Beatmap ID": row["Beatmap ID"],
+            "Beatmap MD5": row.get("Beatmap MD5"),
             "Status": row.get("Status", ""),
             "Beatmap": row["Beatmap"],
             "Mods": row["Mods"],
@@ -1315,27 +994,114 @@ def make_top(
         prep_rows.append(new_r)
 
     with open(top_with_lost_file, "w", newline="", encoding="utf-8") as f:
+        # noinspection PyTypeChecker
         writer = csv.DictWriter(f, fieldnames=table_fields2)
         writer.writeheader()
         for row in prep_rows:
             writer.writerow(row)
-        f.write("\n")
-        csv_writer = csv.writer(f)
-        for label, val in [
-            ("Sum weight_PP", round(total_weight_pp_new)),
-            ("Overall Potential PP", round(pot_pp)),
-            ("Difference", round(diff_lost)),
-            ("Overall Accuracy", f"{round(overall_acc_lost, 2)}%"),
-            (
-                "Δ Overall Accuracy",
-                f"{'+' if delta_acc >= 0 else ''}{round(delta_acc, 2)}%",
-            ),
-        ]:
-            csv_writer.writerow([label, val])
+
+    lost_scores_count = len(lost_scores)
+    lost_scores_avg_pp = 0
+    avg_pp_lost_diff = 0
+    diff_count = 0
+
+    if lost_scores:
+        total_pp = sum(int(round(float(s["PP"]))) for s in lost_scores)
+        lost_scores_avg_pp = total_pp / lost_scores_count
+
+        top_pp_by_map = {
+            int(s["Beatmap ID"]): s["PP"]
+            for s in top_data
+            if "Beatmap ID" in s and "PP" in s
+        }
+        pp_diffs = []
+        for lost_score in lost_scores:
+            b_id = int(lost_score.get("Beatmap ID", 0))
+            if b_id in top_pp_by_map:
+                diff = float(lost_score["PP"]) - float(top_pp_by_map[b_id])
+                if diff > 0:
+                    pp_diffs.append(diff)
+
+        if pp_diffs:
+            avg_pp_lost_diff = sum(pp_diffs) / len(pp_diffs)
+            diff_count = len(pp_diffs)
+
+    summary_path = os.path.join(CSV_DIR, "lost_scores_summary.csv")
+    stats_to_save = {
+        "current_pp": overall_pp,
+        "current_acc": overall_acc_from_api,
+        "current_global_rank": user_json.get("statistics", {}).get(
+            "global_rank", "N/A"
+        ),
+        "potential_pp": pot_pp,
+        "potential_acc": overall_acc_lost,
+        "delta_pp": diff_lost,
+        "delta_acc": delta_acc,
+        "weighted_pp_current": total_weight_pp,
+        "weighted_pp_potential": total_weight_pp_new,
+        "lost_scores_total": lost_scores_count,
+        "lost_scores_avg_pp": lost_scores_avg_pp,
+        "avg_pp_lost_diff": avg_pp_lost_diff,
+        "avg_pp_lost_diff_count": diff_count,
+    }
+
+    try:
+        with open(summary_path, "a", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            for key, value in stats_to_save.items():
+                writer.writerow([key, value])
+        logger.info(f"Appended performance stats to {summary_path}")
+    except IOError:
+        logger.exception("Failed to append stats to summary file")
+
+    if gui_log:
+        gui_log("Creating summary badge...", update_last=False)
+
+    lost_ranked_count = 0
+    total_lost_count = 0
+    try:
+        if os.path.exists(summary_path):
+            with open(summary_path, "r", encoding="utf-8") as f:
+                reader = csv.reader(f)
+                temp_summary_data = {
+                    rows[0]: rows[1] for rows in reader if len(rows) > 1
+                }
+            lost_ranked_count = int(temp_summary_data.get("post_filter_count", 0))
+            total_lost_count = int(temp_summary_data.get("pre_filter_count", 0))
+    except (FileNotFoundError, IOError, ValueError) as e:
+        logger.exception("Could not read lost counts from summary for badge: %s", e)
+
+    badge_data = {
+        "username": user_json.get("username"),
+        "avatar_url": user_json.get("avatar_url"),
+        "global_rank": stats_to_save["current_global_rank"],
+        "current_pp": stats_to_save["current_pp"],
+        "current_acc": stats_to_save["current_acc"],
+        "potential_pp": stats_to_save["potential_pp"],
+        "potential_acc": stats_to_save["potential_acc"],
+        "delta_pp": stats_to_save["delta_pp"],
+        "delta_acc": stats_to_save["delta_acc"],
+        "lost_ranked_count": lost_ranked_count,
+        "total_lost_count": total_lost_count,
+        "scan_date": datetime.datetime.now().strftime("%d %b %Y"),
+        "include_unranked": include_unranked,
+    }
+
+    # noinspection PyBroadException
+    try:
+        badge_path = os.path.join(RESULTS_DIR, "summary_badge.png")
+        os.makedirs(os.path.dirname(badge_path), exist_ok=True)
+        create_summary_badge(badge_data, badge_path, osu_api_client=osu_api_client)
+        if gui_log:
+            gui_log("Summary badge created successfully", update_last=False)
+    except Exception as e:
+        logger.exception("Failed to create summary badge: %s", e)
+        if gui_log:
+            gui_log(f"Error creating summary badge: {e}", update_last=False)
 
     elapsed = time.time() - start
     logger.info("Potential top created in %.2f sec", elapsed)
-    gui_log(f"Potential top created in {elapsed:.2f} sec", update_last=False)
-
+    if gui_log:
+        gui_log(f"Potential top created in {elapsed:.2f} sec", update_last=False)
     if progress_callback:
         progress_callback(100, 100)

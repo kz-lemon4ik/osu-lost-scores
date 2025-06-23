@@ -17,12 +17,10 @@ dist/
 
 results/
 cache/
-assets/images/
 csv/
 maps/
 log/
 config/
 
-scripts/strip_comments.py
-
 build.py
+bootstrap.py

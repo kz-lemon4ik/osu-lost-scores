@@ -1,8 +1,8 @@
-requests
-Pillow
-PySide6
-python-dotenv
-rosu-pp-py
-keyring
-pandas
-pyperclip
+pyside6==6.9.0
+pandas==2.2.*
+requests==2.*
+pillow==11.*
+python-dotenv==1.*
+keyring==25.*
+rosu-pp-py>=3
+pyperclip==1.8.1
