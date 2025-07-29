@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from PySide6.QtWidgets import QLineEdit, QMenu, QTextEdit
 
+from color_constants import ImageColors
 from path_utils import get_standard_dir
 
 try:
@@ -19,10 +20,6 @@ except ImportError:
     PYPERCLIP_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
-
-GREEN_COLOR = (128, 255, 128)
-RED_COLOR = (255, 128, 128)
-COLOR_WHITE = (255, 255, 255)
 
 def process_in_batches(
         items,
@@ -198,10 +195,10 @@ def create_standard_edit_menu(widget):
 def get_delta_color(value):
     
     if value > 0:
-        return GREEN_COLOR
+        return ImageColors.GREEN
     if value < 0:
-        return RED_COLOR
-    return COLOR_WHITE
+        return ImageColors.RED
+    return ImageColors.WHITE
 
 class RateLimiter:
     

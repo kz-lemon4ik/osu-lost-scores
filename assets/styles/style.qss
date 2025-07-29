@@ -1,5 +1,5 @@
 QWidget {
-    background-color: #251a37;
+    background-color: #302444;
     color: #FFFFFF;
     font-family: "Exo 2", sans-serif;
 }
@@ -205,11 +205,13 @@ QFrame#scoresContainer {
 }
 
 QLabel#scoresCountDisplay, QLineEdit#scoresCountInput {
-    background: transparent;
+    background-color: #251a37;
     border: none;
     font-size: 10pt;
     font-weight: bold;
-    color: white;
+    color: #ffffff;
+    border-radius: 4px;
+    padding: 2px;
 }
 
 QPushButton#editScoresButton {
@@ -255,29 +257,114 @@ QPushButton#iconToggleButton[class="active"]:hover {
     border-color: #FFFFFF;
 }
 
-QPushButton#loginButton {
+
+/* Perfect Login Panel Styles */
+QLabel#styledTitle {
     font-size: 16pt;
     font-weight: bold;
-    min-height: 50px;
-    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #ee4bbd, stop:1 #9932CC);
-    border: 2px solid #FFFFFF;
+    color: #f0c4ff;
+    background-color: transparent;
+    padding: 8px 10px;
+    margin: 0px;
 }
 
-QPushButton#loginButton:hover {
-    border-color: #00FF00;
+QLabel#styledDivider {
+    font-size: 9pt;
+    color: #888888;
+    background-color: rgba(48, 36, 68, 0.8);
+    font-style: italic;
+    padding: 2px 8px;
+    margin: 0px;
+    max-height: 15px;
+    min-height: 15px;
+    border-radius: 8px;
 }
 
-QPushButton#customKeysButton {
-    font-size: 11pt;
-    font-weight: normal;
+/* Button Backdrop (Transparent or Matching) */
+QFrame#buttonBackdrop {
     background-color: transparent;
     border: none;
-    text-decoration: underline;
-    max-width: 120px;
+    border-radius: 12px;
 }
 
-QPushButton#customKeysButton:hover {
-    color: #ee4bbd;
+/* Frontend-Style Login Button */
+QPushButton#frontendStyledButton {
+    font-size: 14pt;
+    font-weight: bold;
+    min-height: 46px;
+    
+    /* Frontend solidPurple style */
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 rgba(147, 112, 219, 0.2),
+        stop:0.5 rgba(138, 43, 226, 0.25), 
+        stop:1 rgba(153, 50, 204, 0.2));
+    
+    border: 1px solid rgba(147, 112, 219, 0.4);
+    border-radius: 12px;
+    color: #ba55d3;
+    
+    max-width: 280px;
+    min-width: 260px;
+    padding: 6px 18px;
+    margin: 0px;
+}
+
+QPushButton#frontendStyledButton:hover {
+    /* Frontend hover state */
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 rgba(147, 112, 219, 0.3),
+        stop:0.5 rgba(138, 43, 226, 0.35), 
+        stop:1 rgba(153, 50, 204, 0.3));
+    
+    border: 1px solid rgba(147, 112, 219, 0.6);
+    color: #dda0dd;
+}
+
+QPushButton#frontendStyledButton:pressed {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 rgba(138, 43, 226, 0.3),
+        stop:0.5 rgba(102, 51, 153, 0.4), 
+        stop:1 rgba(123, 39, 184, 0.3));
+    color: #9370db;
+}
+
+QPushButton#frontendStyledButton:disabled {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 rgba(74, 63, 95, 0.3),
+        stop:0.5 rgba(88, 73, 115, 0.4), 
+        stop:1 rgba(74, 63, 95, 0.3));
+    border: 2px solid rgba(74, 63, 95, 0.5);
+    color: rgba(186, 85, 211, 0.5);
+}
+
+/* Compact API Button (20% smaller) */
+QPushButton#compactApiButton {
+    font-size: 9pt;
+    font-weight: normal;
+    min-height: 29px;  /* 20% smaller than 36px */
+    
+    /* Frontend transparentNeutral style */
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(100, 116, 139, 0.4);
+    border-radius: 8px;
+    color: #ffffff;
+    
+    max-width: 144px;  /* 20% smaller than 180px */
+    min-width: 128px;  /* 20% smaller than 160px */
+    padding: 4px 10px; /* 20% smaller padding */
+    margin: 0px;
+}
+
+QPushButton#compactApiButton:hover {
+    background: rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(100, 116, 139, 0.6);
+    color: #f1f5f9;
+}
+
+QPushButton#compactApiButton:disabled {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(100, 116, 139, 0.2);
+    color: rgba(255, 255, 255, 0.4);
 }
 
 
@@ -501,4 +588,77 @@ QMenu::item:selected {
 
 QMenu::item:disabled {
     color: #666666;
+}
+
+QToolTip {
+    background-color: #121212;
+    color: #ffffff;
+    border: 1px solid #4A3F5F;
+    border-radius: 4px;
+    padding: 3px 7px;
+    font-size: 9pt;
+    font-weight: normal;
+    font-family: "Exo 2", sans-serif;
+    opacity: 0.95;
+    max-width: 350px;
+}
+
+/* Custom CSS classes for HTML styled elements */
+QLabel[class="text-separator"] {
+    color: #cccccc;
+}
+
+QLabel[class="error-text"] {
+    color: #E57373;
+    font-weight: bold;
+}
+
+QLabel[class="styled-link"] {
+    color: #ee4bbd;
+    text-decoration: underline;
+}
+
+QLabel[class="app-title"] {
+    color: #ee4bbd;
+    font-weight: bold;
+}
+
+QLabel[class="stats-text"] {
+    color: #cccccc;
+}
+
+QLabel[class="stats-value"] {
+    color: white;
+    font-weight: bold;
+}
+
+QLabel[class="pp-positive"] {
+    color: #4CAF50;
+    font-weight: bold;
+}
+
+QLabel[class="pp-negative"] {
+    color: #E57373;
+    font-weight: bold;
+}
+
+QLabel[class="acc-positive"] {
+    color: #4CAF50;
+    font-weight: bold;
+}
+
+QLabel[class="acc-negative"] {
+    color: #E57373;
+    font-weight: bold;
+}
+
+QLabel[class="dev-link"] {
+    color: gray;
+    text-decoration: underline;
+}
+
+/* Minimum button sizes */
+QPushButton[class="min-close-button"] {
+    min-width: 120px;
+    min-height: 40px;
 }

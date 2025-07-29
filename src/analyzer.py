@@ -215,6 +215,7 @@ def scan_replays(
     
     if not osu_api_client:
         raise ValueError("API client not provided")
+    
 
     summary_stats = {
         "maps_to_resolve": 0,
@@ -585,9 +586,28 @@ def scan_replays(
                 logger.info(progress_message)
                 last_log_time = now
 
-            osu_api_client.lookup_osu(md5)
+            lookup_result = osu_api_client.lookup_osu(md5)
+            if lookup_result:
+                pass
 
         logger.info("Deferred lookup phase finished")
+        
+        updated_lost = []
+        for score in lost:
+            md5 = score.get("beatmap_md5")
+            if md5:
+                fresh_map_data = db_get_map(md5, by="md5")
+                if fresh_map_data:
+                    updated_score = score.copy()
+                    updated_score.update(fresh_map_data)
+                    updated_lost.append(updated_score)
+                else:
+                    updated_lost.append(score)
+            else:
+                updated_lost.append(score)
+        lost = updated_lost
+        logger.info(f"Updated {len([s for s in lost if s.get('beatmap_id')])} lost scores with deferred lookup data")
+        
         current_progress_base += range_deferred
     else:
         logger.info("Skipping deferred lookup: no candidates found")
@@ -623,6 +643,7 @@ def scan_replays(
             logger=logger,
             progress_callback=lambda c, t: report_progress("validate_status", c, t),
         )
+
 
         for beatmap_id, beatmap_data in api_results.items():
             update_data = {
@@ -1016,7 +1037,11 @@ def make_top(
         }
         pp_diffs = []
         for lost_score in lost_scores:
-            b_id = int(lost_score.get("Beatmap ID", 0))
+            beatmap_id_raw = lost_score.get("Beatmap ID", 0)
+            try:
+                b_id = int(beatmap_id_raw) if beatmap_id_raw and str(beatmap_id_raw).strip() else 0
+            except (ValueError, TypeError):
+                continue
             if b_id in top_pp_by_map:
                 diff = float(lost_score["PP"]) - float(top_pp_by_map[b_id])
                 if diff > 0:

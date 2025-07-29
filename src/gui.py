@@ -15,6 +15,11 @@ from functools import partial
 
 import pandas as pd
 from PySide6 import QtCore, QtGui
+from color_constants import (
+    ACCENT_COLOR, TEXT_PRIMARY, TEXT_SECONDARY,
+    ERROR_COLOR, SEPARATOR_COLOR, LINK_COLOR,
+    QCOLOR_PRIMARY_BG, QCOLOR_SECONDARY_BG, QCOLOR_ACCENT, QCOLOR_TEXT_PRIMARY,
+)
 from PySide6.QtCore import (
     QAbstractTableModel,
     QEasingCurve,
@@ -32,7 +37,6 @@ from PySide6.QtCore import (
     QByteArray,
 )
 from PySide6.QtGui import (
-    QColor,
     QFontDatabase,
     QIcon,
     QKeySequence,
@@ -83,6 +87,8 @@ from utils import (
     load_summary_stats,
     get_delta_color,
 )
+from auth_manager import AuthManager, AuthMode
+from oauth_browser import BrowserOAuthFlow
 
 logger = logging.getLogger(__name__)
 
@@ -374,21 +380,56 @@ class UserProfileWidget(QFrame):
         self._clear_content_layout()
         self.set_default_avatar()
 
-        self.login_button = QPushButton("Login with osu!")
-        self.login_button.setObjectName("loginButton")
+        # Create centered container for perfect center alignment
+        center_widget = QWidget()
+        center_layout = QVBoxLayout(center_widget)
+        center_layout.setContentsMargins(0, 0, 0, 0)
+        center_layout.setSpacing(0)
 
-        self.custom_keys_button = QPushButton("Use custom keys")
-        self.custom_keys_button.setObjectName("customKeysButton")
+        # Title positioned higher
+        title_label = QLabel("Connect your account")
+        title_label.setObjectName("styledTitle")
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # OAuth button with backdrop container
+        button_container = QFrame()
+        button_container.setObjectName("buttonBackdrop")
+        button_layout = QVBoxLayout(button_container)
+        button_layout.setContentsMargins(8, 8, 8, 8)
+        button_layout.setSpacing(0)
+
+        self.login_button = QPushButton("Login with osu!")
+        self.login_button.setObjectName("frontendStyledButton")
+        self.login_button.setToolTip("Secure login using your osu! account (Recommended)")
+        if self.main_window and hasattr(self.main_window, '_on_oauth_login_clicked'):
+            self.login_button.clicked.connect(self.main_window._on_oauth_login_clicked)
+
+        button_layout.addWidget(self.login_button)
+
+        # Simple divider
+        divider_label = QLabel("or")
+        divider_label.setObjectName("styledDivider")
+        divider_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # Smaller API button positioned higher
+        self.custom_keys_button = QPushButton("⚙️ Use Custom API Keys")
+        self.custom_keys_button.setObjectName("compactApiButton")
+        self.custom_keys_button.setToolTip("For advanced users with their own osu! API credentials")
         self.custom_keys_button.clicked.connect(self.custom_keys_requested.emit)
 
-        self.content_layout.addStretch()
-        self.content_layout.addWidget(
-            self.login_button, 0, Qt.AlignmentFlag.AlignHCenter
-        )
-        self.content_layout.addWidget(
-            self.custom_keys_button, 0, Qt.AlignmentFlag.AlignHCenter
-        )
-        self.content_layout.addStretch()
+        # Build center container
+        center_layout.addWidget(title_label)
+        center_layout.addSpacing(5)   # Move button even higher
+        center_layout.addWidget(button_container, 0, Qt.AlignmentFlag.AlignHCenter)
+        center_layout.addSpacing(6)   # More space from larger button
+        center_layout.addWidget(divider_label)
+        center_layout.addSpacing(2)   # Less space to smaller button
+        center_layout.addWidget(self.custom_keys_button, 0, Qt.AlignmentFlag.AlignHCenter)
+
+        # Perfect center alignment in main layout
+        self.content_layout.addStretch(1)
+        self.content_layout.addWidget(center_widget, 0, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        self.content_layout.addStretch(1)
         self.is_logged_in = False
 
     def _setup_logged_in_ui(self, user_data, config):
@@ -422,6 +463,11 @@ class UserProfileWidget(QFrame):
         self.logout_button.setToolTip("Log out")
         self.logout_button.setFixedSize(30, 30)
         self.logout_button.clicked.connect(self.logout_requested.emit)
+
+        if self.main_window and hasattr(self.main_window, 'auth_manager'):
+            current_session = self.main_window.auth_manager.get_current_session()
+            if current_session.auth_mode == AuthMode.OAUTH:
+                self.change_user_button.setVisible(False)
 
         top_layout.addWidget(self.nickname_stack, 1)
         top_layout.addWidget(self.change_user_button)
@@ -481,7 +527,11 @@ class UserProfileWidget(QFrame):
 
         self.scores_count_stack = QStackedWidget()
         self.scores_count_stack.setFixedSize(40, 28)
-        self.scores_count_display = QLabel(str(config.get("scores_count", 10)))
+        # Ensure we have a valid scores_count value
+        scores_count_value = config.get("scores_count", 10) if config else 10
+        if not scores_count_value or scores_count_value == "":
+            scores_count_value = 10
+        self.scores_count_display = QLabel(str(scores_count_value))
         self.scores_count_display.setObjectName("scoresCountDisplay")
         self.scores_count_display.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.scores_count_input = QLineEdit()
@@ -608,7 +658,7 @@ class UserProfileWidget(QFrame):
                 acc_str = (
                     f"{acc:.2f}% → <b style='color:{acc_color_hex};'>{potential_acc:.2f}%</b>"
                 )
-                stats_text = f"{pp_str} <span style='color: #cccccc;'>|</span> {acc_str} <span style='color: #cccccc;'>|</span> {rank_str}"
+                stats_text = f"{pp_str} <span style='color: {SEPARATOR_COLOR};'>|</span> {acc_str} <span style='color: {SEPARATOR_COLOR};'>|</span> {rank_str}"
             except (ValueError, TypeError) as e:
                 logger.warning(f"Could not parse scan_data for stats display: {e}")
                 scan_data = None
@@ -617,9 +667,9 @@ class UserProfileWidget(QFrame):
             pp_str = f"{round(pp):,}"
             acc_str = f"{acc:.2f}%"
             stats_text = (
-                f"<span style='color: #cccccc;'>PP:</span> <b style='color: white;'>{pp_str}</b>"
-                f" <span style='color: #cccccc;'>| Acc:</span> <b style='color: white;'>{acc_str}</b>"
-                f" <span style='color: #cccccc;'>| Rank:</span> <b style='color: white;'>{rank_str}</b>"
+                f"<span style='color: {TEXT_SECONDARY};'>PP:</span> <b style='color: {TEXT_PRIMARY};'>{pp_str}</b>"
+                f" <span style='color: {TEXT_SECONDARY};'>| Acc:</span> <b style='color: {TEXT_PRIMARY};'>{acc_str}</b>"
+                f" <span style='color: {TEXT_SECONDARY};'>| Rank:</span> <b style='color: {TEXT_PRIMARY};'>{rank_str}</b>"
             )
 
         self.stats_widget.setText(stats_text.strip())
@@ -750,7 +800,7 @@ class ApiDialog(QDialog):
         layout.addWidget(self.secret_container)
 
         self.help_label = QLabel(
-            '<a href="https://osu.ppy.sh/home/account/edit#oauth" style="color:#ee4bbd;">How to get API keys?</a>'
+            f'<a href="https://osu.ppy.sh/home/account/edit#oauth" style="color:{LINK_COLOR};">How to get API keys?</a>'
         )
         self.help_label.setObjectName("helpLabel")
         self.help_label.setOpenExternalLinks(True)
@@ -786,7 +836,7 @@ class ApiDialog(QDialog):
             super().accept()
 
     def show_error(self, line_edit_widget, label, text):
-        label.setText(f'<span style="color: #E57373;">{text}</span>')
+        label.setText(f'<span style="color: {ERROR_COLOR};">{text}</span>')
         label.setVisible(True)
         line_edit_widget.setProperty("state", "error")
         self.style().unpolish(line_edit_widget)
@@ -870,7 +920,7 @@ class PandasTableModel(QAbstractTableModel):
             return str(value)
 
         if role == Qt.ItemDataRole.BackgroundRole:
-            return QColor("#302444") if index.row() % 2 == 0 else QColor("#2D203E")
+            return QCOLOR_PRIMARY_BG() if index.row() % 2 == 0 else QCOLOR_SECONDARY_BG()
 
         if role == Qt.ItemDataRole.TextAlignmentRole:
             if isinstance(value, (int, float)):
@@ -883,8 +933,8 @@ class PandasTableModel(QAbstractTableModel):
                 score_id_loc = self._data.columns.get_loc(score_id_col)
                 score_id_value = str(self._data.iloc[index.row(), score_id_loc])
                 if score_id_value == "LOST" and col_name in ["PP", score_id_col]:
-                    return QColor("#ee4bbd")
-            return QColor("#FFFFFF")
+                    return QCOLOR_ACCENT()
+            return QCOLOR_TEXT_PRIMARY()
 
         return None
 
@@ -1113,7 +1163,7 @@ class ResultsWindow(QDialog):
 
         self.close_button = QPushButton("Close")
         self.close_button.setObjectName("closeButton")
-        self.close_button.setMinimumSize(120, 40)
+        self.close_button.setProperty("class", "min-close-button")
         self.close_button.clicked.connect(self.close)
         self.bottom_layout.addWidget(self.close_button, 0)
         main_layout.addLayout(self.bottom_layout)
@@ -1597,6 +1647,10 @@ class MainWindow(QWidget):
         self.setWindowTitle("osu! Lost Scores Analyzer")
         self.setFixedSize(650, 800)
         self.setObjectName("mainWindow")
+        
+        config_dir = get_standard_dir("config")
+        self.auth_manager = AuthManager(config_dir)
+        self.oauth_flow = BrowserOAuthFlow(self.auth_manager)
 
         self.load_config()
         self.load_icons()
@@ -1666,26 +1720,42 @@ class MainWindow(QWidget):
             if (self.current_user_data and self.user_profile_widget and
                     hasattr(self.user_profile_widget, "unranked_toggle")):
                 self.config["username"] = self.current_user_data.get("username")
-                self.config["scores_count"] = (
-                    self.user_profile_widget.scores_count_display.text()
-                    if (hasattr(self.user_profile_widget, "scores_count_display") and
-                        self.user_profile_widget.scores_count_display) else ""
-                )
-                self.config["include_unranked"] = (
-                    self.user_profile_widget.unranked_toggle.isChecked()
-                    if (hasattr(self.user_profile_widget, "unranked_toggle") and
-                        self.user_profile_widget.unranked_toggle) else False
-                )
-                self.config["check_missing_ids"] = (
-                    self.user_profile_widget.missing_id_toggle.isChecked()
-                    if (hasattr(self.user_profile_widget, "missing_id_toggle") and
-                        self.user_profile_widget.missing_id_toggle) else False
-                )
-                self.config["show_lost"] = (
-                    self.user_profile_widget.show_lost_toggle.isChecked()
-                    if (hasattr(self.user_profile_widget, "show_lost_toggle") and
-                        self.user_profile_widget.show_lost_toggle) else False
-                )
+                
+                try:
+                    self.config["scores_count"] = (
+                        self.user_profile_widget.scores_count_display.text()
+                        if (hasattr(self.user_profile_widget, "scores_count_display") and
+                            self.user_profile_widget.scores_count_display) else ""
+                    )
+                except RuntimeError:
+                    self.config["scores_count"] = ""
+                
+                try:
+                    self.config["include_unranked"] = (
+                        self.user_profile_widget.unranked_toggle.isChecked()
+                        if (hasattr(self.user_profile_widget, "unranked_toggle") and
+                            self.user_profile_widget.unranked_toggle) else False
+                    )
+                except RuntimeError:
+                    self.config["include_unranked"] = False
+                
+                try:
+                    self.config["check_missing_ids"] = (
+                        self.user_profile_widget.missing_id_toggle.isChecked()
+                        if (hasattr(self.user_profile_widget, "missing_id_toggle") and
+                            self.user_profile_widget.missing_id_toggle) else False
+                    )
+                except RuntimeError:
+                    self.config["check_missing_ids"] = False
+                
+                try:
+                    self.config["show_lost"] = (
+                        self.user_profile_widget.show_lost_toggle.isChecked()
+                        if (hasattr(self.user_profile_widget, "show_lost_toggle") and
+                            self.user_profile_widget.show_lost_toggle) else False
+                    )
+                except RuntimeError:
+                    self.config["show_lost"] = False
 
             with open(CONFIG_PATH, "w", encoding="utf-8") as f:
                 json.dump(self.config, f, indent=4)
@@ -1773,7 +1843,7 @@ class MainWindow(QWidget):
         elif hasattr(self, "background_pixmap") and self.background_pixmap:
             painter.drawPixmap(self.rect(), self.background_pixmap)
         else:
-            painter.fillRect(self.rect(), QColor("#251a37"))
+            painter.fillRect(self.rect(), QCOLOR_SECONDARY_BG())
         painter.end()
 
     def init_ui(self):
@@ -1794,7 +1864,7 @@ class MainWindow(QWidget):
         self.title_label.setObjectName("TitleLabel")
         self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.title_label.setText(
-            '<span style="color: #ee4bbd;">osu!</span><span style="color: white;"> Lost Scores Analyzer</span> 🍋'
+            f'<span style="color: {ACCENT_COLOR};">osu!</span><span style="color: {TEXT_PRIMARY};"> Lost Scores Analyzer</span> 🍋'
         )
 
         dir_label = QLabel("osu! Game Directory", self)
@@ -2019,6 +2089,10 @@ class MainWindow(QWidget):
                 if action:
                     action.click()
 
+                # Give Qt event loop time to process any QTimer.singleShot calls
+                import time as time_module
+                time_module.sleep(0.1)
+                
                 event_was_set = event.wait(timeout)
                 if self.has_error:
                     logger.error(
@@ -2036,8 +2110,10 @@ class MainWindow(QWidget):
             elapsed_time = time.time() - start_time
             if not self.has_error:
                 QtCore.QMetaObject.invokeMethod(
-                    self, "all_completed_successfully", QtCore.Qt.ConnectionType.QueuedConnection,
-                    QtCore.Q_ARG(float, elapsed_time)
+                    self,
+                    "all_completed_successfully",
+                    QtCore.Qt.ConnectionType.QueuedConnection,
+                    QtCore.Q_ARG(float, elapsed_time),
                 )
         except Exception as e:
             logger.exception("Error in the execution sequence:")
@@ -2247,14 +2323,20 @@ class MainWindow(QWidget):
 
                 def gui_log(message, update_last=False):
                     QtCore.QMetaObject.invokeMethod(
-                        self, "append_log", QtCore.Qt.ConnectionType.QueuedConnection,
-                        QtCore.Q_ARG(str, message), QtCore.Q_ARG(bool, update_last)
+                        self,
+                        "append_log",
+                        QtCore.Qt.ConnectionType.QueuedConnection,
+                        QtCore.Q_ARG(str, message),
+                        QtCore.Q_ARG(bool, update_last),
                     )
 
                 def update_progress(current, total):
                     QtCore.QMetaObject.invokeMethod(
-                        self, "update_progress_bar", QtCore.Qt.ConnectionType.QueuedConnection,
-                        QtCore.Q_ARG(int, current), QtCore.Q_ARG(int, total)
+                        self,
+                        "update_progress_bar",
+                        QtCore.Qt.ConnectionType.QueuedConnection,
+                        QtCore.Q_ARG(int, current),
+                        QtCore.Q_ARG(int, total),
                     )
 
                 gui_log("Getting user data...", True)
@@ -2287,6 +2369,7 @@ class MainWindow(QWidget):
                 )
                 update_progress(4, 4)
 
+                # Use the proper Qt threading mechanism
                 QtCore.QMetaObject.invokeMethod(
                     self, "img_finished", QtCore.Qt.ConnectionType.QueuedConnection
                 )
@@ -2295,8 +2378,10 @@ class MainWindow(QWidget):
 
                 error_message = f"Error in image generation thread: {e}"
                 QtCore.QMetaObject.invokeMethod(
-                    self, "img_error", QtCore.Qt.ConnectionType.QueuedConnection,
-                    QtCore.Q_ARG(str, error_message)
+                    self,
+                    "img_error",
+                    QtCore.Qt.ConnectionType.QueuedConnection,
+                    QtCore.Q_ARG(str, error_message),
                 )
 
         threading.Thread(target=task, daemon=True).start()
@@ -2311,6 +2396,7 @@ class MainWindow(QWidget):
         if self.status_label:
             self.status_label.setText(self.current_task)
         self.img_completed.set()
+
 
     @Slot(str)
     def img_error(self, error_message):
@@ -2463,13 +2549,27 @@ class MainWindow(QWidget):
         if reply != QMessageBox.StandardButton.Yes:
             return
 
-        if OsuApiClient.delete_keys_from_keyring():
-            self.append_log("API keys successfully removed from system keyring", False)
+        current_session = self.auth_manager.get_current_session()
+        
+        if current_session.auth_mode == AuthMode.OAUTH:
+            self.auth_manager.clear_oauth_session_only()
+            # Force invalidate cache to ensure clean state
+            self.auth_manager._cached_session = None
+            self.auth_manager._session_cache_valid = False
+            # Reset OAuth browser state for clean logout/login cycle
+            if hasattr(self, 'oauth_flow'):
+                self.oauth_flow.reset_state()
+            self.append_log("OAuth session successfully cleared", False)
+        elif current_session.auth_mode == AuthMode.CUSTOM_KEYS:
+            if OsuApiClient.delete_keys_from_keyring():
+                self.append_log("API keys successfully removed from system keyring", False)
+            else:
+                self.append_log(
+                    "Could not remove API keys from keyring (they might not have been saved)",
+                    False,
+                )
         else:
-            self.append_log(
-                "Could not remove API keys from keyring (they might not have been saved)",
-                False,
-            )
+            self.append_log("No active session to logout", False)
 
         self.current_user_data = None
         OsuApiClient.reset_instance()
@@ -2525,25 +2625,48 @@ class MainWindow(QWidget):
         self.threadpool.start(worker)
 
     def _try_auto_login(self):
-        client_id, client_secret = OsuApiClient.get_keys_from_keyring()
-        username = self.config.get("username")
-
-        if client_id and client_secret and username:
+        session = self.auth_manager.get_current_session()
+        self.append_log(f"Auto-login check: Found {session.auth_mode.value} session", True)
+        
+        if session.auth_mode == AuthMode.OAUTH and session.jwt_token:
             self.append_log(
-                f"Found saved credentials for '{username}'. Trying to auto-login...",
+                f"Found OAuth session for '{session.username}'. Attempting auto-login via backend...",
                 False,
             )
             self.set_ui_busy(True)
-
-            worker = Worker(
-                self._validate_and_login, client_id, client_secret, username
-            )
-
-            worker.signals.result.connect(self._on_login_success)
-            worker.signals.error.connect(self.task_error)
+            
+            if not self.osu_api_client:
+                self.osu_api_client = OsuApiClient.get_instance()
+            self.osu_api_client.configure_for_oauth(session.jwt_token)
+            self.osu_api_client = OsuApiClient.get_instance()
+            
+            worker = Worker(self._get_oauth_user_data)
+            worker.signals.result.connect(self._on_oauth_login_success)
+            worker.signals.error.connect(self._on_oauth_auto_login_error)
             worker.signals.log.connect(self.append_log)
-
             self.threadpool.start(worker)
+            return
+            
+        elif session.auth_mode == AuthMode.CUSTOM_KEYS:
+            client_id, client_secret = self.auth_manager.get_custom_keys()
+            username = self.config.get("username")
+
+            if client_id and client_secret and username:
+                self.append_log(
+                    f"Found saved custom keys for '{username}'. Trying to auto-login...",
+                    False,
+                )
+                self.set_ui_busy(True)
+
+                worker = Worker(
+                    self._validate_and_login, client_id, client_secret, username
+                )
+
+                worker.signals.result.connect(self._on_login_success)
+                worker.signals.error.connect(self.task_error)
+                worker.signals.log.connect(self.append_log)
+
+                self.threadpool.start(worker)
 
     def set_ui_busy(self, is_busy: bool):
         controls_enabled = not is_busy
@@ -2653,6 +2776,106 @@ class MainWindow(QWidget):
     def on_task_result(self, result_dict):
         if isinstance(result_dict, dict):
             self.run_statistics.update(result_dict)
+
+    def _on_oauth_login_clicked(self):
+        self.append_log("Starting OAuth authorization...", False)
+        self.set_ui_busy(True)
+        
+        if not self.oauth_flow.start_login():
+            self.append_log("Failed to open browser for OAuth", False)
+            self.set_ui_busy(False)
+            return
+        
+        worker = Worker(self.oauth_flow.wait_for_session, 60)
+        worker.signals.result.connect(self._on_oauth_complete)
+        worker.signals.error.connect(lambda error_tuple: self._on_oauth_error(str(error_tuple)))
+        self.threadpool.start(worker)
+
+    def _on_oauth_complete(self, session):
+        if session and session.auth_mode == AuthMode.OAUTH:
+            self.append_log(f"OAuth authorization successful for user '{session.username}'", False)
+            
+            # Automatically bring application window back to focus after OAuth
+            try:
+                self.activateWindow()
+                self.raise_()
+                self.show()
+                # Also focus the application at OS level
+                self.activateWindow()
+            except Exception as e:
+                logger.debug(f"Could not restore window focus after OAuth: {e}")
+            
+            if not self.osu_api_client:
+                self.osu_api_client = OsuApiClient.get_instance()
+            self.osu_api_client.configure_for_oauth(session.jwt_token)
+            self.osu_api_client = OsuApiClient.get_instance()
+            
+            worker = Worker(self._get_oauth_user_data)
+            worker.signals.result.connect(self._on_oauth_login_success)
+            worker.signals.error.connect(self.task_error)
+            self.threadpool.start(worker)
+        else:
+            self._on_oauth_error("OAuth authorization failed or timeout")
+
+    def _on_oauth_error(self, error_message):
+        self.append_log(f"OAuth error: {error_message}", False)
+        self.set_ui_busy(False)
+
+    def _on_oauth_auto_login_error(self, error_message):
+        self.append_log(f"OAuth auto-login failed: {error_message}", False)
+        self.append_log("Backend server may be unavailable. Performing cleanup...", True)
+        self.append_log("Clearing corrupted OAuth session and resetting API client...", True)
+        
+        OsuApiClient.reset_instance()
+        self.osu_api_client = None
+        
+        self.auth_manager.clear_oauth_session_only()
+        
+        self.set_ui_busy(False)
+        self.append_log("System reset complete. You can now use custom API keys or try OAuth again when backend is available.", False)
+
+    def _get_oauth_user_data(self):
+        try:
+            if not self.osu_api_client:
+                raise Exception("OAuth API client not initialized")
+            user_data = self.osu_api_client.get_current_user_data()
+            if not user_data:
+                raise Exception("Could not get user data from OAuth API")
+            return user_data
+        except Exception as e:
+            logger.error(f"Error getting OAuth user data: {e}")
+            raise
+
+    def _on_oauth_login_success(self, user_data):
+        try:
+            self.current_user_data = user_data
+            
+            avatar_cache_path = os.path.join(
+                get_standard_dir("cache/avatars"), f"avatar_{user_data['id']}.png"
+            )
+            
+            self.config["avatar_path"] = avatar_cache_path
+            self.config["username"] = user_data["username"]
+            
+            if self.user_profile_widget:
+                self.user_profile_widget._setup_logged_in_ui(user_data, self.config)
+                
+                potential_stats = load_summary_stats()
+                self.user_profile_widget.update_stats_display(user_data, scan_data=potential_stats)
+            
+            self.save_config()
+            
+            self.append_log(f"Successfully logged in as '{user_data['username']}' via OAuth", False)
+            
+            if user_data.get("avatar_url"):
+                self._download_avatar(user_data.get("avatar_url"), avatar_cache_path)
+            
+            self.set_ui_busy(False)
+            
+        except Exception as e:
+            logger.error(f"Error in OAuth login success handler: {e}")
+            self.append_log(f"Error setting up OAuth login: {str(e)}", False)
+            self.set_ui_busy(False)
 
 def create_gui(osu_api_client=None):
     app = QApplication.instance() or QApplication(sys.argv)

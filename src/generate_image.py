@@ -14,6 +14,7 @@ from database import db_get_map
 from file_parser import file_parser
 from path_utils import get_standard_dir, mask_path_for_log
 from utils import track_parallel_progress, load_summary_stats, get_delta_color
+from color_constants import ImageColors
 
 asset_downloads_logger = logging.getLogger("asset_downloads")
 logger = logging.getLogger(__name__)
@@ -39,19 +40,6 @@ except (IOError, FileNotFoundError):
     logger.exception("Failed to load Exo2 fonts, using default")
     TITLE_FONT = SUBTITLE_FONT = MAP_NAME_FONT = CREATOR_SMALL_FONT = VERSION_FONT = SMALL_FONT = ImageFont.load_default()
     BOLD_ITALIC_FONT = BOLD_ITALIC_FONT_SMALL = ImageFont.load_default()
-
-COLOR_BG = (37, 26, 55)
-COLOR_CARD = (48, 36, 68)
-COLOR_CARD_LOST = (69, 34, 66)
-COLOR_WHITE = (255, 255, 255)
-COLOR_HIGHLIGHT = (255, 153, 0)
-PP_SHAPE_COLOR = (120, 50, 140)
-DATE_COLOR = (200, 200, 200)
-ACC_COLOR = (255, 204, 33)
-WEIGHT_COLOR = (255, 255, 255)
-GREEN_COLOR = (128, 255, 128)
-RED_COLOR = (255, 128, 128)
-USERNAME_COLOR = (255, 204, 33)
 
 CARD_HEIGHT = 60
 CARD_SPACING = 2
@@ -81,29 +69,29 @@ BADGE_PADDING = 10
 
 def create_placeholder_image(filename, username, message):
     width, height = DEFAULT_BASE_CARD_WIDTH, PLACEHOLDER_IMAGE_HEIGHT
-    img = Image.new("RGBA", (width, height), COLOR_BG)
+    img = Image.new("RGBA", (width, height), ImageColors.BG)
     draw = ImageDraw.Draw(img)
-    draw.text((width // 2, 50), "osu! Lost Scores Analyzer", font=TITLE_FONT, fill=ACC_COLOR, anchor="mm")
+    draw.text((width // 2, 50), "osu! Lost Scores Analyzer", font=TITLE_FONT, fill=ImageColors.ACC, anchor="mm")
 
     draw.text(
         (width // 2, 100),
         f"Player: {username}",
         font=SUBTITLE_FONT,
-        fill=USERNAME_COLOR,
+        fill=ImageColors.USERNAME,
         anchor="mm",
     )
     draw.text(
         (width // 2, height // 2),
         message,
         font=SUBTITLE_FONT,
-        fill=COLOR_WHITE,
+        fill=ImageColors.WHITE,
         anchor="mm",
     )
     draw.text(
         (width // 2, height - 50),
         "Try running the analysis again or check for missing files",
         font=SMALL_FONT,
-        fill=DATE_COLOR,
+        fill=ImageColors.DATE,
         anchor="mm",
     )
     out_path = get_standard_dir(os.path.join("results", filename))
@@ -170,7 +158,7 @@ def download_and_draw_avatar(
         osu_api_client=None,
         gui_log=None,
         avatar_radius=15,
-        placeholder_color=COLOR_CARD,
+        placeholder_color=ImageColors.CARD,
 ):
     if not osu_api_client:
         logger.warning("No API client provided for downloading avatar")
@@ -394,7 +382,7 @@ def _prepare_card_background(
 ):
     if not osu_api_client:
         raise ValueError("API client not provided")
-    bg_color = COLOR_CARD_LOST if show_weights and is_lost_row else COLOR_CARD
+    bg_color = ImageColors.CARD_LOST if show_weights and is_lost_row else ImageColors.CARD
     bg_img = Image.new("RGBA", (card_w, card_h), bg_color)
     cover_w = card_w // 3
     cover_h = card_h
@@ -429,7 +417,7 @@ def _draw_grade_icon(base, d_card, grade, card_x, center_line):
                 f"Error processing grade icon {mask_path_for_log(grade_icon_path)}: {grade_err}"
             )
     d_card.text(
-        (card_x + 10, center_line - 8), grade, font=SUBTITLE_FONT, fill=COLOR_WHITE
+        (card_x + 10, center_line - 8), grade, font=SUBTITLE_FONT, fill=ImageColors.WHITE
     )
     return False
 
@@ -444,10 +432,10 @@ def _draw_beatmap_info(
         text_y_map,
 ):
     full_name = short_txt(f"{raw_title} by {raw_artist}", 50)
-    d_card.text((text_x, text_y_map), full_name, font=MAP_NAME_FONT, fill=COLOR_WHITE)
+    d_card.text((text_x, text_y_map), full_name, font=MAP_NAME_FONT, fill=ImageColors.WHITE)
     text_y_map += 20
     d_card.text(
-        (text_x, text_y_map), f"by {creator}", font=CREATOR_SMALL_FONT, fill=COLOR_WHITE
+        (text_x, text_y_map), f"by {creator}", font=CREATOR_SMALL_FONT, fill=ImageColors.WHITE
     )
     text_y_map += 16
     date_human = since_date(date_str)
@@ -458,20 +446,20 @@ def _draw_beatmap_info(
         gap_bbox = d_card.textbbox((0, 0), gap, font=VERSION_FONT)
         gap_w = gap_bbox[2] - gap_bbox[0]
         d_card.text(
-            (text_x, text_y_map), version, font=VERSION_FONT, fill=COLOR_HIGHLIGHT
+            (text_x, text_y_map), version, font=VERSION_FONT, fill=ImageColors.HIGHLIGHT
         )
         d_card.text(
             (text_x + version_w + gap_w, text_y_map),
             date_human,
             font=VERSION_FONT,
-            fill=DATE_COLOR,
+            fill=ImageColors.DATE,
         )
     except AttributeError:
         d_card.text(
             (text_x, text_y_map),
             f"{version}{gap}{date_human}",
             font=VERSION_FONT,
-            fill=DATE_COLOR,
+            fill=ImageColors.DATE,
         )
 
 def _draw_pp_section(d_card, row, card_x, card_y, card_w, card_h, center_line):
@@ -480,7 +468,7 @@ def _draw_pp_section(d_card, row, card_x, card_y, card_w, card_h, center_line):
     d_card.rounded_rectangle(
         (shape_left, card_y, shape_left + shape_w, card_y + card_h),
         radius=CARD_CORNER_RADIUS,
-        fill=PP_SHAPE_COLOR,
+        fill=ImageColors.PP_SHAPE,
     )
     raw_pp = row.get("PP", "0")
     try:
@@ -496,14 +484,14 @@ def _draw_pp_section(d_card, row, card_x, card_y, card_w, card_h, center_line):
         text_x_pp = shape_left + shape_w / 2 - w_pp_ / 2
         text_y_pp = center_line - h_pp_ / 2 + manual_offset_pp
         d_card.text(
-            (text_x_pp, text_y_pp), pp_str, font=SUBTITLE_FONT, fill=COLOR_WHITE
+            (text_x_pp, text_y_pp), pp_str, font=SUBTITLE_FONT, fill=ImageColors.WHITE
         )
     except AttributeError:
         d_card.text(
             (shape_left + 15, center_line - 10),
             pp_str,
             font=SUBTITLE_FONT,
-            fill=COLOR_WHITE,
+            fill=ImageColors.WHITE,
         )
     return shape_left
 
@@ -590,7 +578,7 @@ def draw_accuracy_and_mods_lost(
             (acc_center_x, center_line),
             acc_s,
             font=BOLD_ITALIC_FONT,
-            fill=ACC_COLOR,
+            fill=ImageColors.ACC,
             anchor="mm",
         )
     except AttributeError:
@@ -601,14 +589,14 @@ def draw_accuracy_and_mods_lost(
                 (acc_center_x - acc_w / 2, center_line - 10),
                 acc_s,
                 font=BOLD_ITALIC_FONT,
-                fill=ACC_COLOR,
+                fill=ImageColors.ACC,
             )
         else:
             d_card.text(
                 (acc_center_x - 30, center_line - 10),
                 acc_s,
                 font=BOLD_ITALIC_FONT,
-                fill=ACC_COLOR,
+                fill=ImageColors.ACC,
             )
     draw_mods(d_card, base, row, mods_edge, center_line)
 
@@ -625,7 +613,7 @@ def draw_weighted_info(d_card, base, row, shape_left, center_line):
                 (wpp_x - PP_COLUMN_WIDTH / 2, center_line),
                 weight_pp_text,
                 font=BOLD_ITALIC_FONT_SMALL,
-                fill=WEIGHT_COLOR,
+                fill=ImageColors.WEIGHT,
                 anchor="mm",
             )
         except AttributeError:
@@ -633,7 +621,7 @@ def draw_weighted_info(d_card, base, row, shape_left, center_line):
                 (wpp_x - PP_COLUMN_WIDTH + 5, center_line - 8),
                 weight_pp_text,
                 font=BOLD_ITALIC_FONT_SMALL,
-                fill=WEIGHT_COLOR,
+                fill=ImageColors.WEIGHT,
             )
     acc_block_x = wpp_x - PP_COLUMN_WIDTH - ACCURACY_COLUMN_WIDTH / 2
     raw_acc = row.get("Accuracy", "0")
@@ -651,7 +639,7 @@ def draw_weighted_info(d_card, base, row, shape_left, center_line):
             (left_align_x, center_line - acc_h / 2 - VERTICAL_TEXT_SPACING),
             acc_str2,
             font=BOLD_ITALIC_FONT,
-            fill=ACC_COLOR,
+            fill=ImageColors.ACC,
             anchor="lm",
         )
         if w_percent_str:
@@ -661,7 +649,7 @@ def draw_weighted_info(d_card, base, row, shape_left, center_line):
                 (left_align_x, center_line + wpct_h / 2 + VERTICAL_TEXT_SPACING),
                 w_percent_str,
                 font=CREATOR_SMALL_FONT,
-                fill=WEIGHT_COLOR,
+                fill=ImageColors.WEIGHT,
                 anchor="lm",
             )
     except AttributeError:
@@ -669,14 +657,14 @@ def draw_weighted_info(d_card, base, row, shape_left, center_line):
             (acc_block_x - ACCURACY_COLUMN_WIDTH / 2 + 10, center_line - 14),
             acc_str2,
             font=BOLD_ITALIC_FONT,
-            fill=ACC_COLOR,
+            fill=ImageColors.ACC,
         )
         if w_percent_str:
             d_card.text(
                 (acc_block_x - ACCURACY_COLUMN_WIDTH / 2 + 10, center_line + 6),
                 w_percent_str,
                 font=CREATOR_SMALL_FONT,
-                fill=WEIGHT_COLOR,
+                fill=ImageColors.WEIGHT,
             )
     mods_right_edge = acc_block_x - ACCURACY_COLUMN_WIDTH / 2 - MODS_RIGHT_MARGIN
     draw_mods(d_card, base, row, mods_right_edge, center_line)
@@ -713,7 +701,7 @@ def draw_mods(d_card, base, row, mods_right_edge, center_line):
                     (mod_x_cur, center_line - 8),
                     m_,
                     font=SMALL_FONT,
-                    fill=COLOR_WHITE,
+                    fill=ImageColors.WHITE,
                 )
                 mod_x_cur -= MOD_ICON_SPACING
             except AttributeError:
@@ -733,7 +721,7 @@ def draw_header(
         extra_shift=0,
         osu_api_client=None,
 ):
-    d.text((margin, baseline_y), title, font=TITLE_FONT, fill=COLOR_WHITE)
+    d.text((margin, baseline_y), title, font=TITLE_FONT, fill=ImageColors.WHITE)
     try:
         title_box = d.textbbox((margin, baseline_y), title, font=TITLE_FONT)
         title_right_x = title_box[2]
@@ -867,8 +855,8 @@ def _process_user_statistics(user_data_json, summary_data):
         "new_diff_pp": "N/A",
         "pot_acc_str": "N/A",
         "acc_diff_str": "N/A",
-        "acc_diff_color": COLOR_WHITE,
-        "diff_color": COLOR_WHITE,
+        "acc_diff_color": ImageColors.WHITE,
+        "diff_color": ImageColors.WHITE,
     }
 
     try:
@@ -906,7 +894,7 @@ def _setup_canvas_and_dimensions(rows, mode, total_rows_count):
     width = card_w + 2 * DEFAULT_MARGIN
     start_y = DEFAULT_MARGIN + TOP_PANEL_HEIGHT - (20 if mode == "lost" else 0)
     total_h = start_y + len(rows) * (CARD_HEIGHT + CARD_SPACING) + DEFAULT_MARGIN
-    base = Image.new("RGBA", (width, total_h), COLOR_BG)
+    base = Image.new("RGBA", (width, total_h), ImageColors.BG)
     d = ImageDraw.Draw(base)
     logger.info(f"Displaying {len(rows)}/{total_rows_count} scores in {mode} mode")
     return {"base": base, "d": d, "width": width, "card_w": card_w, "start_y": start_y}
@@ -922,14 +910,14 @@ def _draw_stats_section(d, stats, title_right_x, baseline_y):
         try:
             label_box = d.textbbox((0, 0), label, font=VERSION_FONT)
             lw = label_box[2] - label_box[0]
-            d.text((x, y), label, font=VERSION_FONT, fill=ACC_COLOR)
+            d.text((x, y), label, font=VERSION_FONT, fill=ImageColors.ACC)
             d.text((x + lw + 5, y), str(val), font=VERSION_FONT, fill=val_color)
         except AttributeError:
             d.text((x, y), f"{label} {val}", font=VERSION_FONT, fill=val_color)
 
-    draw_col("Cur PP:", stats["cur_pp_val"], stats_start_x, row1_y, COLOR_WHITE)
+    draw_col("Cur PP:", stats["cur_pp_val"], stats_start_x, row1_y, ImageColors.WHITE)
     draw_col(
-        "Cur Acc:", stats["cur_acc_str"], stats_start_x + col_w, row1_y, COLOR_WHITE
+        "Cur Acc:", stats["cur_acc_str"], stats_start_x + col_w, row1_y, ImageColors.WHITE
     )
     draw_col(
         "Δ PP:",
@@ -938,9 +926,9 @@ def _draw_stats_section(d, stats, title_right_x, baseline_y):
         row1_y,
         stats["diff_color"],
     )
-    draw_col("Pot PP:", stats["pot_pp_val"], stats_start_x, row2_y, COLOR_WHITE)
+    draw_col("Pot PP:", stats["pot_pp_val"], stats_start_x, row2_y, ImageColors.WHITE)
     draw_col(
-        "Pot Acc:", stats["pot_acc_str"], stats_start_x + col_w, row2_y, COLOR_WHITE
+        "Pot Acc:", stats["pot_acc_str"], stats_start_x + col_w, row2_y, ImageColors.WHITE
     )
     draw_col(
         "Δ Acc:",
@@ -998,7 +986,7 @@ def make_img(
         DEFAULT_MARGIN,
         data["main_title"],
         user_name,
-        USERNAME_COLOR,
+        ImageColors.USERNAME,
         data["user_data_json"],
         av_size,
         baseline_y,
@@ -1010,7 +998,7 @@ def make_img(
     elif data["mode"] == "lost":
         scammed_y = baseline_y + title_h + 15
         s_ = f"Peppy scammed me for {data['total_rows_count']} of them!"
-        d.text((DEFAULT_MARGIN, scammed_y), s_, font=VERSION_FONT, fill=COLOR_HIGHLIGHT)
+        d.text((DEFAULT_MARGIN, scammed_y), s_, font=VERSION_FONT, fill=ImageColors.HIGHLIGHT)
     if gui_log:
         gui_log("Drawing score cards...", update_last=True)
     for i, row in enumerate(data["rows"]):
@@ -1148,7 +1136,7 @@ def create_summary_badge(data, output_path, osu_api_client=None):
 
     badge_width, badge_height = BADGE_WIDTH, BADGE_HEIGHT
     padding = BADGE_PADDING
-    background_color = COLOR_BG
+    background_color = ImageColors.BG
     canvas = Image.new("RGBA", (badge_width, badge_height), background_color)
 
     draw = ImageDraw.Draw(canvas)
@@ -1183,7 +1171,7 @@ def create_summary_badge(data, output_path, osu_api_client=None):
     text_x_start = avatar_size + (padding * 2)
 
     nickname_y_pos = padding + 2
-    nickname_color = USERNAME_COLOR
+    nickname_color = ImageColors.USERNAME
     draw.text(
         (text_x_start, nickname_y_pos),
         data["username"],
@@ -1199,14 +1187,14 @@ def create_summary_badge(data, output_path, osu_api_client=None):
         "PP", data['current_pp'], data['potential_pp'], data['delta_pp']
     )
     pp_base_width = draw.textlength(pp_base, font=font)
-    draw.text((text_x_start, y_pp), pp_base, font=font, fill=COLOR_WHITE)
+    draw.text((text_x_start, y_pp), pp_base, font=font, fill=ImageColors.WHITE)
     draw.text((text_x_start + pp_base_width, y_pp), pp_delta, font=font, fill=pp_color)
 
     acc_base, acc_delta, acc_color = _prepare_stat_line_components(
         "Acc", data['current_acc'], data['potential_acc'], data['delta_acc'], is_percent=True
     )
     acc_base_width = draw.textlength(acc_base, font=font)
-    draw.text((text_x_start, y_acc), acc_base, font=font, fill=COLOR_WHITE)
+    draw.text((text_x_start, y_acc), acc_base, font=font, fill=ImageColors.WHITE)
     draw.text((text_x_start + acc_base_width, y_acc), acc_delta, font=font, fill=acc_color)
 
     info_font = CREATOR_SMALL_FONT
@@ -1222,7 +1210,7 @@ def create_summary_badge(data, output_path, osu_api_client=None):
         (text_x_start, y_lost_scores),
         lost_scores_text,
         font=CREATOR_SMALL_FONT,
-        fill=DATE_COLOR,
+        fill=ImageColors.DATE,
     )
 
     bottom_y = badge_height - padding
@@ -1232,7 +1220,7 @@ def create_summary_badge(data, output_path, osu_api_client=None):
         (badge_width - padding, bottom_y),
         date_text,
         font=info_font,
-        fill=DATE_COLOR,
+        fill=ImageColors.DATE,
         anchor="rb",
     )
     date_height = getattr(info_font, 'size', 12)
@@ -1240,7 +1228,7 @@ def create_summary_badge(data, output_path, osu_api_client=None):
         (badge_width - padding, bottom_y - date_height - 2),
         rank_text,
         font=info_font,
-        fill=DATE_COLOR,
+        fill=ImageColors.DATE,
         anchor="rb",
     )
 

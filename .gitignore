@@ -21,6 +21,7 @@ csv/
 maps/
 log/
 config/
+scripts/
 
 build.py
 bootstrap.py

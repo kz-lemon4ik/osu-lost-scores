@@ -195,7 +195,11 @@ def main():
         sys.exit(1)
 
     app = QApplication.instance() or QApplication(sys.argv)
-
+    
+    # Configure tooltip delay to 1 second (1000ms)
+    # Note: PySide6 doesn't directly support tooltip delay configuration like this
+    # The delay is controlled by the OS, but we can work around it in the GUI
+    
     app_icon_path = get_standard_dir("assets/images/app_icon/icon.ico")
     if os.path.exists(app_icon_path) and isinstance(app, QApplication):
         app_icon = QIcon(app_icon_path)
