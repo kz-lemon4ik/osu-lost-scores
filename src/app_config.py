@@ -12,16 +12,18 @@ CUTOFF_DATE=1730114220
 
 # Logging Configuration
 LOG_LEVEL=DEBUG
-LOG_DIR=log
+LOG_DIR=cache/log
 
 # Database Configuration
 DB_FILE=beatmap_info.db
 
 # Path Settings
 CACHE_DIR=cache
-RESULTS_DIR=results
-MAPS_DIR=maps
-CSV_DIR=csv
+DATA_DIR=data
+MAPS_DIR=cache/maps
+LOG_DIR=cache/log
+ANALYSIS_DIR=data/analysis
+IMAGES_DIR=data/images
 
 # Performance Configuration
 GUI_THREAD_POOL_SIZE=24   # For QThreadPool in GUI module
@@ -76,17 +78,19 @@ else:
         mask_path_for_log(str(dotenv_path)),
     )
 _cache_dir_name = os.environ.get("CACHE_DIR", "cache")
-_results_dir_name = os.environ.get("RESULTS_DIR", "results")
-_maps_dir_name = os.environ.get("MAPS_DIR", "maps")
-_csv_dir_name = os.environ.get("CSV_DIR", "csv")
-_log_dir_name = os.environ.get("LOG_DIR", "log")
+_data_dir_name = os.environ.get("DATA_DIR", "data")
+_maps_dir_name = os.environ.get("MAPS_DIR", "cache/maps")
+_log_dir_name = os.environ.get("LOG_DIR", "cache/log")
+_analysis_dir_name = os.environ.get("ANALYSIS_DIR", "data/analysis")
+_images_dir_name = os.environ.get("IMAGES_DIR", "data/images")
 _log_level_name = os.environ.get("LOG_LEVEL", "INFO")
 
 CACHE_DIR = get_standard_dir(_cache_dir_name)
-RESULTS_DIR = get_standard_dir(_results_dir_name)
+DATA_DIR = get_standard_dir(_data_dir_name)
 MAPS_DIR = get_standard_dir(_maps_dir_name)
-CSV_DIR = get_standard_dir(_csv_dir_name)
 LOG_DIR = get_standard_dir(_log_dir_name)
+ANALYSIS_DIR = get_standard_dir(_analysis_dir_name)
+IMAGES_DIR = get_standard_dir(_images_dir_name)
 
 AVATAR_DIR = os.path.join(CACHE_DIR, "avatars")
 COVER_DIR = os.path.join(CACHE_DIR, "covers")
@@ -94,10 +98,11 @@ COVER_DIR = os.path.join(CACHE_DIR, "covers")
 LOG_LEVEL = _log_level_name
 
 os.makedirs(CACHE_DIR, exist_ok=True)
-os.makedirs(RESULTS_DIR, exist_ok=True)
+os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(MAPS_DIR, exist_ok=True)
-os.makedirs(CSV_DIR, exist_ok=True)
 os.makedirs(LOG_DIR, exist_ok=True)
+os.makedirs(ANALYSIS_DIR, exist_ok=True)
+os.makedirs(IMAGES_DIR, exist_ok=True)
 os.makedirs(AVATAR_DIR, exist_ok=True)
 os.makedirs(COVER_DIR, exist_ok=True)
 

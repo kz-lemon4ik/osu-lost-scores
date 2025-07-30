@@ -1,5 +1,4 @@
 
-import csv
 import datetime
 import logging
 import os
@@ -9,11 +8,11 @@ import requests
 from PIL import Image, ImageDraw, ImageFont, UnidentifiedImageError
 from requests.exceptions import RequestException
 
-from app_config import AVATAR_DIR, COVER_DIR, CSV_DIR, RESULTS_DIR
+from app_config import AVATAR_DIR, COVER_DIR, IMAGES_DIR
 from database import db_get_map
 from file_parser import file_parser
 from path_utils import get_standard_dir, mask_path_for_log
-from utils import track_parallel_progress, load_summary_stats, get_delta_color
+from utils import track_parallel_progress, load_summary_stats, get_delta_color, load_analysis_from_json, load_summary_stats_from_json
 from color_constants import ImageColors
 
 asset_downloads_logger = logging.getLogger("asset_downloads")
@@ -22,10 +21,6 @@ logger = logging.getLogger(__name__)
 FONTS_DIR = get_standard_dir("assets/fonts")
 GRADES_DIR = get_standard_dir("assets/images/grades")
 MODS_DIR = get_standard_dir("assets/images/mod-icons")
-CSV_LOST = os.path.join(CSV_DIR, "lost_scores.csv")
-CSV_TOPLOST = os.path.join(CSV_DIR, "top_with_lost.csv")
-IMG_LOST_OUT = os.path.join(RESULTS_DIR, "lost_scores_result.png")
-IMG_TOP_OUT = os.path.join(RESULTS_DIR, "potential_top_result.png")
 
 try:
     TITLE_FONT = ImageFont.truetype(os.path.join(FONTS_DIR, "Exo2-Bold.otf"), 36)
@@ -67,39 +62,6 @@ BADGE_WIDTH = 500
 BADGE_HEIGHT = 120
 BADGE_PADDING = 10
 
-def create_placeholder_image(filename, username, message):
-    width, height = DEFAULT_BASE_CARD_WIDTH, PLACEHOLDER_IMAGE_HEIGHT
-    img = Image.new("RGBA", (width, height), ImageColors.BG)
-    draw = ImageDraw.Draw(img)
-    draw.text((width // 2, 50), "osu! Lost Scores Analyzer", font=TITLE_FONT, fill=ImageColors.ACC, anchor="mm")
-
-    draw.text(
-        (width // 2, 100),
-        f"Player: {username}",
-        font=SUBTITLE_FONT,
-        fill=ImageColors.USERNAME,
-        anchor="mm",
-    )
-    draw.text(
-        (width // 2, height // 2),
-        message,
-        font=SUBTITLE_FONT,
-        fill=ImageColors.WHITE,
-        anchor="mm",
-    )
-    draw.text(
-        (width // 2, height - 50),
-        "Try running the analysis again or check for missing files",
-        font=SMALL_FONT,
-        fill=ImageColors.DATE,
-        anchor="mm",
-    )
-    out_path = get_standard_dir(os.path.join("results", filename))
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    img.save(out_path)
-    logger.info(
-        "Placeholder image saved to %s", mask_path_for_log(os.path.normpath(out_path))
-    )
 
 def short_mods(mods_str):
     mlist = [m.strip() for m in mods_str.split(",") if m.strip()]
@@ -759,7 +721,7 @@ def draw_header(
         )
     return title_right_x, title_h
 
-def _prepare_image_data(user_id, user_name, mode, max_scores, osu_api_client=None):
+def _prepare_image_data(user_id, user_name, mode, max_scores, session_dir=None, osu_api_client=None):
     max_scores = max(1, max_scores)
     user_data_json = None
     if user_id:
@@ -773,62 +735,97 @@ def _prepare_image_data(user_id, user_name, mode, max_scores, osu_api_client=Non
                 )
         except requests.exceptions.RequestException as e:
             logger.exception(f"API request error getting user data {user_id} for make_img: {e}")
-    if mode == "lost":
-        csv_path = CSV_LOST
-        out_path = IMG_LOST_OUT
-        main_title = "Lost Scores"
-        show_weights = False
-        baseline_offset = 20
+    if session_dir:
+        timestamp = os.path.basename(session_dir)
+        images_session_dir = os.path.join(IMAGES_DIR, timestamp)
+        os.makedirs(images_session_dir, exist_ok=True)
+        
+        json_path = os.path.join(session_dir, "analysis_results.json")
+        analysis_data = load_analysis_from_json(json_path)
     else:
-        csv_path = CSV_TOPLOST
-        out_path = IMG_TOP_OUT
-        main_title = "Potential Top"
-        show_weights = True
-        baseline_offset = 0
-    try:
-        with open(csv_path, "r", encoding="utf-8") as f:
-            all_rows = list(csv.DictReader(f))
-    except FileNotFoundError:
-        logger.error(f"CSV file not found: {mask_path_for_log(csv_path)}")
-        error_msg = (
-            f"CSV file not found: {os.path.basename(mask_path_for_log(csv_path))}"
-        )
-        logger.error(
-            "Error: %s, creating placeholder image for user %s", error_msg, user_name
-        )
-        create_placeholder_image(
-            os.path.basename(out_path),
-            user_name,
-            error_msg,
-        )
+        from utils import find_latest_analysis_session
+        latest_session = find_latest_analysis_session()
+        if latest_session:
+            timestamp = os.path.basename(latest_session)
+            images_session_dir = os.path.join(IMAGES_DIR, timestamp)
+            os.makedirs(images_session_dir, exist_ok=True)
+            
+            json_path = os.path.join(latest_session, "analysis_results.json")
+            analysis_data = load_analysis_from_json(json_path)
+        else:
+            analysis_data = None
+            images_session_dir = IMAGES_DIR
+    
+    if analysis_data:
+        if mode == "lost":
+            json_data = analysis_data.get("lost_scores", [])
+            out_path = os.path.join(images_session_dir, "lost_scores_result.png")
+            main_title = "Lost Scores"
+            show_weights = False
+            baseline_offset = 20
+        else:
+            json_data = analysis_data.get("top_with_lost", [])
+            out_path = os.path.join(images_session_dir, "potential_top_result.png")
+            main_title = "Potential Top"
+            show_weights = True
+            baseline_offset = 0
+            
+        all_rows = []
+        for item in json_data:
+            if mode == "lost":
+                row = {
+                    "PP": str(item.get("pp", "")),
+                    "Beatmap ID": str(item.get("beatmap_id", "")),
+                    "Beatmap MD5": item.get("beatmap_md5", ""),
+                    "Beatmap": item.get("beatmap", ""),
+                    "artist": item.get("artist", ""),
+                    "title": item.get("title", ""),
+                    "creator": item.get("creator", ""),
+                    "version": item.get("version", ""),
+                    "Mods": ", ".join(item.get("mods", [])) if item.get("mods") else "NM",
+                    "100": str(item.get("count100", "")),
+                    "50": str(item.get("count50", "")),
+                    "Misses": str(item.get("countMiss", "")),
+                    "Accuracy": str(item.get("accuracy", "")),
+                    "Score": str(item.get("total_score", "")),
+                    "Date": item.get("score_time", ""),
+                    "Rank": item.get("rank", "")
+                }
+            else:
+                row = {
+                    "PP": str(item.get("pp", "")),
+                    "Beatmap ID": str(item.get("beatmap_id", "")),
+                    "Beatmap MD5": item.get("beatmap_md5", ""),
+                    "Status": item.get("status", "ranked"),
+                    "Beatmap": item.get("beatmap", ""),
+                    "artist": item.get("artist", ""),
+                    "title": item.get("title", ""),
+                    "creator": item.get("creator", ""),
+                    "version": item.get("version", ""),
+                    "Mods": ", ".join(item.get("mods", [])) if item.get("mods") else "NM",
+                    "100": str(item.get("count100", "")),
+                    "50": str(item.get("count50", "")),
+                    "Misses": str(item.get("countMiss", "")),
+                    "Accuracy": str(item.get("accuracy", "")),
+                    "Score": str(item.get("score", "")),
+                    "Date": item.get("date", ""),
+                    "Rank": item.get("rank", ""),
+                    "weight_%": str(item.get("weight_percent", "")),
+                    "weight_PP": str(item.get("weight_pp", "")),
+                    "Score ID": str(item.get("score_id", ""))
+                }
+            all_rows.append(row)
+    else:
+        logger.error("No analysis data found")
         return None
-    except Exception as csv_err:
-        logger.exception(f"Error reading CSV file {mask_path_for_log(csv_path)}:")
-        error_msg = f"Error reading CSV file: {str(csv_err)}"
-        logger.error(
-            "Error: %s, creating placeholder image for user %s", error_msg, user_name
-        )
-        create_placeholder_image(
-            os.path.basename(out_path),
-            user_name,
-            error_msg,
-        )
-        return None
+    
     if not all_rows:
-        logger.warning(
-            f"No data in CSV file {mask_path_for_log(csv_path)} for image creation"
-        )
-        error_msg = f"No data to display in {mode} mode"
-        logger.error(
-            "Error: %s, creating placeholder image for user %s", error_msg, user_name
-        )
-        create_placeholder_image(os.path.basename(out_path), user_name, error_msg)
+        logger.warning(f"No data found for {mode} mode")
         return None
     total_rows_count = len(all_rows)
     rows = all_rows[:max_scores]
     return {
         "user_data_json": user_data_json,
-        "csv_path": csv_path,
         "out_path": out_path,
         "main_title": main_title,
         "show_weights": show_weights,
@@ -939,7 +936,7 @@ def _draw_stats_section(d, stats, title_right_x, baseline_y):
     )
 
 def make_img(
-        user_id, user_name, mode="lost", max_scores=20, osu_api_client=None, gui_log=None
+        user_id, user_name, mode="lost", max_scores=20, session_dir=None, osu_api_client=None, gui_log=None
 ):
     logger.debug(
         "make_img called with: user_id=%s, user_name=%s, mode=%s, max_scores=%s",
@@ -955,7 +952,7 @@ def make_img(
         logger.error("Invalid parameters: API client not provided")
         raise ValueError("API client not provided")
 
-    data = _prepare_image_data(user_id, user_name, mode, max_scores, osu_api_client)
+    data = _prepare_image_data(user_id, user_name, mode, max_scores, session_dir, osu_api_client)
     if data is None:
         logger.warning(
             "Image data preparation failed for user %s (%s), cannot generate image",
@@ -964,7 +961,18 @@ def make_img(
         )
         return
 
-    summary_data = load_summary_stats()
+    from utils import find_latest_analysis_session
+    latest_session = find_latest_analysis_session()
+    analysis_data = None
+    if latest_session:
+        json_path = os.path.join(latest_session, "analysis_results.json")
+        analysis_data = load_analysis_from_json(json_path)
+    
+    if analysis_data:
+        summary_data = load_summary_stats_from_json(analysis_data)
+    else:
+        summary_data = load_summary_stats()
+    
     stats = _process_user_statistics(data["user_data_json"], summary_data)
 
     metadata_cache = {}
@@ -1004,7 +1012,7 @@ def make_img(
     for i, row in enumerate(data["rows"]):
         card_x = DEFAULT_MARGIN
         card_y = canvas_info["start_y"] + i * (CARD_HEIGHT + CARD_SPACING)
-        score_id_val = row.get("Score ID", "").strip().upper()
+        score_id_val = str(row.get("Score ID", "")).strip().upper()
         is_lost_row = score_id_val == "LOST"
         draw_score_card(
             base,
@@ -1039,36 +1047,42 @@ def make_img(
 def _adjust_max_scores_for_lost_score(max_scores, show_lost):
     if not show_lost:
         return max_scores
-    top_with_lost_path = get_standard_dir(os.path.join("csv", "top_with_lost.csv"))
-    try:
-        with open(top_with_lost_path, "r", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            rows = list(reader)
+    
+    from utils import find_latest_analysis_session
+    latest_session = find_latest_analysis_session()
+    analysis_data = None
+    if latest_session:
+        json_path = os.path.join(latest_session, "analysis_results.json")
+        analysis_data = load_analysis_from_json(json_path)
+    
+    if analysis_data:
+        top_with_lost_data = analysis_data.get("top_with_lost", [])
         lost_score_rank = None
-        for i, row in enumerate(rows, 1):
-            if row.get("Score ID") == "LOST":
+        for i, item in enumerate(top_with_lost_data, 1):
+            if item.get("score_id") == "LOST":
                 lost_score_rank = i
                 logger.info(f"Found first lost score at rank {lost_score_rank}")
                 break
-        if lost_score_rank is not None and lost_score_rank > max_scores:
-            logger.info(
-                f"Adjusting max_scores from {max_scores} to {lost_score_rank} to include lost score"
-            )
-            return lost_score_rank
+    else:
+        logger.warning("No analysis data found for lost score adjustment")
+        return max_scores
+    
+    if lost_score_rank is not None and lost_score_rank > max_scores:
+        logger.info(
+            f"Adjusting max_scores from {max_scores} to {lost_score_rank} to include lost score"
+        )
+        return lost_score_rank
+    else:
+        if lost_score_rank is None:
+            logger.info("No lost scores found in the top")
         else:
-            if lost_score_rank is None:
-                logger.info("No lost scores found in the top")
-            else:
-                logger.info(
-                    f"Lost score rank {lost_score_rank} is already within displayed top {max_scores}"
-                )
-            return max_scores
-    except Exception as e:
-        logger.error(f"Error finding lost score rank: {e}")
+            logger.info(
+                f"Lost score rank {lost_score_rank} is already within displayed top {max_scores}"
+            )
         return max_scores
 
 def make_img_lost(
-        user_id=None, user_name="", max_scores=20, osu_api_client=None, gui_log=None
+        user_id=None, user_name="", max_scores=20, session_dir=None, osu_api_client=None, gui_log=None
 ):
     logger.debug(
         "make_img_lost called with: user_id=%s, user_name=%s, max_scores=%s",
@@ -1084,6 +1098,7 @@ def make_img_lost(
         user_name=user_name,
         mode="lost",
         max_scores=max_scores,
+        session_dir=session_dir,
         osu_api_client=osu_api_client,
         gui_log=gui_log,
     )
@@ -1093,6 +1108,7 @@ def make_img_top(
         user_name="",
         max_scores=20,
         show_lost=False,
+        session_dir=None,
         osu_api_client=None,
         gui_log=None,
 ):
@@ -1112,6 +1128,7 @@ def make_img_top(
         user_name=user_name,
         mode="top",
         max_scores=adjusted_max_scores,
+        session_dir=session_dir,
         osu_api_client=osu_api_client,
         gui_log=gui_log,
     )

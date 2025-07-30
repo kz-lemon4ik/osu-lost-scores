@@ -1,10 +1,11 @@
 
-import csv
+import json
 import logging
 import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 
 from PySide6.QtWidgets import QLineEdit, QMenu, QTextEdit
 
@@ -129,25 +130,17 @@ def track_parallel_progress(
     return results
 
 def load_summary_stats():
+    latest_session = find_latest_analysis_session()
+    if latest_session:
+        json_path = os.path.join(latest_session, "analysis_results.json")
+        try:
+            json_data = load_analysis_from_json(json_path)
+            if json_data:
+                return json_data.get("summary_stats", {})
+        except Exception as e:
+            logger.exception("Error loading summary stats from JSON %s: %s", json_path, e)
     
-    summary_path = os.path.join(get_standard_dir("csv"), "lost_scores_summary.csv")
-    if not os.path.exists(summary_path):
-        return None
-
-    stats = {}
-    try:
-        with open(summary_path, "r", encoding="utf-8") as f:
-            reader = csv.reader(f)
-            if next(reader, None) is None:
-                return None
-
-            for row in reader:
-                if len(row) == 2:
-                    stats[row[0]] = row[1]
-        return stats if stats else None
-    except Exception as e:
-        logger.exception("Error loading summary stats from %s: %s", summary_path, e)
-        return None
+    return None
 
 def create_standard_edit_menu(widget):
     
@@ -223,3 +216,121 @@ class RateLimiter:
                 sleep_time = self.delay_seconds - time_since_last_call
                 time.sleep(sleep_time)
             self._last_call_time = time.time()
+
+
+def save_analysis_to_json(analysis_data, filepath):
+    try:
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(analysis_data, f, ensure_ascii=False, indent=2)
+        
+        logger.info("Analysis results saved to %s", filepath)
+        return True
+        
+    except Exception as e:
+        logger.exception("Failed to save analysis to JSON: %s", e)
+        return False
+
+
+def load_analysis_from_json(filepath):
+    try:
+        if not os.path.exists(filepath):
+            logger.warning("Analysis JSON file not found: %s", filepath)
+            return None
+            
+        with open(filepath, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            
+        logger.info("Analysis results loaded from %s", filepath)
+        return data
+        
+    except Exception as e:
+        logger.exception("Failed to load analysis from JSON: %s", e)
+        return None
+
+
+def create_analysis_json_structure(metadata, summary_stats, lost_scores, parsed_top, top_with_lost, replay_manifest=None):
+    return {
+        "metadata": {
+            "analysis_timestamp": datetime.now().isoformat(),
+            "total_time_seconds": metadata.get("total_time_seconds", 0),
+            "user_identifier": metadata.get("user_identifier", ""),
+            "game_dir": metadata.get("game_dir", ""),
+            "client_version": metadata.get("client_version", "1.0.0")
+        },
+        "summary_stats": summary_stats or {},
+        "lost_scores": lost_scores or [],
+        "parsed_top": parsed_top or [],
+        "top_with_lost": top_with_lost or [],
+        "replay_manifest": replay_manifest or [],
+        "signature": {
+            "hmac": None,
+            "timestamp": None
+        }
+    }
+
+
+def load_summary_stats_from_json(json_data):
+    if not json_data:
+        return None
+        
+    return json_data.get("summary_stats", {})
+
+
+def find_latest_analysis_session():
+    try:
+        analysis_dir = get_standard_dir("data/analysis")
+        if not os.path.exists(analysis_dir):
+            return None
+            
+        sessions = []
+        for item in os.listdir(analysis_dir):
+            item_path = os.path.join(analysis_dir, item)
+            if os.path.isdir(item_path) and len(item) == 19:  # YYYY-MM-DD_HH-MM-SS
+                try:
+                    datetime.strptime(item, "%Y-%m-%d_%H-%M-%S")
+                    sessions.append(item)
+                except ValueError:
+                    continue
+        
+        if not sessions:
+            return None
+            
+        sessions.sort(reverse=True)
+        latest_session = sessions[0]
+        
+        return os.path.join(analysis_dir, latest_session)
+        
+    except Exception as e:
+        logger.exception("Error finding latest analysis session: %s", e)
+        return None
+
+
+def find_latest_images_session():
+    try:
+        images_dir = get_standard_dir("data/images")
+        if not os.path.exists(images_dir):
+            return None
+            
+        sessions = []
+        for item in os.listdir(images_dir):
+            item_path = os.path.join(images_dir, item)
+            if os.path.isdir(item_path) and len(item) == 19:  # YYYY-MM-DD_HH-MM-SS
+                try:
+                    datetime.strptime(item, "%Y-%m-%d_%H-%M-%S")
+                    sessions.append(item)
+                except ValueError:
+                    continue
+        
+        if not sessions:
+            return None
+            
+        sessions.sort(reverse=True)
+        latest_session = sessions[0]
+        
+        return os.path.join(images_dir, latest_session)
+        
+    except Exception as e:
+        logger.exception("Error finding latest images session: %s", e)
+        return None

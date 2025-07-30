@@ -72,11 +72,9 @@ from analyzer import make_top, scan_replays
 from app_config import (
     API_REQUESTS_PER_MINUTE,
     CACHE_DIR,
-    CSV_DIR,
     DB_FILE,
     GUI_THREAD_POOL_SIZE,
     MAPS_DIR,
-    RESULTS_DIR,
 )
 from database import db_close, db_init
 from file_parser import file_parser
@@ -84,8 +82,11 @@ from osu_api import OsuApiClient
 from path_utils import get_standard_dir, mask_path_for_log
 from utils import (
     create_standard_edit_menu,
-    load_summary_stats,
+    find_latest_analysis_session,
     get_delta_color,
+    load_analysis_from_json,
+    load_summary_stats,
+    load_summary_stats_from_json,
 )
 from auth_manager import AuthManager, AuthMode
 from oauth_browser import BrowserOAuthFlow
@@ -106,7 +107,7 @@ FONT_PATH = get_standard_dir("assets/fonts")
 BACKGROUND_FOLDER_PATH = get_standard_dir("assets/images/background")
 BACKGROUND_IMAGE_PATH = get_standard_dir("assets/images/background/bg.png")
 APP_ICON_PATH = get_standard_dir("assets/images/app_icon/icon.ico")
-CONFIG_PATH = get_standard_dir("config/gui_config.json")
+CONFIG_PATH = get_standard_dir("data/gui_config.json")
 os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
 
 def load_qss():
@@ -1239,18 +1240,20 @@ class ResultsWindow(QDialog):
         try:
             self.update_scan_time()
 
-            lost_scores_path = get_standard_dir("csv/lost_scores.csv")
-            self.load_table_data(self.lost_scores_view, lost_scores_path, None)
-
-            parsed_top_path = get_standard_dir("csv/parsed_top.csv")
-            self.load_table_data(self.parsed_top_view, parsed_top_path, None)
-
-            top_with_lost_path = get_standard_dir("csv/top_with_lost.csv")
-            self.load_table_data(
-                self.top_with_lost_view, top_with_lost_path, None, hide_status_col=True
-            )
-
-            self._load_and_process_summary_stats()
+            latest_session = find_latest_analysis_session()
+            analysis_data = None
+            
+            if latest_session:
+                json_path = os.path.join(latest_session, "analysis_results.json")
+                analysis_data = load_analysis_from_json(json_path)
+            
+            if analysis_data:
+                self.load_json_data(analysis_data)
+            else:
+                empty_df = pd.DataFrame({"No Data": ["No analysis results found. Please run a scan first."]})
+                for table_view in [self.lost_scores_view, self.parsed_top_view, self.top_with_lost_view]:
+                    model = PandasTableModel(empty_df)
+                    table_view.setModel(model)
 
             self.update_stats_panel(self.tab_widget.currentIndex())
             
@@ -1262,51 +1265,133 @@ class ResultsWindow(QDialog):
             self.parsed_top_view.setModel(model)
             self.top_with_lost_view.setModel(model)
 
-    def load_table_data(
-            self, table_view, file_path, stats_calculator, hide_status_col=False
-    ):
+    def load_json_data(self, analysis_data):
         try:
-            if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
-                data_df = pd.read_csv(file_path)
-                model = PandasTableModel(data_df)
-                table_view.setModel(model)
-                self.setup_column_widths(table_view)
-                if hide_status_col:
-                    try:
-                        status_col_index = data_df.columns.get_loc("Status")
-                        table_view.hideColumn(status_col_index)
-                    except KeyError:
-                        pass
-                if stats_calculator:
-                    stats_calculator(data_df)
-            else:
-                empty_df = pd.DataFrame({"Status": ["No data found. Run a scan first"]})
-                model = PandasTableModel(empty_df)
-                table_view.setModel(model)
+            lost_scores_data = analysis_data.get("lost_scores", [])
+            if lost_scores_data:
+                lost_df = self.convert_json_to_dataframe(lost_scores_data, "lost_scores")
+                model = PandasTableModel(lost_df)
+                self.lost_scores_view.setModel(model)
+            
+            parsed_top_data = analysis_data.get("parsed_top", [])
+            if parsed_top_data:
+                parsed_df = self.convert_json_to_dataframe(parsed_top_data, "parsed_top")
+                model = PandasTableModel(parsed_df)
+                self.parsed_top_view.setModel(model)
+            
+            top_with_lost_data = analysis_data.get("top_with_lost", [])
+            if top_with_lost_data:
+                combined_df = self.convert_json_to_dataframe(top_with_lost_data, "top_with_lost")
+                model = PandasTableModel(combined_df)
+                self.top_with_lost_view.setModel(model)
+            
+            self.analysis_data = analysis_data
+            self._load_json_summary_stats(analysis_data)
+            
         except Exception as e:
-            logger.error(f"Error processing {os.path.basename(file_path)}: {e}")
-            error_df = pd.DataFrame({"Error": [f"Could not load data: {e}"]})
-            model = PandasTableModel(error_df)
-            table_view.setModel(model)
+            logger.error(f"Error loading JSON data: {e}")
+
+    def convert_json_to_dataframe(self, json_data, data_type):
+        if not json_data:
+            return pd.DataFrame()
+            
+        df_data = []
+        for item in json_data:
+            if data_type == "lost_scores":
+                row = {
+                    "PP": item.get("pp", ""),
+                    "Beatmap ID": item.get("beatmap_id", ""),
+                    "Beatmap": item.get("beatmap", ""),
+                    "Mods": ", ".join(item.get("mods", [])) if item.get("mods") else "NM",
+                    "100": item.get("count100", ""),
+                    "50": item.get("count50", ""),
+                    "Misses": item.get("countMiss", ""),
+                    "Accuracy": item.get("accuracy", ""),
+                    "Score": item.get("total_score", ""),
+                    "Date": item.get("score_time", ""),
+                    "Rank": item.get("rank", "")
+                }
+            elif data_type == "parsed_top":
+                row = {
+                    "PP": item.get("pp", ""),
+                    "Beatmap ID": item.get("beatmap_id", ""),
+                    "Beatmap": item.get("beatmap", ""),
+                    "Mods": ", ".join(item.get("mods", [])) if item.get("mods") else "NM",
+                    "100": item.get("count100", ""),
+                    "50": item.get("count50", ""),
+                    "Misses": item.get("countMiss", ""),
+                    "Accuracy": item.get("accuracy", ""),
+                    "Score": item.get("score", ""),
+                    "Date": item.get("date", ""),
+                    "weight_%": item.get("weight_percent", ""),
+                    "weight_PP": item.get("weight_pp", ""),
+                    "Score ID": item.get("score_id", ""),
+                    "Rank": item.get("rank", "")
+                }
+            elif data_type == "top_with_lost":
+                row = {
+                    "PP": item.get("pp", ""),
+                    "Beatmap ID": item.get("beatmap_id", ""),
+                    "Beatmap": item.get("beatmap", ""),
+                    "Mods": ", ".join(item.get("mods", [])) if item.get("mods") else "NM",
+                    "100": item.get("count100", ""),
+                    "50": item.get("count50", ""),
+                    "Misses": item.get("countMiss", ""),
+                    "Accuracy": item.get("accuracy", ""),
+                    "Score": item.get("score", ""),
+                    "Date": item.get("date", ""),
+                    "Rank": item.get("rank", ""),
+                    "weight_%": item.get("weight_percent", ""),
+                    "weight_PP": item.get("weight_pp", ""),
+                    "Score ID": item.get("score_id", "")
+                }
+            else:
+                row = item
+                
+            df_data.append(row)
+        
+        return pd.DataFrame(df_data)
+
+    def _load_json_summary_stats(self, analysis_data):
+        try:
+            summary_stats = analysis_data.get("summary_stats", {})
+            if summary_stats:
+                self.stats_data["lost_scores"] = {
+                    "total": int(summary_stats.get("post_filter_count", 0)),
+                    "avg_pp_lost_diff": float(summary_stats.get("avg_pp_lost_diff", 0.0)),
+                    "avg_pp_lost_diff_count": int(summary_stats.get("avg_pp_lost_diff_count", 0))
+                }
+                
+                self.stats_data["parsed_top"] = {
+                    "Overall PP": f"{float(summary_stats.get('current_pp', 0)):.2f}",
+                    "Overall Accuracy": f"{float(summary_stats.get('current_acc', 0)):.2f}%",
+                }
+                
+                self.stats_data["top_with_lost"] = {
+                    "current_pp": float(summary_stats.get("current_pp", 0.0)),
+                    "potential_pp": float(summary_stats.get("potential_pp", 0.0)),
+                    "pp_gain": float(summary_stats.get("potential_pp", 0.0)) - float(summary_stats.get("current_pp", 0.0)),
+                    "current_acc": float(summary_stats.get("current_acc", 0.0)),
+                    "potential_acc": float(summary_stats.get("potential_acc", 0.0)),
+                    "acc_gain": float(summary_stats.get("potential_acc", 0.0)) - float(summary_stats.get("current_acc", 0.0))
+                }
+        except Exception as e:
+            logger.error(f"Error loading JSON summary stats: {e}")
+
 
     def update_scan_time(self):
         try:
-            csv_files = [
-                get_standard_dir("csv/lost_scores.csv"),
-                get_standard_dir("csv/parsed_top.csv"),
-                get_standard_dir("csv/top_with_lost.csv"),
-            ]
-            newest_time = None
-            for file_path in csv_files:
-                if os.path.exists(file_path):
-                    file_time = datetime.fromtimestamp(os.path.getmtime(file_path))
-                    if newest_time is None or file_time > newest_time:
-                        newest_time = file_time
-
-            if newest_time:
-                self.scan_time_label.setText(
-                    f"Last scan: {newest_time.strftime('%Y-%m-%d %H:%M:%S')}"
-                )
+            latest_session = find_latest_analysis_session()
+            
+            if latest_session:
+                json_file_path = os.path.join(latest_session, "analysis_results.json")
+                if os.path.exists(json_file_path):
+                    file_time = datetime.fromtimestamp(os.path.getmtime(json_file_path))
+                    self.scan_time_label.setText(
+                        f"Last scan: {file_time.strftime('%Y-%m-%d %H:%M:%S')}"
+                    )
+                else:
+                    self.scan_time_label.setText("Last scan: Unknown")
             else:
                 self.scan_time_label.setText("Last scan: Unknown")
         except Exception as e:
@@ -1619,6 +1704,7 @@ class MainWindow(QWidget):
         self.config = {}
         self.icons = {}
         self.run_statistics = {}
+        self.scan_results = None
         self.scan_completed = threading.Event()
         self.top_completed = threading.Event()
         self.img_completed = threading.Event()
@@ -1662,14 +1748,13 @@ class MainWindow(QWidget):
 
     def enable_results_button(self):
         try:
-            csv_files = [
-                get_standard_dir("csv/lost_scores.csv"),
-                get_standard_dir("csv/parsed_top.csv"),
-                get_standard_dir("csv/top_with_lost.csv"),
-            ]
-            has_data = any(
-                os.path.exists(f) and os.path.getsize(f) > 0 for f in csv_files
-            )
+            latest_session = find_latest_analysis_session()
+            has_data = False
+            
+            if latest_session:
+                json_file_path = os.path.join(latest_session, "analysis_results.json")
+                has_data = os.path.exists(json_file_path) and os.path.getsize(json_file_path) > 0
+            
             if self.results_button:
                 self.results_button.setEnabled(has_data)
             logger.debug(
@@ -1680,25 +1765,6 @@ class MainWindow(QWidget):
             if self.results_button:
                 self.results_button.setEnabled(False)
 
-    def ensure_csv_files_exist(self):
-        csv_dir = get_standard_dir("csv/")
-        os.makedirs(csv_dir, exist_ok=True)
-
-        files_to_create = {
-            "lost_scores.csv": "PP,Beatmap ID,Beatmap,Mods,100,50,Misses,Accuracy,Score,Date,Rank\n",
-            "parsed_top.csv": "PP,Beatmap ID,Beatmap,Mods,100,50,Misses,Accuracy,Score,Date,weight_%,weight_PP,Score ID,Rank\n",
-            "top_with_lost.csv": "PP,Beatmap ID,Status,Beatmap,Mods,100,50,Misses,Accuracy,Score,Date,Rank,weight_%,weight_PP,Score ID\n",
-        }
-
-        for filename, header in files_to_create.items():
-            path = os.path.join(csv_dir, filename)
-            if not os.path.exists(path):
-                try:
-                    with open(path, "w", encoding="utf-8") as f:
-                        f.write(header)
-                    self.append_log(f"Created empty file: {filename}", False)
-                except Exception as e:
-                    self.append_log(f"Error creating {filename}: {e}", False)
 
     def load_config(self):
         self.config = {}
@@ -2143,16 +2209,20 @@ class MainWindow(QWidget):
                 )
         self.append_log("All operations completed successfully!", False)
 
+        metadata = self.scan_results.get("metadata", {}) if self.scan_results else {}
+        summary_stats = self.scan_results.get("summary_stats", {}) if self.scan_results else {}
+        lost_scores = self.scan_results.get("lost_scores", []) if self.scan_results else []
+        
         summary_lines = [
             "Analysis Summary:",
-            f"- Time elapsed: {self.run_statistics.get('total_time_seconds', total_time):.2f} seconds",
-            f"- Replays processed: {self.run_statistics.get('calculated_scores', 0)} / {self.run_statistics.get('total_replays', 0)}",
-            f"- Lost scores found: {self.run_statistics.get('lost_scores_found', 0)} (from {self.run_statistics.get('lost_scores_pre_filter', 0)} candidates)",
+            f"- Time elapsed: {metadata.get('total_time_seconds', total_time):.2f} seconds",
+            f"- Replays processed: {summary_stats.get('calculated_scores', 0)} / {summary_stats.get('total_replays', 0)}",
+            f"- Lost scores found: {len(lost_scores)} (from {summary_stats.get('lost_scores_pre_filter', 0)} candidates)",
         ]
 
-        if self.run_statistics.get("maps_to_resolve", 0) > 0:
+        if summary_stats.get("maps_to_resolve", 0) > 0:
             summary_lines.append(
-                f"- Missing maps resolved: {self.run_statistics.get('maps_resolved', 0)} / {self.run_statistics.get('maps_to_resolve', 0)}"
+                f"- Missing maps resolved: {summary_stats.get('maps_resolved', 0)} / {summary_stats.get('maps_to_resolve', 0)}"
             )
 
         summary_report = "\n".join(summary_lines)
@@ -2176,15 +2246,29 @@ class MainWindow(QWidget):
             QMessageBox.information(
                 self,
                 "Done",
-                "Analysis completed! You can find results in the 'results' folder. Click 'See Full Results' to view detailed data.\n\nThe results folder will now be opened"
+                "Analysis completed! You can find images in the timestamped folder. Click 'See Full Results' to view detailed data.\n\nThe images folder will now be opened"
             )
             
-            results_path = get_standard_dir("results")
-            if os.path.exists(results_path) and os.path.isdir(results_path):
+            images_dir = self.scan_results.get("images_dir") if self.scan_results else None
+            logger.debug(f"scan_results.images_dir: {images_dir}")
+            
+            if not images_dir:
+                from utils import find_latest_images_session
+                images_dir = find_latest_images_session()
+                logger.debug(f"Found latest images session: {images_dir}")
+            
+            if images_dir and os.path.exists(images_dir) and os.path.isdir(images_dir):
                 self.append_log(
-                    f"Opening results folder: {mask_path_for_log(results_path)}", False
+                    f"Opening images folder: {mask_path_for_log(images_dir)}", False
                 )
-                self.open_folder(results_path)
+                self.open_folder(images_dir)
+            else:
+                images_base_dir = get_standard_dir("data/images")
+                if os.path.exists(images_base_dir) and os.path.isdir(images_base_dir):
+                    self.append_log(
+                        f"Opening images folder: {mask_path_for_log(images_base_dir)}", False
+                    )
+                    self.open_folder(images_base_dir)
                 
         except Exception as e:
             logger.error(f"Error showing completion dialog: {e}")
@@ -2256,6 +2340,7 @@ class MainWindow(QWidget):
             game_dir,
             identifier,
             lookup_key,
+            scan_results=self.scan_results,
             osu_api_client=self.osu_api_client,
             include_unranked=(self.user_profile_widget.unranked_toggle.isChecked()
                               if self.user_profile_widget and hasattr(self.user_profile_widget, 'unranked_toggle')
@@ -2349,10 +2434,12 @@ class MainWindow(QWidget):
                 update_progress(1, 4)
 
                 gui_log("Creating lost scores image...", True)
+                session_dir = self.scan_results.get("session_dir") if self.scan_results else None
                 img_mod.make_img_lost(
                     user_id=uid,
                     user_name=uname,
                     max_scores=scores_count,
+                    session_dir=session_dir,
                     osu_api_client=self.osu_api_client,
                     gui_log=gui_log,
                 )
@@ -2364,6 +2451,7 @@ class MainWindow(QWidget):
                     user_name=uname,
                     max_scores=scores_count,
                     show_lost=show_lost,
+                    session_dir=session_dir,
                     osu_api_client=self.osu_api_client,
                     gui_log=gui_log,
                 )
@@ -2389,7 +2477,12 @@ class MainWindow(QWidget):
     @Slot()
     def img_finished(self):
         logger.info("Image creation stage completed")
-        self.append_log("Images created (in 'results' folder)", False)
+        images_dir = self.scan_results.get("images_dir") if self.scan_results else None
+        if images_dir:
+            timestamp = os.path.basename(images_dir)  
+            self.append_log(f"Images created in data/images/{timestamp}/", False)
+        else:
+            self.append_log("Images created", False)
         if self.progress_bar:
             self.progress_bar.setValue(100)
         self.current_task = "Image creation stage completed"
@@ -2716,7 +2809,7 @@ class MainWindow(QWidget):
         self.append_log("Closing database connection before cleanup...", False)
         db_close()
 
-        folders_to_clean = [CACHE_DIR, RESULTS_DIR, MAPS_DIR, CSV_DIR]
+        folders_to_clean = [CACHE_DIR, MAPS_DIR]
         removed_folders = []
         failed_folders = []
 
@@ -2775,7 +2868,10 @@ class MainWindow(QWidget):
     @Slot(object)
     def on_task_result(self, result_dict):
         if isinstance(result_dict, dict):
-            self.run_statistics.update(result_dict)
+            if "lost_scores" in result_dict and "metadata" in result_dict:
+                self.scan_results = result_dict
+            else:
+                self.run_statistics.update(result_dict)
 
     def _on_oauth_login_clicked(self):
         self.append_log("Starting OAuth authorization...", False)

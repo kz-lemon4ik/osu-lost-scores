@@ -1,20 +1,21 @@
 
 import calendar
-import csv
-import datetime
+from datetime import datetime
 import logging
 import os
 import time
 import requests
 from concurrent.futures import ThreadPoolExecutor
 
-from app_config import CSV_DIR, CUTOFF_DATE, IO_THREAD_POOL_SIZE, RESULTS_DIR, MAPS_DIR
+from app_config import ANALYSIS_DIR, CUTOFF_DATE, IO_THREAD_POOL_SIZE, MAPS_DIR, IMAGES_DIR
 from database import db_get_map, db_init, db_update_from_api, db_upsert_from_scan
 from file_parser import file_parser
 from generate_image import create_summary_badge
-from path_utils import mask_path_for_log
+from path_utils import get_standard_dir, mask_path_for_log
 from utils import (
+    create_analysis_json_structure,
     process_in_batches,
+    save_analysis_to_json,
     track_parallel_progress,
 )
 
@@ -120,7 +121,7 @@ def parse_top(raw):
         if not iso_str:
             return ""
         try:
-            dt = datetime.datetime.strptime(iso_str, "%Y-%m-%dT%H:%M:%SZ")
+            dt = datetime.strptime(iso_str, "%Y-%m-%dT%H:%M:%SZ")
             return dt.strftime("%d-%m-%Y %H-%M-%S")
         except (ValueError, TypeError):
             return iso_str
@@ -700,93 +701,80 @@ def scan_replays(
     summary_stats["lost_scores_found"] = len(final_lost_list)
 
     final_lost_count = len(final_lost_list)
-    try:
-        summary_path = os.path.join(CSV_DIR, "lost_scores_summary.csv")
-        os.makedirs(os.path.dirname(summary_path), exist_ok=True)
-        with open(summary_path, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(["key", "value"])
-            writer.writerow(["pre_filter_count", total_lost_count_pre_filter])
-            writer.writerow(["post_filter_count", final_lost_count])
-    except IOError as e:
-        logger.exception("Failed to save lost scores summary: %s", e)
-
+    
     announce_phase_start("saving", phase_definitions, gui_log, phase_logger=logger)
+    
+    processed_lost_scores = []
+    replay_manifest = []
+    
     if final_lost_list:
-        out_file = os.path.join(CSV_DIR, "lost_scores.csv")
-        fields = [
-            "PP",
-            "Beatmap ID",
-            "Beatmap MD5",
-            "Beatmap",
-            "Mods",
-            "100",
-            "50",
-            "Misses",
-            "Accuracy",
-            "Score",
-            "Date",
-            "Rank",
-        ]
-        os.makedirs(os.path.dirname(out_file), exist_ok=True)
-        while True:
-            try:
-                with open(out_file, "w", newline="", encoding="utf-8") as csvf:
-                    # noinspection PyTypeChecker
-                    writer = csv.DictWriter(csvf, fieldnames=fields)
-                    writer.writeheader()
-                    for rec in final_lost_list:
-                        rank_ = file_parser.grade_osu(
-                            rec.get("beatmap_id"),
-                            rec.get("count300", 0),
-                            rec.get("count50", 0),
-                            rec.get("countMiss", 0),
-                            rec.get("osu_file_path"),
-                        )
-                        writer.writerow(
-                            {
-                                "PP": rec["pp"],
-                                "Beatmap ID": rec["beatmap_id"],
-                                "Beatmap MD5": rec.get("beatmap_md5"),
-                                "Beatmap": f"{rec.get('artist', '')} - {rec.get('title', '')} ({rec.get('creator', '')}) [{rec.get('version', '')}]",
-                                "Mods": (
-                                    ", ".join(file_parser.sort_mods(rec["mods"]))
-                                    if rec["mods"]
-                                    else "NM"
-                                ),
-                                "100": rec.get("count100", 0),
-                                "50": rec.get("count50", 0),
-                                "Misses": rec.get("countMiss", 0),
-                                "Accuracy": rec["Accuracy"],
-                                "Score": rec.get("total_score", ""),
-                                "Date": rec.get("score_time", ""),
-                                "Rank": rank_,
-                            }
-                        )
-                if gui_log:
-                    gui_log("File lost_scores.csv saved", update_last=True)
-                break
-            except PermissionError:
-                logger.warning(
-                    "File %s is busy, retrying in 0.5 sec", mask_path_for_log(out_file)
-                )
-                time.sleep(0.5)
-            except (IOError, csv.Error) as e:
-                logger.exception("Error writing %s: %s", mask_path_for_log(out_file), e)
-                break
-
+        for rec in final_lost_list:
+            rank_ = file_parser.grade_osu(
+                rec.get("beatmap_id"),
+                rec.get("count300", 0),
+                rec.get("count50", 0),
+                rec.get("countMiss", 0),
+                rec.get("osu_file_path"),
+            )
+            
+            processed_score = {
+                "pp": rec["pp"],
+                "beatmap_id": rec["beatmap_id"],
+                "beatmap_md5": rec.get("beatmap_md5"),
+                "artist": rec.get('artist', ''),
+                "title": rec.get('title', ''),
+                "creator": rec.get('creator', ''),
+                "version": rec.get('version', ''),
+                "beatmap": f"{rec.get('artist', '')} - {rec.get('title', '')} ({rec.get('creator', '')}) [{rec.get('version', '')}]",
+                "mods": file_parser.sort_mods(rec["mods"]) if rec["mods"] else [],
+                "count100": rec.get("count100", 0),
+                "count50": rec.get("count50", 0),
+                "countMiss": rec.get("countMiss", 0),
+                "accuracy": rec["Accuracy"],
+                "total_score": rec.get("total_score", ""),
+                "score_time": rec.get("score_time", ""),
+                "rank": rank_,
+            }
+            processed_lost_scores.append(processed_score)
+            
+            if rec.get("file_path"):
+                replay_manifest.append({
+                    "md5_hash": rec.get("beatmap_md5"),
+                    "file_path": rec.get("file_path"),
+                    "pp_claimed": rec["pp"],
+                    "beatmap_id": rec["beatmap_id"]
+                })
+        
+        if gui_log:
+            gui_log("Lost scores data processed", update_last=True)
     else:
-        logger.info("Empty list: lost_scores.csv not written")
+        logger.info("Empty list: no lost scores found")
 
     elapsed = time.time() - start_time
     summary_stats["total_time_seconds"] = int(elapsed)
+    summary_stats["pre_filter_count"] = total_lost_count_pre_filter
+    summary_stats["post_filter_count"] = final_lost_count
+    
+    metadata = {
+        "total_time_seconds": int(elapsed),
+        "user_identifier": user_identifier,
+        "game_dir": game_dir
+    }
+    
     logger.info("Full analysis finished in %.2f seconds", elapsed)
-    return summary_stats
+    
+    return {
+        "metadata": metadata,
+        "summary_stats": summary_stats,
+        "lost_scores": processed_lost_scores,
+        "replay_manifest": replay_manifest
+    }
 
 def make_top(
         game_dir,
         user_identifier,
         lookup_key,
+        scan_results=None,
         gui_log=None,
         progress_callback=None,
         osu_api_client=None,
@@ -804,10 +792,9 @@ def make_top(
         user_identifier,
         lookup_key,
     )
-    lost_path = os.path.join(CSV_DIR, "lost_scores.csv")
-    if not os.path.exists(lost_path):
+    if not scan_results or not scan_results.get("lost_scores"):
         error_message = (
-            "File lost_scores.csv not found. Aborting potential top creation"
+            "Scan results not provided or no lost scores found. Aborting potential top creation"
         )
         logger.error(error_message)
         if gui_log:
@@ -852,63 +839,72 @@ def make_top(
     diff = overall_pp - total_weight_pp
 
     if gui_log:
-        gui_log("Saving CSV (parsed_top.csv)...", update_last=False)
+        gui_log("Processing parsed top data...", update_last=False)
     if progress_callback:
         progress_callback(70, 100)
 
-    parsed_file = os.path.join(CSV_DIR, "parsed_top.csv")
-    table_fields = [
-        "PP",
-        "Beatmap ID",
-        "Beatmap",
-        "Mods",
-        "100",
-        "50",
-        "Misses",
-        "Accuracy",
-        "Score",
-        "Date",
-        "weight_%",
-        "weight_PP",
-        "Score ID",
-        "Rank",
-    ]
-
-    rows_list = []
+    parsed_top_processed = []
     for row in top_data:
-        new_row = {
-            "PP": row["PP"],
-            "Beatmap ID": row["Beatmap ID"],
-            "Beatmap": row["Beatmap"],
-            "Mods": row["Mods"],
-            "100": row["100"],
-            "50": row["50"],
-            "Misses": row["Misses"],
-            "Accuracy": row["Accuracy"],
-            "Score": row.get("Score", ""),
-            "Date": row.get("Score Date", ""),
-            "weight_%": row.get("weight_%", ""),
-            "weight_PP": row.get("weight_PP", ""),
-            "Score ID": row["Score ID"],
-            "Rank": row["Rank"],
+        processed_row = {
+            "pp": row["PP"],
+            "beatmap_id": row["Beatmap ID"],
+            "beatmap": row["Beatmap"],
+            "mods": row["Mods"].split(", ") if row["Mods"] and row["Mods"] != "NM" else [],
+            "count100": row["100"],
+            "count50": row["50"],
+            "countMiss": row["Misses"],
+            "accuracy": row["Accuracy"],
+            "score": row.get("Score", ""),
+            "date": row.get("Score Date", ""),
+            "weight_percent": row.get("weight_%", ""),
+            "weight_pp": row.get("weight_PP", ""),
+            "score_id": row["Score ID"],
+            "rank": row["Rank"],
         }
-        rows_list.append(new_row)
-
-    with open(parsed_file, "w", newline="", encoding="utf-8") as f:
-        # noinspection PyTypeChecker
-        writer = csv.DictWriter(f, fieldnames=table_fields)
-        writer.writeheader()
-        for row in rows_list:
-            writer.writerow(row)
+        parsed_top_processed.append(processed_row)
 
     if gui_log:
         gui_log("Merging with lost scores...", update_last=False)
     if progress_callback:
         progress_callback(90, 100)
 
-    with open(lost_path, "r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        lost_scores = [r for r in reader]
+    lost_scores_data = scan_results["lost_scores"]
+    
+    lost_scores = []
+    for score in lost_scores_data:
+        lost_scores.append({
+            "PP": str(score["pp"]),
+            "Beatmap ID": str(score["beatmap_id"]),
+            "Beatmap MD5": score.get("beatmap_md5", ""),
+            "Beatmap": score["beatmap"],
+            "Mods": ", ".join(score["mods"]) if score["mods"] else "NM",
+            "100": str(score["count100"]),
+            "50": str(score["count50"]),
+            "Misses": str(score["countMiss"]),
+            "Accuracy": str(score["accuracy"]),
+            "Score": str(score["total_score"]),
+            "Date": score["score_time"],
+            "Rank": score["rank"]
+        })
+
+    for entry in top_data:
+        try:
+            bid = int(entry["Beatmap ID"])
+            map_data = db_get_map(bid, by="id")
+            if map_data:
+                entry["artist"] = map_data.get("artist", "")
+                entry["title"] = map_data.get("title", "")
+                entry["creator"] = map_data.get("creator", "")
+                entry["version"] = map_data.get("version", "")
+                entry["Beatmap MD5"] = map_data.get("md5_hash", "")
+            else:
+                entry["artist"] = ""
+                entry["title"] = entry.get("Beatmap", "Unknown")
+                entry["creator"] = ""
+                entry["version"] = ""
+                entry["Beatmap MD5"] = ""
+        except (KeyError, ValueError, TypeError):
+            continue
 
     top_dict = {}
     for entry in top_data:
@@ -922,18 +918,27 @@ def make_top(
         else:
             top_dict[bid] = entry
 
+    original_lost_scores = scan_results.get("lost_scores", [])
+    lost_by_id = {score.get("beatmap_id"): score for score in original_lost_scores}
+    
     for lost in lost_scores:
         try:
             bid = int(lost["Beatmap ID"])
         except (KeyError, ValueError, TypeError):
             continue
 
+        original_lost = lost_by_id.get(bid, {})
+        
         lost_entry = {
             "PP": int(round(float(lost["PP"]))),
             "Beatmap ID": bid,
-            "Beatmap MD5": lost.get("Beatmap MD5"),
-            "Status": "ranked",
+            "Beatmap MD5": lost.get("Beatmap MD5") or original_lost.get("beatmap_md5", ""),
+            "Status": "lost",
             "Beatmap": lost["Beatmap"],
+            "artist": original_lost.get("artist", ""),
+            "title": original_lost.get("title", ""),
+            "creator": original_lost.get("creator", ""),
+            "version": original_lost.get("version", ""),
             "Mods": lost["Mods"] if lost["Mods"] else "NM",
             "100": lost["100"],
             "50": lost["50"],
@@ -972,54 +977,31 @@ def make_top(
     overall_acc_lost = acc_sum_lost / tot_weight_lost if tot_weight_lost else 0
     delta_acc = overall_acc_lost - overall_acc_from_api
 
-    top_with_lost_file = os.path.join(CSV_DIR, "top_with_lost.csv")
-    table_fields2 = [
-        "PP",
-        "Beatmap ID",
-        "Beatmap MD5",
-        "Status",
-        "Beatmap",
-        "Mods",
-        "100",
-        "50",
-        "Misses",
-        "Accuracy",
-        "Score",
-        "Date",
-        "Rank",
-        "weight_%",
-        "weight_PP",
-        "Score ID",
-    ]
-
-    prep_rows = []
+    top_with_lost_processed = []
     for row in top_with_lost:
-        new_r = {
-            "PP": row["PP"],
-            "Beatmap ID": row["Beatmap ID"],
-            "Beatmap MD5": row.get("Beatmap MD5"),
-            "Status": row.get("Status", ""),
-            "Beatmap": row["Beatmap"],
-            "Mods": row["Mods"],
-            "100": row["100"],
-            "50": row["50"],
-            "Misses": row["Misses"],
-            "Accuracy": row["Accuracy"],
-            "Score": row.get("Score", ""),
-            "Date": row.get("Score Date", row.get("Date", "")),
-            "weight_%": row.get("weight_%", ""),
-            "weight_PP": row.get("weight_PP", ""),
-            "Score ID": row["Score ID"],
-            "Rank": row["Rank"],
+        processed_row = {
+            "pp": row["PP"],
+            "beatmap_id": row["Beatmap ID"],
+            "beatmap_md5": row.get("Beatmap MD5", ""),
+            "status": row.get("Status", "ranked"),
+            "beatmap": row["Beatmap"],
+            "artist": row.get("artist", ""),
+            "title": row.get("title", ""),
+            "creator": row.get("creator", ""),
+            "version": row.get("version", ""),
+            "mods": row["Mods"].split(", ") if row["Mods"] and row["Mods"] != "NM" else [],
+            "count100": row["100"],
+            "count50": row["50"],
+            "countMiss": row["Misses"],
+            "accuracy": row["Accuracy"],
+            "score": row.get("Score", ""),
+            "date": row.get("Score Date", row.get("Date", "")),
+            "rank": row["Rank"],
+            "weight_percent": row.get("weight_%", ""),
+            "weight_pp": row.get("weight_PP", ""),
+            "score_id": row["Score ID"],
         }
-        prep_rows.append(new_r)
-
-    with open(top_with_lost_file, "w", newline="", encoding="utf-8") as f:
-        # noinspection PyTypeChecker
-        writer = csv.DictWriter(f, fieldnames=table_fields2)
-        writer.writeheader()
-        for row in prep_rows:
-            writer.writerow(row)
+        top_with_lost_processed.append(processed_row)
 
     lost_scores_count = len(lost_scores)
     lost_scores_avg_pp = 0
@@ -1051,13 +1033,11 @@ def make_top(
             avg_pp_lost_diff = sum(pp_diffs) / len(pp_diffs)
             diff_count = len(pp_diffs)
 
-    summary_path = os.path.join(CSV_DIR, "lost_scores_summary.csv")
-    stats_to_save = {
+    extended_summary_stats = scan_results["summary_stats"].copy()
+    extended_summary_stats.update({
         "current_pp": overall_pp,
         "current_acc": overall_acc_from_api,
-        "current_global_rank": user_json.get("statistics", {}).get(
-            "global_rank", "N/A"
-        ),
+        "current_global_rank": user_json.get("statistics", {}).get("global_rank", "N/A"),
         "potential_pp": pot_pp,
         "potential_acc": overall_acc_lost,
         "delta_pp": diff_lost,
@@ -1068,54 +1048,41 @@ def make_top(
         "lost_scores_avg_pp": lost_scores_avg_pp,
         "avg_pp_lost_diff": avg_pp_lost_diff,
         "avg_pp_lost_diff_count": diff_count,
-    }
-
-    try:
-        with open(summary_path, "a", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            for key, value in stats_to_save.items():
-                writer.writerow([key, value])
-        logger.info(f"Appended performance stats to {summary_path}")
-    except IOError:
-        logger.exception("Failed to append stats to summary file")
+    })
 
     if gui_log:
         gui_log("Creating summary badge...", update_last=False)
 
-    lost_ranked_count = 0
-    total_lost_count = 0
-    try:
-        if os.path.exists(summary_path):
-            with open(summary_path, "r", encoding="utf-8") as f:
-                reader = csv.reader(f)
-                temp_summary_data = {
-                    rows[0]: rows[1] for rows in reader if len(rows) > 1
-                }
-            lost_ranked_count = int(temp_summary_data.get("post_filter_count", 0))
-            total_lost_count = int(temp_summary_data.get("pre_filter_count", 0))
-    except (FileNotFoundError, IOError, ValueError) as e:
-        logger.exception("Could not read lost counts from summary for badge: %s", e)
+    lost_ranked_count = extended_summary_stats.get("post_filter_count", 0)
+    total_lost_count = extended_summary_stats.get("pre_filter_count", 0)
 
     badge_data = {
         "username": user_json.get("username"),
         "avatar_url": user_json.get("avatar_url"),
-        "global_rank": stats_to_save["current_global_rank"],
-        "current_pp": stats_to_save["current_pp"],
-        "current_acc": stats_to_save["current_acc"],
-        "potential_pp": stats_to_save["potential_pp"],
-        "potential_acc": stats_to_save["potential_acc"],
-        "delta_pp": stats_to_save["delta_pp"],
-        "delta_acc": stats_to_save["delta_acc"],
+        "global_rank": extended_summary_stats["current_global_rank"],
+        "current_pp": extended_summary_stats["current_pp"],
+        "current_acc": extended_summary_stats["current_acc"],
+        "potential_pp": extended_summary_stats["potential_pp"],
+        "potential_acc": extended_summary_stats["potential_acc"],
+        "delta_pp": extended_summary_stats["delta_pp"],
+        "delta_acc": extended_summary_stats["delta_acc"],
         "lost_ranked_count": lost_ranked_count,
         "total_lost_count": total_lost_count,
-        "scan_date": datetime.datetime.now().strftime("%d %b %Y"),
+        "scan_date": datetime.now().strftime("%d %b %Y"),
         "include_unranked": include_unranked,
     }
 
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    analysis_session_dir = os.path.join(ANALYSIS_DIR, timestamp)
+    os.makedirs(analysis_session_dir, exist_ok=True)
+    
+    images_session_dir = os.path.join(IMAGES_DIR, timestamp)
+
     # noinspection PyBroadException
     try:
-        badge_path = os.path.join(RESULTS_DIR, "summary_badge.png")
-        os.makedirs(os.path.dirname(badge_path), exist_ok=True)
+        os.makedirs(images_session_dir, exist_ok=True)
+        
+        badge_path = os.path.join(images_session_dir, "summary_badge.png")
         create_summary_badge(badge_data, badge_path, osu_api_client=osu_api_client)
         if gui_log:
             gui_log("Summary badge created successfully", update_last=False)
@@ -1130,3 +1097,30 @@ def make_top(
         gui_log(f"Potential top created in {elapsed:.2f} sec", update_last=False)
     if progress_callback:
         progress_callback(100, 100)
+
+    metadata = scan_results["metadata"].copy()
+    metadata.update({
+        "user_identifier": user_identifier,
+        "game_dir": game_dir,
+    })
+
+    complete_analysis = create_analysis_json_structure(
+        metadata=metadata,
+        summary_stats=extended_summary_stats,
+        lost_scores=scan_results["lost_scores"],
+        parsed_top=parsed_top_processed,
+        top_with_lost=top_with_lost_processed,
+        replay_manifest=scan_results.get("replay_manifest", [])
+    )
+
+    json_path = os.path.join(analysis_session_dir, "analysis_results.json")
+    if save_analysis_to_json(complete_analysis, json_path):
+        if gui_log:
+            gui_log(f"Analysis results saved to {timestamp}/", update_last=False)
+    else:
+        if gui_log:
+            gui_log("Failed to save analysis results", update_last=False)
+    
+    complete_analysis["session_dir"] = analysis_session_dir
+    complete_analysis["images_dir"] = images_session_dir
+    return complete_analysis
