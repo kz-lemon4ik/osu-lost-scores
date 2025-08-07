@@ -1,0 +1,11 @@
+2025-08-07 06:03:14 [INFO] [api_logger] API keys retrieved from system keyring (CLIENT_ID: 386...)
+2025-08-07 06:03:14 [INFO] [api_logger] OsuApiClient configured for Custom Keys mode
+2025-08-07 06:03:14 [INFO] [api_logger] OsuApiClient configured for OAuth mode with backend: http://127.0.0.1:8000/api/proxy
+2025-08-07 06:03:16 [INFO] [api_logger] GET image: https://a.ppy.sh/8674298?1752270641.jpeg
+2025-08-07 06:03:19 [INFO] [api_logger] All osu_api caches have been reset
+2025-08-07 06:03:58 [ERROR] [api_logger] Failed to download image: https://a.ppy.sh/8674298?1752270641.jpeg
+Traceback (most recent call last):
+  File "C:\Users\Lemon\documents\projects\pp-scam\src\osu_api.py", line 987, in download_image
+    with open(path, "wb") as f:
+         ^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: 'C:\\Users\\Lemon\\documents\\projects\\pp-scam\\cache\\avatars\\avatar_8674298.png'

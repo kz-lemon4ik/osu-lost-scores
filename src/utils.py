@@ -1,4 +1,3 @@
-
 import json
 import logging
 import os
@@ -22,20 +21,20 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+
 def process_in_batches(
-        items,
-        batch_size=100,
-        max_workers=None,
-        process_func=None,
-        progress_callback=None,
-        gui_log=None,
-        progress_logger=None,
-        log_interval_sec=5,
-        progress_message="Processing items",
-        start_progress=0,
-        progress_range=100,
+    items,
+    batch_size=100,
+    max_workers=None,
+    process_func=None,
+    progress_callback=None,
+    gui_log=None,
+    progress_logger=None,
+    log_interval_sec=5,
+    progress_message="Processing items",
+    start_progress=0,
+    progress_range=100,
 ):
-    
     if not items:
         return []
 
@@ -54,7 +53,7 @@ def process_in_batches(
         raise ValueError("process_func cannot be None")
 
     for i in range(0, total_items, batch_size):
-        batch = items[i: i + batch_size]
+        batch = items[i : i + batch_size]
 
         if len(batch) <= 5:
             batch_results = [process_func(item) for item in batch]
@@ -71,30 +70,32 @@ def process_in_batches(
 
         now = time.time()
         if progress_logger and (
-                now - last_log_time > float(log_interval_sec) or processed_count == total_items
+            now - last_log_time > float(log_interval_sec)
+            or processed_count == total_items
         ):
             progress_logger.info(gui_message)
             last_log_time = now
 
         if progress_callback:
             progress_value = (
-                    start_progress + (processed_count / total_items) * progress_range
+                start_progress + (processed_count / total_items) * progress_range
             )
             progress_callback(int(progress_value), 100)
 
     return results
 
+
 def track_parallel_progress(
-        futures,
-        total_items,
-        progress_callback=None,
-        gui_log=None,
-        progress_logger=None,
-        log_interval_sec=5,
-        progress_message="Processing items",
-        gui_update_step=1,
-        start_progress=0,
-        progress_range=100,
+    futures,
+    total_items,
+    progress_callback=None,
+    gui_log=None,
+    progress_logger=None,
+    log_interval_sec=5,
+    progress_message="Processing items",
+    gui_update_step=1,
+    start_progress=0,
+    progress_range=100,
 ):
     results = []
     completed = 0
@@ -117,7 +118,7 @@ def track_parallel_progress(
 
         now = time.time()
         if progress_logger and (
-                now - last_log_time > float(log_interval_sec) or completed == total_items
+            now - last_log_time > float(log_interval_sec) or completed == total_items
         ):
             log_message = f"{progress_message} {completed}/{total_items}..."
             progress_logger.info(log_message)
@@ -129,6 +130,7 @@ def track_parallel_progress(
 
     return results
 
+
 def load_summary_stats():
     latest_session = find_latest_analysis_session()
     if latest_session:
@@ -138,12 +140,14 @@ def load_summary_stats():
             if json_data:
                 return json_data.get("summary_stats", {})
         except Exception as e:
-            logger.exception("Error loading summary stats from JSON %s: %s", json_path, e)
-    
+            logger.exception(
+                "Error loading summary stats from JSON %s: %s", json_path, e
+            )
+
     return None
 
+
 def create_standard_edit_menu(widget):
-    
     menu = QMenu()
     if not isinstance(widget, (QLineEdit, QTextEdit)):
         return menu
@@ -185,18 +189,17 @@ def create_standard_edit_menu(widget):
 
     return menu
 
+
 def get_delta_color(value):
-    
     if value > 0:
         return ImageColors.GREEN
     if value < 0:
         return ImageColors.RED
     return ImageColors.WHITE
 
+
 class RateLimiter:
-    
     def __init__(self, requests_per_minute):
-        
         self._lock = threading.Lock()
         self._last_call_time = 0
         if requests_per_minute <= 0:
@@ -205,7 +208,6 @@ class RateLimiter:
             self.delay_seconds = 60.0 / requests_per_minute
 
     def wait(self):
-        
         if self.delay_seconds == 0:
             return
 
@@ -221,13 +223,13 @@ class RateLimiter:
 def save_analysis_to_json(analysis_data, filepath):
     try:
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
-        
-        with open(filepath, 'w', encoding='utf-8') as f:
+
+        with open(filepath, "w", encoding="utf-8") as f:
             json.dump(analysis_data, f, ensure_ascii=False, indent=2)
-        
+
         logger.info("Analysis results saved to %s", filepath)
         return True
-        
+
     except Exception as e:
         logger.exception("Failed to save analysis to JSON: %s", e)
         return False
@@ -238,43 +240,47 @@ def load_analysis_from_json(filepath):
         if not os.path.exists(filepath):
             logger.warning("Analysis JSON file not found: %s", filepath)
             return None
-            
-        with open(filepath, 'r', encoding='utf-8') as f:
+
+        with open(filepath, "r", encoding="utf-8") as f:
             data = json.load(f)
-            
+
         logger.info("Analysis results loaded from %s", filepath)
         return data
-        
+
     except Exception as e:
         logger.exception("Failed to load analysis from JSON: %s", e)
         return None
 
 
-def create_analysis_json_structure(metadata, summary_stats, lost_scores, parsed_top, top_with_lost, replay_manifest=None):
+def create_analysis_json_structure(
+    metadata,
+    summary_stats,
+    lost_scores,
+    parsed_top,
+    top_with_lost,
+    replay_manifest=None,
+):
     return {
         "metadata": {
             "analysis_timestamp": datetime.now().isoformat(),
             "total_time_seconds": metadata.get("total_time_seconds", 0),
             "user_identifier": metadata.get("user_identifier", ""),
             "game_dir": metadata.get("game_dir", ""),
-            "client_version": metadata.get("client_version", "1.0.0")
+            "client_version": metadata.get("client_version", "1.0.0"),
         },
         "summary_stats": summary_stats or {},
         "lost_scores": lost_scores or [],
         "parsed_top": parsed_top or [],
         "top_with_lost": top_with_lost or [],
         "replay_manifest": replay_manifest or [],
-        "signature": {
-            "hmac": None,
-            "timestamp": None
-        }
+        "signature": {"hmac": None, "timestamp": None},
     }
 
 
 def load_summary_stats_from_json(json_data):
     if not json_data:
         return None
-        
+
     return json_data.get("summary_stats", {})
 
 
@@ -283,7 +289,7 @@ def find_latest_analysis_session():
         analysis_dir = get_standard_dir("data/analysis")
         if not os.path.exists(analysis_dir):
             return None
-            
+
         sessions = []
         for item in os.listdir(analysis_dir):
             item_path = os.path.join(analysis_dir, item)
@@ -293,15 +299,15 @@ def find_latest_analysis_session():
                     sessions.append(item)
                 except ValueError:
                     continue
-        
+
         if not sessions:
             return None
-            
+
         sessions.sort(reverse=True)
         latest_session = sessions[0]
-        
+
         return os.path.join(analysis_dir, latest_session)
-        
+
     except Exception as e:
         logger.exception("Error finding latest analysis session: %s", e)
         return None
@@ -312,7 +318,7 @@ def find_latest_images_session():
         images_dir = get_standard_dir("data/images")
         if not os.path.exists(images_dir):
             return None
-            
+
         sessions = []
         for item in os.listdir(images_dir):
             item_path = os.path.join(images_dir, item)
@@ -322,15 +328,15 @@ def find_latest_images_session():
                     sessions.append(item)
                 except ValueError:
                     continue
-        
+
         if not sessions:
             return None
-            
+
         sessions.sort(reverse=True)
         latest_session = sessions[0]
-        
+
         return os.path.join(images_dir, latest_session)
-        
+
     except Exception as e:
         logger.exception("Error finding latest images session: %s", e)
         return None

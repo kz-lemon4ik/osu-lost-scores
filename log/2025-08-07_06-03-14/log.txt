@@ -1,0 +1,23 @@
+2025-08-07 06:03:14 [INFO] [root] Logging configured. Session logs in: log/2025-08-07_06-03-14
+2025-08-07 06:03:14 [DEBUG] [database] Database initialized: cache/beatmap_info.db
+2025-08-07 06:03:14 [INFO] [root] Database connection initialized
+2025-08-07 06:03:14 [INFO] [root] Application icon set successfully
+2025-08-07 06:03:14 [INFO] [root] OsuApiClient instance created successfully in setup_api
+2025-08-07 06:03:14 [INFO] [gui] Loaded 4 local fonts
+2025-08-07 06:03:14 [DEBUG] [gui] Attempting to load QSS from: styles/style.qss
+2025-08-07 06:03:14 [DEBUG] [gui] QSS file successfully read (12492 bytes)
+2025-08-07 06:03:14 [DEBUG] [gui] QSS styles successfully applied to QApplication
+2025-08-07 06:03:14 [DEBUG] [auth_manager] AuthManager initialized. Config dir: C:\Users\Lemon\documents\projects\pp-scam\config
+2025-08-07 06:03:14 [DEBUG] [auth_manager] Backend base URL: http://127.0.0.1:8000
+2025-08-07 06:03:14 [INFO] [gui] Configuration loaded from data/gui_config.json
+2025-08-07 06:03:14 [INFO] [gui] Background image loaded and scaled
+2025-08-07 06:03:14 [DEBUG] [gui] 'See Full Results' button is disabled
+2025-08-07 06:03:14 [INFO] [auth_manager] Found active OAuth session for user 'KZ_Lemon4ik'
+2025-08-07 06:03:16 [INFO] [gui] Configuration saved to data/gui_config.json
+2025-08-07 06:03:19 [INFO] [database] Database connection closed
+2025-08-07 06:03:19 [DEBUG] [database] Database initialized: cache/beatmap_info.db
+2025-08-07 06:03:19 [INFO] [file_parser] In-memory cache has been reset
+2025-08-07 06:03:20 [DEBUG] [gui] 'See Full Results' button is disabled
+2025-08-07 06:03:20 [INFO] [gui] Configuration saved to data/gui_config.json
+2025-08-07 06:03:20 [INFO] [database] Database connection closed
+2025-08-07 06:03:20 [INFO] [root] Application shutting down. Exit code: 0

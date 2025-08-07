@@ -1,4 +1,3 @@
-
 import datetime
 import logging
 import os
@@ -12,7 +11,13 @@ from app_config import AVATAR_DIR, COVER_DIR, IMAGES_DIR
 from database import db_get_map
 from file_parser import file_parser
 from path_utils import get_standard_dir, mask_path_for_log
-from utils import track_parallel_progress, load_summary_stats, get_delta_color, load_analysis_from_json, load_summary_stats_from_json
+from utils import (
+    track_parallel_progress,
+    load_summary_stats,
+    get_delta_color,
+    load_analysis_from_json,
+    load_summary_stats_from_json,
+)
 from color_constants import ImageColors
 
 asset_downloads_logger = logging.getLogger("asset_downloads")
@@ -26,14 +31,22 @@ try:
     TITLE_FONT = ImageFont.truetype(os.path.join(FONTS_DIR, "Exo2-Bold.otf"), 36)
     SUBTITLE_FONT = ImageFont.truetype(os.path.join(FONTS_DIR, "Exo2-Regular.otf"), 18)
     MAP_NAME_FONT = ImageFont.truetype(os.path.join(FONTS_DIR, "Exo2-Italic.otf"), 18)
-    CREATOR_SMALL_FONT = ImageFont.truetype(os.path.join(FONTS_DIR, "Exo2-Italic.otf"), 13)
+    CREATOR_SMALL_FONT = ImageFont.truetype(
+        os.path.join(FONTS_DIR, "Exo2-Italic.otf"), 13
+    )
     VERSION_FONT = ImageFont.truetype(os.path.join(FONTS_DIR, "Exo2-Italic.otf"), 14)
     SMALL_FONT = ImageFont.truetype(os.path.join(FONTS_DIR, "Exo2-Regular.otf"), 16)
-    BOLD_ITALIC_FONT = ImageFont.truetype(os.path.join(FONTS_DIR, "Exo2-BoldItalic.otf"), 18)
-    BOLD_ITALIC_FONT_SMALL = ImageFont.truetype(os.path.join(FONTS_DIR, "Exo2-BoldItalic.otf"), 14)
+    BOLD_ITALIC_FONT = ImageFont.truetype(
+        os.path.join(FONTS_DIR, "Exo2-BoldItalic.otf"), 18
+    )
+    BOLD_ITALIC_FONT_SMALL = ImageFont.truetype(
+        os.path.join(FONTS_DIR, "Exo2-BoldItalic.otf"), 14
+    )
 except (IOError, FileNotFoundError):
     logger.exception("Failed to load Exo2 fonts, using default")
-    TITLE_FONT = SUBTITLE_FONT = MAP_NAME_FONT = CREATOR_SMALL_FONT = VERSION_FONT = SMALL_FONT = ImageFont.load_default()
+    TITLE_FONT = SUBTITLE_FONT = MAP_NAME_FONT = CREATOR_SMALL_FONT = VERSION_FONT = (
+        SMALL_FONT
+    ) = ImageFont.load_default()
     BOLD_ITALIC_FONT = BOLD_ITALIC_FONT_SMALL = ImageFont.load_default()
 
 CARD_HEIGHT = 60
@@ -67,8 +80,10 @@ def short_mods(mods_str):
     mlist = [m.strip() for m in mods_str.split(",") if m.strip()]
     return [m for m in mlist if m.upper() not in {"CL", "NM"}]
 
+
 def short_txt(text, max_len=50):
     return text if len(text) <= max_len else text[: max_len - 3] + "..."
+
 
 def since_date(date_str):
     try:
@@ -95,6 +110,7 @@ def since_date(date_str):
     else:
         return f"{y_rounded} years ago"
 
+
 def _create_rounded_avatar(avatar_path, size, radius):
     try:
         avatar_img_raw = Image.open(avatar_path).convert("RGBA").resize((size, size))
@@ -110,17 +126,18 @@ def _create_rounded_avatar(avatar_path, size, radius):
         )
         return None
 
+
 def download_and_draw_avatar(
-        d,
-        user_name,
-        avatar_url,
-        x,
-        y,
-        size,
-        osu_api_client=None,
-        gui_log=None,
-        avatar_radius=15,
-        placeholder_color=ImageColors.CARD,
+    d,
+    user_name,
+    avatar_url,
+    x,
+    y,
+    size,
+    osu_api_client=None,
+    gui_log=None,
+    avatar_radius=15,
+    placeholder_color=ImageColors.CARD,
 ):
     if not osu_api_client:
         logger.warning("No API client provided for downloading avatar")
@@ -148,12 +165,15 @@ def download_and_draw_avatar(
             if processed_avatar:
                 return processed_avatar, True
         except (RequestException, IOError, OSError):
-            logger.exception("Error downloading or saving avatar %s", mask_path_for_log(avatar_path))
+            logger.exception(
+                "Error downloading or saving avatar %s", mask_path_for_log(avatar_path)
+            )
 
     d.rounded_rectangle(
         (x, y, x + size, y + size), radius=avatar_radius, fill=placeholder_color
     )
     return None, False
+
 
 def get_beatmap_metadata(row_data, metadata_cache=None):
     md5_hash = row_data.get("Beatmap MD5")
@@ -168,7 +188,9 @@ def get_beatmap_metadata(row_data, metadata_cache=None):
     if map_data_from_db:
         beatmapset_id = map_data_from_db.get("beatmapset_id")
         if beatmapset_id:
-            cover_url = f"https://assets.ppy.sh/beatmaps/{beatmapset_id}/covers/cover@2x.jpg"
+            cover_url = (
+                f"https://assets.ppy.sh/beatmaps/{beatmapset_id}/covers/cover@2x.jpg"
+            )
             map_data_from_db["cover_url"] = cover_url
         else:
             map_data_from_db["cover_url"] = None
@@ -186,10 +208,11 @@ def get_beatmap_metadata(row_data, metadata_cache=None):
         "beatmapset_id": None,
     }
 
+
 def get_and_draw_cover(
-        metadata,
-        width,
-        height,
+    metadata,
+    width,
+    height,
 ):
     beatmapset_id = metadata.get("beatmapset_id")
     if beatmapset_id:
@@ -251,15 +274,22 @@ def get_and_draw_cover(
                     )
 
                     return c_img
-        except (FileNotFoundError, UnidentifiedImageError, IOError, AttributeError, TypeError):
+        except (
+            FileNotFoundError,
+            UnidentifiedImageError,
+            IOError,
+            AttributeError,
+            TypeError,
+        ):
             logger.exception(
-                "Could not process local background for %s", metadata.get('file_path')
+                "Could not process local background for %s", metadata.get("file_path")
             )
 
     return Image.new("RGBA", (width, height), (80, 80, 80, 255))
 
+
 def preload_cover_images(
-        rows, metadata_cache=None, osu_api_client=None, gui_log=None, max_workers=8
+    rows, metadata_cache=None, osu_api_client=None, gui_log=None, max_workers=8
 ):
     if not osu_api_client:
         logger.warning("No API client provided for preloading covers")
@@ -334,22 +364,27 @@ def preload_cover_images(
             update_last=True,
         )
 
+
 def _prepare_card_background(
-        card_w,
-        card_h,
-        is_lost_row,
-        show_weights,
-        metadata,
-        osu_api_client=None,
+    card_w,
+    card_h,
+    is_lost_row,
+    show_weights,
+    metadata,
+    osu_api_client=None,
 ):
     if not osu_api_client:
         raise ValueError("API client not provided")
-    bg_color = ImageColors.CARD_LOST if show_weights and is_lost_row else ImageColors.CARD
+    bg_color = (
+        ImageColors.CARD_LOST if show_weights and is_lost_row else ImageColors.CARD
+    )
     bg_img = Image.new("RGBA", (card_w, card_h), bg_color)
     cover_w = card_w // 3
     cover_h = card_h
     c_img = get_and_draw_cover(
-        metadata, cover_w, cover_h,
+        metadata,
+        cover_w,
+        cover_h,
     )
 
     fade_mask = Image.new("L", (cover_w, cover_h), 255)
@@ -359,6 +394,7 @@ def _prepare_card_background(
         dm_fade.line([(x, 0), (x, cover_h)], fill=alpha_val)
     bg_img.paste(c_img, (0, 0), fade_mask)
     return bg_img
+
 
 def _draw_grade_icon(base, d_card, grade, card_x, center_line):
     grade = "SS" if grade == "X" else "SSH" if grade == "XH" else grade
@@ -379,25 +415,34 @@ def _draw_grade_icon(base, d_card, grade, card_x, center_line):
                 f"Error processing grade icon {mask_path_for_log(grade_icon_path)}: {grade_err}"
             )
     d_card.text(
-        (card_x + 10, center_line - 8), grade, font=SUBTITLE_FONT, fill=ImageColors.WHITE
+        (card_x + 10, center_line - 8),
+        grade,
+        font=SUBTITLE_FONT,
+        fill=ImageColors.WHITE,
     )
     return False
 
+
 def _draw_beatmap_info(
-        d_card,
-        raw_title,
-        raw_artist,
-        creator,
-        version,
-        date_str,
-        text_x,
-        text_y_map,
+    d_card,
+    raw_title,
+    raw_artist,
+    creator,
+    version,
+    date_str,
+    text_x,
+    text_y_map,
 ):
     full_name = short_txt(f"{raw_title} by {raw_artist}", 50)
-    d_card.text((text_x, text_y_map), full_name, font=MAP_NAME_FONT, fill=ImageColors.WHITE)
+    d_card.text(
+        (text_x, text_y_map), full_name, font=MAP_NAME_FONT, fill=ImageColors.WHITE
+    )
     text_y_map += 20
     d_card.text(
-        (text_x, text_y_map), f"by {creator}", font=CREATOR_SMALL_FONT, fill=ImageColors.WHITE
+        (text_x, text_y_map),
+        f"by {creator}",
+        font=CREATOR_SMALL_FONT,
+        fill=ImageColors.WHITE,
     )
     text_y_map += 16
     date_human = since_date(date_str)
@@ -423,6 +468,7 @@ def _draw_beatmap_info(
             font=VERSION_FONT,
             fill=ImageColors.DATE,
         )
+
 
 def _draw_pp_section(d_card, row, card_x, card_y, card_w, card_h, center_line):
     shape_w = PP_SHAPE_WIDTH
@@ -457,18 +503,19 @@ def _draw_pp_section(d_card, row, card_x, card_y, card_w, card_h, center_line):
         )
     return shape_left
 
+
 def draw_score_card(
-        base,
-        d_card,
-        row,
-        card_x,
-        card_y,
-        card_w,
-        card_h,
-        is_lost_row=False,
-        show_weights=False,
-        metadata_cache=None,
-        osu_api_client=None,
+    base,
+    d_card,
+    row,
+    card_x,
+    card_y,
+    card_w,
+    card_h,
+    is_lost_row=False,
+    show_weights=False,
+    metadata_cache=None,
+    osu_api_client=None,
 ):
     if not osu_api_client:
         raise ValueError("API client not provided")
@@ -522,14 +569,16 @@ def draw_score_card(
     else:
         draw_weighted_info(d_card, base, row, shape_left, center_line)
 
+
 def _format_accuracy_text(accuracy_value):
     try:
         return f"{float(accuracy_value):.2f}%"
     except ValueError:
         return f"{accuracy_value}%" if accuracy_value else "?.??%"
 
+
 def draw_accuracy_and_mods_lost(
-        d_card, base, row, right_block_x, center_line, shape_left
+    d_card, base, row, right_block_x, center_line, shape_left
 ):
     mods_edge = right_block_x - MODS_EDGE_OFFSET
     acc_center_x = (mods_edge + shape_left) / 2
@@ -561,6 +610,7 @@ def draw_accuracy_and_mods_lost(
                 fill=ImageColors.ACC,
             )
     draw_mods(d_card, base, row, mods_edge, center_line)
+
 
 def draw_weighted_info(d_card, base, row, shape_left, center_line):
     wpp_x = shape_left - 10
@@ -631,6 +681,7 @@ def draw_weighted_info(d_card, base, row, shape_left, center_line):
     mods_right_edge = acc_block_x - ACCURACY_COLUMN_WIDTH / 2 - MODS_RIGHT_MARGIN
     draw_mods(d_card, base, row, mods_right_edge, center_line)
 
+
 def draw_mods(d_card, base, row, mods_right_edge, center_line):
     mods_list = short_mods(row.get("Mods", ""))
     mod_x_cur = mods_right_edge
@@ -669,19 +720,20 @@ def draw_mods(d_card, base, row, mods_right_edge, center_line):
             except AttributeError:
                 pass
 
+
 def draw_header(
-        base,
-        d,
-        width,
-        margin,
-        title,
-        username,
-        username_color,
-        user_json,
-        av_size,
-        baseline_y,
-        extra_shift=0,
-        osu_api_client=None,
+    base,
+    d,
+    width,
+    margin,
+    title,
+    username,
+    username_color,
+    user_json,
+    av_size,
+    baseline_y,
+    extra_shift=0,
+    osu_api_client=None,
 ):
     d.text((margin, baseline_y), title, font=TITLE_FONT, fill=ImageColors.WHITE)
     try:
@@ -721,12 +773,17 @@ def draw_header(
         )
     return title_right_x, title_h
 
-def _prepare_image_data(user_id, user_name, mode, max_scores, session_dir=None, osu_api_client=None):
+
+def _prepare_image_data(
+    user_id, user_name, mode, max_scores, session_dir=None, osu_api_client=None
+):
     max_scores = max(1, max_scores)
     user_data_json = None
     if user_id:
         try:
-            user_data_json = osu_api_client.user_osu(str(user_id), "id") if osu_api_client else None
+            user_data_json = (
+                osu_api_client.user_osu(str(user_id), "id") if osu_api_client else None
+            )
             if not user_data_json:
                 logger.warning(
                     "User data not found for user_id %s (or user_name %s), image header might be incomplete",
@@ -734,28 +791,31 @@ def _prepare_image_data(user_id, user_name, mode, max_scores, session_dir=None, 
                     user_name,
                 )
         except requests.exceptions.RequestException as e:
-            logger.exception(f"API request error getting user data {user_id} for make_img: {e}")
+            logger.exception(
+                f"API request error getting user data {user_id} for make_img: {e}"
+            )
     if session_dir:
         timestamp = os.path.basename(session_dir)
         images_session_dir = os.path.join(IMAGES_DIR, timestamp)
         os.makedirs(images_session_dir, exist_ok=True)
-        
+
         json_path = os.path.join(session_dir, "analysis_results.json")
         analysis_data = load_analysis_from_json(json_path)
     else:
         from utils import find_latest_analysis_session
+
         latest_session = find_latest_analysis_session()
         if latest_session:
             timestamp = os.path.basename(latest_session)
             images_session_dir = os.path.join(IMAGES_DIR, timestamp)
             os.makedirs(images_session_dir, exist_ok=True)
-            
+
             json_path = os.path.join(latest_session, "analysis_results.json")
             analysis_data = load_analysis_from_json(json_path)
         else:
             analysis_data = None
             images_session_dir = IMAGES_DIR
-    
+
     if analysis_data:
         if mode == "lost":
             json_data = analysis_data.get("lost_scores", [])
@@ -769,7 +829,7 @@ def _prepare_image_data(user_id, user_name, mode, max_scores, session_dir=None, 
             main_title = "Potential Top"
             show_weights = True
             baseline_offset = 0
-            
+
         all_rows = []
         for item in json_data:
             if mode == "lost":
@@ -782,14 +842,16 @@ def _prepare_image_data(user_id, user_name, mode, max_scores, session_dir=None, 
                     "title": item.get("title", ""),
                     "creator": item.get("creator", ""),
                     "version": item.get("version", ""),
-                    "Mods": ", ".join(item.get("mods", [])) if item.get("mods") else "NM",
+                    "Mods": ", ".join(item.get("mods", []))
+                    if item.get("mods")
+                    else "NM",
                     "100": str(item.get("count100", "")),
                     "50": str(item.get("count50", "")),
                     "Misses": str(item.get("countMiss", "")),
                     "Accuracy": str(item.get("accuracy", "")),
                     "Score": str(item.get("total_score", "")),
                     "Date": item.get("score_time", ""),
-                    "Rank": item.get("rank", "")
+                    "Rank": item.get("rank", ""),
                 }
             else:
                 row = {
@@ -802,7 +864,9 @@ def _prepare_image_data(user_id, user_name, mode, max_scores, session_dir=None, 
                     "title": item.get("title", ""),
                     "creator": item.get("creator", ""),
                     "version": item.get("version", ""),
-                    "Mods": ", ".join(item.get("mods", [])) if item.get("mods") else "NM",
+                    "Mods": ", ".join(item.get("mods", []))
+                    if item.get("mods")
+                    else "NM",
                     "100": str(item.get("count100", "")),
                     "50": str(item.get("count50", "")),
                     "Misses": str(item.get("countMiss", "")),
@@ -812,13 +876,13 @@ def _prepare_image_data(user_id, user_name, mode, max_scores, session_dir=None, 
                     "Rank": item.get("rank", ""),
                     "weight_%": str(item.get("weight_percent", "")),
                     "weight_PP": str(item.get("weight_pp", "")),
-                    "Score ID": str(item.get("score_id", ""))
+                    "Score ID": str(item.get("score_id", "")),
                 }
             all_rows.append(row)
     else:
         logger.error("No analysis data found")
         return None
-    
+
     if not all_rows:
         logger.warning(f"No data found for {mode} mode")
         return None
@@ -834,6 +898,7 @@ def _prepare_image_data(user_id, user_name, mode, max_scores, session_dir=None, 
         "baseline_offset": baseline_offset,
         "mode": mode,
     }
+
 
 def _process_user_statistics(user_data_json, summary_data):
     if not summary_data:
@@ -878,6 +943,7 @@ def _process_user_statistics(user_data_json, summary_data):
 
     return stats
 
+
 def _setup_canvas_and_dimensions(rows, mode, total_rows_count):
     threshold = MOD_THRESHOLD_LOST if mode == "lost" else MOD_THRESHOLD_TOP
     max_mods = 0
@@ -895,6 +961,7 @@ def _setup_canvas_and_dimensions(rows, mode, total_rows_count):
     d = ImageDraw.Draw(base)
     logger.info(f"Displaying {len(rows)}/{total_rows_count} scores in {mode} mode")
     return {"base": base, "d": d, "width": width, "card_w": card_w, "start_y": start_y}
+
 
 def _draw_stats_section(d, stats, title_right_x, baseline_y):
     stats_start_x = title_right_x + 50
@@ -914,7 +981,11 @@ def _draw_stats_section(d, stats, title_right_x, baseline_y):
 
     draw_col("Cur PP:", stats["cur_pp_val"], stats_start_x, row1_y, ImageColors.WHITE)
     draw_col(
-        "Cur Acc:", stats["cur_acc_str"], stats_start_x + col_w, row1_y, ImageColors.WHITE
+        "Cur Acc:",
+        stats["cur_acc_str"],
+        stats_start_x + col_w,
+        row1_y,
+        ImageColors.WHITE,
     )
     draw_col(
         "Δ PP:",
@@ -925,7 +996,11 @@ def _draw_stats_section(d, stats, title_right_x, baseline_y):
     )
     draw_col("Pot PP:", stats["pot_pp_val"], stats_start_x, row2_y, ImageColors.WHITE)
     draw_col(
-        "Pot Acc:", stats["pot_acc_str"], stats_start_x + col_w, row2_y, ImageColors.WHITE
+        "Pot Acc:",
+        stats["pot_acc_str"],
+        stats_start_x + col_w,
+        row2_y,
+        ImageColors.WHITE,
     )
     draw_col(
         "Δ Acc:",
@@ -935,8 +1010,15 @@ def _draw_stats_section(d, stats, title_right_x, baseline_y):
         stats["acc_diff_color"],
     )
 
+
 def make_img(
-        user_id, user_name, mode="lost", max_scores=20, session_dir=None, osu_api_client=None, gui_log=None
+    user_id,
+    user_name,
+    mode="lost",
+    max_scores=20,
+    session_dir=None,
+    osu_api_client=None,
+    gui_log=None,
 ):
     logger.debug(
         "make_img called with: user_id=%s, user_name=%s, mode=%s, max_scores=%s",
@@ -952,7 +1034,9 @@ def make_img(
         logger.error("Invalid parameters: API client not provided")
         raise ValueError("API client not provided")
 
-    data = _prepare_image_data(user_id, user_name, mode, max_scores, session_dir, osu_api_client)
+    data = _prepare_image_data(
+        user_id, user_name, mode, max_scores, session_dir, osu_api_client
+    )
     if data is None:
         logger.warning(
             "Image data preparation failed for user %s (%s), cannot generate image",
@@ -962,17 +1046,18 @@ def make_img(
         return
 
     from utils import find_latest_analysis_session
+
     latest_session = find_latest_analysis_session()
     analysis_data = None
     if latest_session:
         json_path = os.path.join(latest_session, "analysis_results.json")
         analysis_data = load_analysis_from_json(json_path)
-    
+
     if analysis_data:
         summary_data = load_summary_stats_from_json(analysis_data)
     else:
         summary_data = load_summary_stats()
-    
+
     stats = _process_user_statistics(data["user_data_json"], summary_data)
 
     metadata_cache = {}
@@ -1006,7 +1091,12 @@ def make_img(
     elif data["mode"] == "lost":
         scammed_y = baseline_y + title_h + 15
         s_ = f"Peppy scammed me for {data['total_rows_count']} of them!"
-        d.text((DEFAULT_MARGIN, scammed_y), s_, font=VERSION_FONT, fill=ImageColors.HIGHLIGHT)
+        d.text(
+            (DEFAULT_MARGIN, scammed_y),
+            s_,
+            font=VERSION_FONT,
+            fill=ImageColors.HIGHLIGHT,
+        )
     if gui_log:
         gui_log("Drawing score cards...", update_last=True)
     for i, row in enumerate(data["rows"]):
@@ -1028,9 +1118,9 @@ def make_img(
             osu_api_client=osu_api_client,
         )
     last_bottom = (
-            canvas_info["start_y"]
-            + len(data["rows"]) * (CARD_HEIGHT + CARD_SPACING)
-            - CARD_SPACING
+        canvas_info["start_y"]
+        + len(data["rows"]) * (CARD_HEIGHT + CARD_SPACING)
+        - CARD_SPACING
     )
     final_height = last_bottom + DEFAULT_MARGIN
     if final_height < base.height:
@@ -1044,17 +1134,19 @@ def make_img(
         "Image saved to %s", mask_path_for_log(os.path.normpath(data["out_path"]))
     )
 
+
 def _adjust_max_scores_for_lost_score(max_scores, show_lost):
     if not show_lost:
         return max_scores
-    
+
     from utils import find_latest_analysis_session
+
     latest_session = find_latest_analysis_session()
     analysis_data = None
     if latest_session:
         json_path = os.path.join(latest_session, "analysis_results.json")
         analysis_data = load_analysis_from_json(json_path)
-    
+
     if analysis_data:
         top_with_lost_data = analysis_data.get("top_with_lost", [])
         lost_score_rank = None
@@ -1066,7 +1158,7 @@ def _adjust_max_scores_for_lost_score(max_scores, show_lost):
     else:
         logger.warning("No analysis data found for lost score adjustment")
         return max_scores
-    
+
     if lost_score_rank is not None and lost_score_rank > max_scores:
         logger.info(
             f"Adjusting max_scores from {max_scores} to {lost_score_rank} to include lost score"
@@ -1081,8 +1173,14 @@ def _adjust_max_scores_for_lost_score(max_scores, show_lost):
             )
         return max_scores
 
+
 def make_img_lost(
-        user_id=None, user_name="", max_scores=20, session_dir=None, osu_api_client=None, gui_log=None
+    user_id=None,
+    user_name="",
+    max_scores=20,
+    session_dir=None,
+    osu_api_client=None,
+    gui_log=None,
 ):
     logger.debug(
         "make_img_lost called with: user_id=%s, user_name=%s, max_scores=%s",
@@ -1103,14 +1201,15 @@ def make_img_lost(
         gui_log=gui_log,
     )
 
+
 def make_img_top(
-        user_id=None,
-        user_name="",
-        max_scores=20,
-        show_lost=False,
-        session_dir=None,
-        osu_api_client=None,
-        gui_log=None,
+    user_id=None,
+    user_name="",
+    max_scores=20,
+    show_lost=False,
+    session_dir=None,
+    osu_api_client=None,
+    gui_log=None,
 ):
     logger.debug(
         "make_img_top called with: user_id=%s, user_name=%s, max_scores=%s, show_lost=%s",
@@ -1133,7 +1232,10 @@ def make_img_top(
         gui_log=gui_log,
     )
 
-def _prepare_stat_line_components(label, current_val, potential_val, delta_val, is_percent=False):
+
+def _prepare_stat_line_components(
+    label, current_val, potential_val, delta_val, is_percent=False
+):
     format_str = "{:.2f}%" if is_percent else "{:.0f}"
 
     base_text = f"{label}: {format_str.format(current_val)} -> {format_str.format(potential_val)} "
@@ -1143,6 +1245,7 @@ def _prepare_stat_line_components(label, current_val, potential_val, delta_val, 
     delta_color = get_delta_color(delta_val)
 
     return base_text, delta_text, delta_color
+
 
 def create_summary_badge(data, output_path, osu_api_client=None):
     if not osu_api_client:
@@ -1197,25 +1300,31 @@ def create_summary_badge(data, output_path, osu_api_client=None):
     )
 
     font = BOLD_ITALIC_FONT_SMALL
-    y_pp = nickname_y_pos + getattr(TITLE_FONT, 'size', 36) + 8
-    y_acc = y_pp + getattr(font, 'size', 18) + 2
+    y_pp = nickname_y_pos + getattr(TITLE_FONT, "size", 36) + 8
+    y_acc = y_pp + getattr(font, "size", 18) + 2
 
     pp_base, pp_delta, pp_color = _prepare_stat_line_components(
-        "PP", data['current_pp'], data['potential_pp'], data['delta_pp']
+        "PP", data["current_pp"], data["potential_pp"], data["delta_pp"]
     )
     pp_base_width = draw.textlength(pp_base, font=font)
     draw.text((text_x_start, y_pp), pp_base, font=font, fill=ImageColors.WHITE)
     draw.text((text_x_start + pp_base_width, y_pp), pp_delta, font=font, fill=pp_color)
 
     acc_base, acc_delta, acc_color = _prepare_stat_line_components(
-        "Acc", data['current_acc'], data['potential_acc'], data['delta_acc'], is_percent=True
+        "Acc",
+        data["current_acc"],
+        data["potential_acc"],
+        data["delta_acc"],
+        is_percent=True,
     )
     acc_base_width = draw.textlength(acc_base, font=font)
     draw.text((text_x_start, y_acc), acc_base, font=font, fill=ImageColors.WHITE)
-    draw.text((text_x_start + acc_base_width, y_acc), acc_delta, font=font, fill=acc_color)
+    draw.text(
+        (text_x_start + acc_base_width, y_acc), acc_delta, font=font, fill=acc_color
+    )
 
     info_font = CREATOR_SMALL_FONT
-    y_lost_scores = badge_height - padding - getattr(info_font, 'size', 12)
+    y_lost_scores = badge_height - padding - getattr(info_font, "size", 12)
 
     if data.get("include_unranked", False):
         lost_scores_text = f"Lost Scores: {data['total_lost_count']}"
@@ -1240,7 +1349,7 @@ def create_summary_badge(data, output_path, osu_api_client=None):
         fill=ImageColors.DATE,
         anchor="rb",
     )
-    date_height = getattr(info_font, 'size', 12)
+    date_height = getattr(info_font, "size", 12)
     draw.text(
         (badge_width - padding, bottom_y - date_height - 2),
         rank_text,

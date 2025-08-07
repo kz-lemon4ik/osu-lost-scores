@@ -1,4 +1,3 @@
-
 import datetime
 import logging
 import os
@@ -22,8 +21,8 @@ from gui import create_gui, show_api_limit_warning
 from osu_api import OsuApiClient
 from path_utils import get_env_path, get_standard_dir, mask_path_for_log
 
+
 def cleanup_old_app_logs(base_log_directory_str: str, days_to_keep: int = 7):
-    
     logger = logging.getLogger("root")
     logger.info(
         f"Cleaning up app log subdirectories older than {days_to_keep} days in {mask_path_for_log(base_log_directory_str)}..."
@@ -63,8 +62,8 @@ def cleanup_old_app_logs(base_log_directory_str: str, days_to_keep: int = 7):
         f"App log cleanup finished. Deleted {cleaned_count} old log directories"
     )
 
+
 def setup_file_logger(logger_name, file_path, level=logging.DEBUG, formatter=None):
-    
     logger = logging.getLogger(logger_name)
     logger.setLevel(level)
     logger.propagate = False
@@ -84,6 +83,7 @@ def setup_file_logger(logger_name, file_path, level=logging.DEBUG, formatter=Non
         )
 
     return logger
+
 
 env_path = get_env_path()
 os.environ["DOTENV_PATH"] = env_path
@@ -166,8 +166,8 @@ logging.info(
     mask_path_for_log(os.path.normpath(RUN_SPECIFIC_LOG_DIR)),
 )
 
+
 def setup_api():
-    
     try:
         token_cache_path = get_standard_dir("cache/token_cache.json")
         api_client = OsuApiClient.get_instance(
@@ -185,8 +185,8 @@ def setup_api():
         logging.exception(f"Error setting up API client in setup_api: {api_setup_err}")
         return None
 
+
 def main():
-    
     try:
         db_init()
         logging.info("Database connection initialized")
@@ -195,11 +195,11 @@ def main():
         sys.exit(1)
 
     app = QApplication.instance() or QApplication(sys.argv)
-    
+
     # Configure tooltip delay to 1 second (1000ms)
     # Note: PySide6 doesn't directly support tooltip delay configuration like this
     # The delay is controlled by the OS, but we can work around it in the GUI
-    
+
     app_icon_path = get_standard_dir("assets/images/app_icon/icon.ico")
     if os.path.exists(app_icon_path) and isinstance(app, QApplication):
         app_icon = QIcon(app_icon_path)
@@ -222,6 +222,7 @@ def main():
     db_close()
     logging.info("Application shutting down. Exit code: %s", exit_code)
     return exit_code
+
 
 if __name__ == "__main__":
     sys.exit(main())

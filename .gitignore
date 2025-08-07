@@ -15,12 +15,8 @@ dist/
 
 *.bak
 
-results/
 cache/
-csv/
-maps/
-log/
-config/
+data/
 scripts/
 
 build.py

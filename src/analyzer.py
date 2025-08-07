@@ -1,4 +1,3 @@
-
 import calendar
 from datetime import datetime
 import logging
@@ -7,11 +6,18 @@ import time
 import requests
 from concurrent.futures import ThreadPoolExecutor
 
-from app_config import ANALYSIS_DIR, CUTOFF_DATE, IO_THREAD_POOL_SIZE, MAPS_DIR, IMAGES_DIR
+from app_config import (
+    ANALYSIS_DIR,
+    CUTOFF_DATE,
+    IO_THREAD_POOL_SIZE,
+    MAPS_DIR,
+    IMAGES_DIR,
+)
 from database import db_get_map, db_init, db_update_from_api, db_upsert_from_scan
 from file_parser import file_parser
 from generate_image import create_summary_badge
-from path_utils import get_standard_dir, mask_path_for_log
+from osu_api import OAuthSessionExpiredException
+from path_utils import mask_path_for_log
 from utils import (
     create_analysis_json_structure,
     process_in_batches,
@@ -22,8 +28,8 @@ from utils import (
 logger = logging.getLogger(__name__)
 asset_downloads_logger = logging.getLogger("asset_downloads")
 
+
 def find_lost_scores(scores, cutoff_date):
-    
     if not scores:
         logger.warning("Empty score list in find_lost_scores")
         return [], 0
@@ -33,7 +39,9 @@ def find_lost_scores(scores, cutoff_date):
     def validate_and_preprocess_score(rec):
         try:
             if not isinstance(rec, dict) or not all(
-                    required_key in rec for required_key in ["mods", "pp", "total_score", "score_time"]):
+                required_key in rec
+                for required_key in ["mods", "pp", "total_score", "score_time"]
+            ):
                 return None
             rec_copy = rec.copy()
             rec_copy["pp_float"] = float(rec.get("pp", 0.0))
@@ -42,10 +50,14 @@ def find_lost_scores(scores, cutoff_date):
             rec_copy["map_identifier"] = map_identifier
             if not map_identifier:
                 return None
-            rec_copy["timestamp"] = calendar.timegm(time.strptime(rec["score_time"], "%d-%m-%Y %H-%M-%S"))
+            rec_copy["timestamp"] = calendar.timegm(
+                time.strptime(rec["score_time"], "%d-%m-%Y %H-%M-%S")
+            )
             return rec_copy
         except (ValueError, TypeError) as e:
-            logger.warning("Could not preprocess score, skipping. Score: %s, Error: %s", rec, e)
+            logger.warning(
+                "Could not preprocess score, skipping. Score: %s, Error: %s", rec, e
+            )
             return None
 
     max_workers = min(IO_THREAD_POOL_SIZE, max(4, os.cpu_count() or 8))
@@ -61,9 +73,14 @@ def find_lost_scores(scores, cutoff_date):
     scores_by_map = {}
 
     for score_record in valid_scores:
-        key = (score_record["map_identifier"], tuple(sorted(score_record.get("mods", []))))
+        key = (
+            score_record["map_identifier"],
+            tuple(sorted(score_record.get("mods", []))),
+        )
         groups_by_mod.setdefault(key, []).append(score_record)
-        scores_by_map.setdefault(score_record["map_identifier"], []).append(score_record)
+        scores_by_map.setdefault(score_record["map_identifier"], []).append(
+            score_record
+        )
 
     preliminary_lost_scores = []
     total_candidates_found = 0
@@ -75,24 +92,41 @@ def find_lost_scores(scores, cutoff_date):
         try:
             candidate_score = max(group_scores, key=lambda s: s["pp_float"])
 
-            best_score_overall_in_group = max(group_scores, key=lambda s: s["total_int"])
-            if candidate_score is not best_score_overall_in_group and candidate_score["pp_float"] > \
-                    best_score_overall_in_group["pp_float"]:
+            best_score_overall_in_group = max(
+                group_scores, key=lambda s: s["total_int"]
+            )
+            if (
+                candidate_score is not best_score_overall_in_group
+                and candidate_score["pp_float"]
+                > best_score_overall_in_group["pp_float"]
+            ):
                 total_candidates_found += 1
 
-            scores_in_valid_range = [s for s in group_scores if s["timestamp"] < cutoff_date]
+            scores_in_valid_range = [
+                s for s in group_scores if s["timestamp"] < cutoff_date
+            ]
             if not scores_in_valid_range:
                 continue
 
-            best_score_play_in_range = max(scores_in_valid_range, key=lambda s: s["total_int"])
+            best_score_play_in_range = max(
+                scores_in_valid_range, key=lambda s: s["total_int"]
+            )
 
             if candidate_score is best_score_play_in_range:
                 continue
 
-            pp_is_better = candidate_score["pp_float"] > best_score_play_in_range["pp_float"]
-            score_is_worse = candidate_score["total_int"] < best_score_play_in_range["total_int"]
+            pp_is_better = (
+                candidate_score["pp_float"] > best_score_play_in_range["pp_float"]
+            )
+            score_is_worse = (
+                candidate_score["total_int"] < best_score_play_in_range["total_int"]
+            )
 
-            if pp_is_better and score_is_worse and candidate_score["timestamp"] < cutoff_date:
+            if (
+                pp_is_better
+                and score_is_worse
+                and candidate_score["timestamp"] < cutoff_date
+            ):
                 preliminary_lost_scores.append(candidate_score)
         except (KeyError, ValueError, TypeError) as group_exc:
             logger.warning(f"Error processing score group {group_key}: {group_exc}")
@@ -113,8 +147,8 @@ def find_lost_scores(scores, cutoff_date):
 
     return final_lost_results, total_candidates_found
 
+
 def parse_top(raw):
-    
     calc_acc = file_parser.get_calc_acc()
 
     def format_date(iso_str):
@@ -181,17 +215,17 @@ def parse_top(raw):
     parsed = [score for score in processed_scores if score is not None]
     return parsed
 
+
 def calc_weight(data):
-    
     ranked = sorted(data, key=lambda x: x["PP"], reverse=True)
     for i, entry in enumerate(ranked):
-        mult = 0.95 ** i
+        mult = 0.95**i
         entry["weight_%"] = round(mult * 100, 2)
         entry["weight_PP"] = round(entry["PP"] * mult, 2)
     return ranked
 
+
 def announce_phase_start(phase_key, phase_definitions, gui_log, phase_logger):
-    
     phase_info = phase_definitions.get(phase_key)
     user_title = phase_info.get("user_title")
     technical_name = phase_info.get("name", phase_key)
@@ -202,21 +236,20 @@ def announce_phase_start(phase_key, phase_definitions, gui_log, phase_logger):
     if phase_logger:
         phase_logger.info(f"--- {technical_name} ---")
 
+
 def scan_replays(
-        game_dir,
-        user_identifier,
-        lookup_key,
-        progress_callback=None,
-        progress_logger=None,
-        gui_log=None,
-        include_unranked=False,
-        check_missing_ids=False,
-        osu_api_client=None,
+    game_dir,
+    user_identifier,
+    lookup_key,
+    progress_callback=None,
+    progress_logger=None,
+    gui_log=None,
+    include_unranked=False,
+    check_missing_ids=False,
+    osu_api_client=None,
 ):
-    
     if not osu_api_client:
         raise ValueError("API client not provided")
-    
 
     summary_stats = {
         "maps_to_resolve": 0,
@@ -310,6 +343,11 @@ def scan_replays(
             gui_log(
                 f"User found: {username} (https://osu.ppy.sh/users/{user_id})", False
             )
+    except OAuthSessionExpiredException:
+        logger.warning(
+            "OAuth session expired while getting user data for %s", user_identifier
+        )
+        raise
     except requests.exceptions.RequestException as e:
         logger.exception("Failed to get user data for %s", user_identifier)
         if gui_log:
@@ -381,7 +419,7 @@ def scan_replays(
     replays_with_osu, replays_missing_osu = [], []
     for r_data in all_replay_data:
         if r_data.get("beatmap_md5") and db_get_map(
-                r_data.get("beatmap_md5"), by="md5"
+            r_data.get("beatmap_md5"), by="md5"
         ):
             replays_with_osu.append(r_data)
         else:
@@ -389,7 +427,9 @@ def scan_replays(
 
     replays_for_pp_calc = [(r, None) for r in replays_with_osu]
 
-    announce_phase_start("resolve_missing", phase_definitions, gui_log, phase_logger=logger)
+    announce_phase_start(
+        "resolve_missing", phase_definitions, gui_log, phase_logger=logger
+    )
 
     if check_missing_ids and replays_missing_osu:
         base_resolve, range_resolve = progress_map.get(
@@ -425,7 +465,9 @@ def scan_replays(
                 if lookup_result and "beatmap_id" in lookup_result:
                     stats["resolved"] += 1
                     beatmap_id = lookup_result["beatmap_id"]
-                    target_save_path = os.path.join(MAPS_DIR, f"beatmap_{beatmap_id}.osu")
+                    target_save_path = os.path.join(
+                        MAPS_DIR, f"beatmap_{beatmap_id}.osu"
+                    )
 
                     new_path = osu_api_client.download_osu_file(
                         beatmap_id, target_save_path
@@ -467,7 +509,9 @@ def scan_replays(
         )
         current_progress_base += range_resolve
 
-    announce_phase_start("precache_top", phase_definitions, gui_log, phase_logger=logger)
+    announce_phase_start(
+        "precache_top", phase_definitions, gui_log, phase_logger=logger
+    )
     try:
         top_scores = osu_api_client.top_osu(user_id, limit=200)
         if top_scores:
@@ -489,9 +533,9 @@ def scan_replays(
                     continue
 
                 hit_objects = (
-                        beatmap.get("count_circles", 0)
-                        + beatmap.get("count_sliders", 0)
-                        + beatmap.get("count_spinners", 0)
+                    beatmap.get("count_circles", 0)
+                    + beatmap.get("count_sliders", 0)
+                    + beatmap.get("count_spinners", 0)
                 )
 
                 update_data = {
@@ -559,7 +603,9 @@ def scan_replays(
         f"Filtered out {total_lost_count_pre_filter - len(lost)} scores. Final count: {len(lost)}"
     )
 
-    announce_phase_start("deferred_lookup", phase_definitions, gui_log, phase_logger=logger)
+    announce_phase_start(
+        "deferred_lookup", phase_definitions, gui_log, phase_logger=logger
+    )
     md5s_to_lookup = {
         r["beatmap_md5"]
         for r in lost
@@ -592,7 +638,7 @@ def scan_replays(
                 pass
 
         logger.info("Deferred lookup phase finished")
-        
+
         updated_lost = []
         for score in lost:
             md5 = score.get("beatmap_md5")
@@ -607,8 +653,10 @@ def scan_replays(
             else:
                 updated_lost.append(score)
         lost = updated_lost
-        logger.info(f"Updated {len([s for s in lost if s.get('beatmap_id')])} lost scores with deferred lookup data")
-        
+        logger.info(
+            f"Updated {len([s for s in lost if s.get('beatmap_id')])} lost scores with deferred lookup data"
+        )
+
         current_progress_base += range_deferred
     else:
         logger.info("Skipping deferred lookup: no candidates found")
@@ -616,16 +664,18 @@ def scan_replays(
 
     final_lost_list = []
 
-    announce_phase_start("validate_status", phase_definitions, gui_log, phase_logger=logger)
+    announce_phase_start(
+        "validate_status", phase_definitions, gui_log, phase_logger=logger
+    )
     ids_to_revalidate = []
     if not include_unranked:
         md5s_to_check = {rec["beatmap_md5"] for rec in lost if rec.get("beatmap_md5")}
         for md5 in md5s_to_check:
             map_data = db_get_map(md5, by="md5")
             if (
-                    map_data
-                    and map_data.get("beatmap_id")
-                    and map_data.get("api_status") in [None, "unknown"]
+                map_data
+                and map_data.get("beatmap_id")
+                and map_data.get("api_status") in [None, "unknown"]
             ):
                 ids_to_revalidate.append(map_data["beatmap_id"])
     run_validate_status = bool(ids_to_revalidate)
@@ -644,7 +694,6 @@ def scan_replays(
             logger=logger,
             progress_callback=lambda c, t: report_progress("validate_status", c, t),
         )
-
 
         for beatmap_id, beatmap_data in api_results.items():
             update_data = {
@@ -701,12 +750,12 @@ def scan_replays(
     summary_stats["lost_scores_found"] = len(final_lost_list)
 
     final_lost_count = len(final_lost_list)
-    
+
     announce_phase_start("saving", phase_definitions, gui_log, phase_logger=logger)
-    
+
     processed_lost_scores = []
     replay_manifest = []
-    
+
     if final_lost_list:
         for rec in final_lost_list:
             rank_ = file_parser.grade_osu(
@@ -716,15 +765,15 @@ def scan_replays(
                 rec.get("countMiss", 0),
                 rec.get("osu_file_path"),
             )
-            
+
             processed_score = {
                 "pp": rec["pp"],
                 "beatmap_id": rec["beatmap_id"],
                 "beatmap_md5": rec.get("beatmap_md5"),
-                "artist": rec.get('artist', ''),
-                "title": rec.get('title', ''),
-                "creator": rec.get('creator', ''),
-                "version": rec.get('version', ''),
+                "artist": rec.get("artist", ""),
+                "title": rec.get("title", ""),
+                "creator": rec.get("creator", ""),
+                "version": rec.get("version", ""),
                 "beatmap": f"{rec.get('artist', '')} - {rec.get('title', '')} ({rec.get('creator', '')}) [{rec.get('version', '')}]",
                 "mods": file_parser.sort_mods(rec["mods"]) if rec["mods"] else [],
                 "count100": rec.get("count100", 0),
@@ -736,15 +785,17 @@ def scan_replays(
                 "rank": rank_,
             }
             processed_lost_scores.append(processed_score)
-            
+
             if rec.get("file_path"):
-                replay_manifest.append({
-                    "md5_hash": rec.get("beatmap_md5"),
-                    "file_path": rec.get("file_path"),
-                    "pp_claimed": rec["pp"],
-                    "beatmap_id": rec["beatmap_id"]
-                })
-        
+                replay_manifest.append(
+                    {
+                        "md5_hash": rec.get("beatmap_md5"),
+                        "file_path": rec.get("file_path"),
+                        "pp_claimed": rec["pp"],
+                        "beatmap_id": rec["beatmap_id"],
+                    }
+                )
+
         if gui_log:
             gui_log("Lost scores data processed", update_last=True)
     else:
@@ -754,31 +805,32 @@ def scan_replays(
     summary_stats["total_time_seconds"] = int(elapsed)
     summary_stats["pre_filter_count"] = total_lost_count_pre_filter
     summary_stats["post_filter_count"] = final_lost_count
-    
+
     metadata = {
         "total_time_seconds": int(elapsed),
         "user_identifier": user_identifier,
-        "game_dir": game_dir
+        "game_dir": game_dir,
     }
-    
+
     logger.info("Full analysis finished in %.2f seconds", elapsed)
-    
+
     return {
         "metadata": metadata,
         "summary_stats": summary_stats,
         "lost_scores": processed_lost_scores,
-        "replay_manifest": replay_manifest
+        "replay_manifest": replay_manifest,
     }
 
+
 def make_top(
-        game_dir,
-        user_identifier,
-        lookup_key,
-        scan_results=None,
-        gui_log=None,
-        progress_callback=None,
-        osu_api_client=None,
-        include_unranked=False,
+    game_dir,
+    user_identifier,
+    lookup_key,
+    scan_results=None,
+    gui_log=None,
+    progress_callback=None,
+    osu_api_client=None,
+    include_unranked=False,
 ):
     if not osu_api_client:
         raise ValueError("API client not provided")
@@ -793,9 +845,7 @@ def make_top(
         lookup_key,
     )
     if not scan_results or not scan_results.get("lost_scores"):
-        error_message = (
-            "Scan results not provided or no lost scores found. Aborting potential top creation"
-        )
+        error_message = "Scan results not provided or no lost scores found. Aborting potential top creation"
         logger.error(error_message)
         if gui_log:
             gui_log(error_message, update_last=False)
@@ -808,14 +858,20 @@ def make_top(
     if progress_callback:
         progress_callback(10, 100)
 
-    user_json = osu_api_client.user_osu(user_identifier, lookup_key)
-    if not user_json:
-        if gui_log:
-            gui_log(
-                f"Error: Failed to get user data '{user_identifier}' (type: {lookup_key})",
-                False,
-            )
-        raise ValueError(f"User not found: {user_identifier}")
+    try:
+        user_json = osu_api_client.user_osu(user_identifier, lookup_key)
+        if not user_json:
+            if gui_log:
+                gui_log(
+                    f"Error: Failed to get user data '{user_identifier}' (type: {lookup_key})",
+                    False,
+                )
+            raise ValueError(f"User not found: {user_identifier}")
+    except OAuthSessionExpiredException:
+        logger.warning(
+            "OAuth session expired while getting user data for %s", user_identifier
+        )
+        raise
 
     username = user_json["username"]
     user_id = user_json["id"]
@@ -849,7 +905,9 @@ def make_top(
             "pp": row["PP"],
             "beatmap_id": row["Beatmap ID"],
             "beatmap": row["Beatmap"],
-            "mods": row["Mods"].split(", ") if row["Mods"] and row["Mods"] != "NM" else [],
+            "mods": row["Mods"].split(", ")
+            if row["Mods"] and row["Mods"] != "NM"
+            else [],
             "count100": row["100"],
             "count50": row["50"],
             "countMiss": row["Misses"],
@@ -869,23 +927,25 @@ def make_top(
         progress_callback(90, 100)
 
     lost_scores_data = scan_results["lost_scores"]
-    
+
     lost_scores = []
     for score in lost_scores_data:
-        lost_scores.append({
-            "PP": str(score["pp"]),
-            "Beatmap ID": str(score["beatmap_id"]),
-            "Beatmap MD5": score.get("beatmap_md5", ""),
-            "Beatmap": score["beatmap"],
-            "Mods": ", ".join(score["mods"]) if score["mods"] else "NM",
-            "100": str(score["count100"]),
-            "50": str(score["count50"]),
-            "Misses": str(score["countMiss"]),
-            "Accuracy": str(score["accuracy"]),
-            "Score": str(score["total_score"]),
-            "Date": score["score_time"],
-            "Rank": score["rank"]
-        })
+        lost_scores.append(
+            {
+                "PP": str(score["pp"]),
+                "Beatmap ID": str(score["beatmap_id"]),
+                "Beatmap MD5": score.get("beatmap_md5", ""),
+                "Beatmap": score["beatmap"],
+                "Mods": ", ".join(score["mods"]) if score["mods"] else "NM",
+                "100": str(score["count100"]),
+                "50": str(score["count50"]),
+                "Misses": str(score["countMiss"]),
+                "Accuracy": str(score["accuracy"]),
+                "Score": str(score["total_score"]),
+                "Date": score["score_time"],
+                "Rank": score["rank"],
+            }
+        )
 
     for entry in top_data:
         try:
@@ -920,7 +980,7 @@ def make_top(
 
     original_lost_scores = scan_results.get("lost_scores", [])
     lost_by_id = {score.get("beatmap_id"): score for score in original_lost_scores}
-    
+
     for lost in lost_scores:
         try:
             bid = int(lost["Beatmap ID"])
@@ -928,11 +988,12 @@ def make_top(
             continue
 
         original_lost = lost_by_id.get(bid, {})
-        
+
         lost_entry = {
             "PP": int(round(float(lost["PP"]))),
             "Beatmap ID": bid,
-            "Beatmap MD5": lost.get("Beatmap MD5") or original_lost.get("beatmap_md5", ""),
+            "Beatmap MD5": lost.get("Beatmap MD5")
+            or original_lost.get("beatmap_md5", ""),
             "Status": "lost",
             "Beatmap": lost["Beatmap"],
             "artist": original_lost.get("artist", ""),
@@ -970,7 +1031,7 @@ def make_top(
     acc_sum_lost = 0
     ranked_lost = sorted(top_with_lost, key=lambda x: x["PP"], reverse=True)
     for i, entry in enumerate(ranked_lost):
-        mult = 0.95 ** i
+        mult = 0.95**i
         tot_weight_lost += mult
         acc_sum_lost += float(entry["Accuracy"]) * mult
 
@@ -989,7 +1050,9 @@ def make_top(
             "title": row.get("title", ""),
             "creator": row.get("creator", ""),
             "version": row.get("version", ""),
-            "mods": row["Mods"].split(", ") if row["Mods"] and row["Mods"] != "NM" else [],
+            "mods": row["Mods"].split(", ")
+            if row["Mods"] and row["Mods"] != "NM"
+            else [],
             "count100": row["100"],
             "count50": row["50"],
             "countMiss": row["Misses"],
@@ -1021,7 +1084,11 @@ def make_top(
         for lost_score in lost_scores:
             beatmap_id_raw = lost_score.get("Beatmap ID", 0)
             try:
-                b_id = int(beatmap_id_raw) if beatmap_id_raw and str(beatmap_id_raw).strip() else 0
+                b_id = (
+                    int(beatmap_id_raw)
+                    if beatmap_id_raw and str(beatmap_id_raw).strip()
+                    else 0
+                )
             except (ValueError, TypeError):
                 continue
             if b_id in top_pp_by_map:
@@ -1034,21 +1101,25 @@ def make_top(
             diff_count = len(pp_diffs)
 
     extended_summary_stats = scan_results["summary_stats"].copy()
-    extended_summary_stats.update({
-        "current_pp": overall_pp,
-        "current_acc": overall_acc_from_api,
-        "current_global_rank": user_json.get("statistics", {}).get("global_rank", "N/A"),
-        "potential_pp": pot_pp,
-        "potential_acc": overall_acc_lost,
-        "delta_pp": diff_lost,
-        "delta_acc": delta_acc,
-        "weighted_pp_current": total_weight_pp,
-        "weighted_pp_potential": total_weight_pp_new,
-        "lost_scores_total": lost_scores_count,
-        "lost_scores_avg_pp": lost_scores_avg_pp,
-        "avg_pp_lost_diff": avg_pp_lost_diff,
-        "avg_pp_lost_diff_count": diff_count,
-    })
+    extended_summary_stats.update(
+        {
+            "current_pp": overall_pp,
+            "current_acc": overall_acc_from_api,
+            "current_global_rank": user_json.get("statistics", {}).get(
+                "global_rank", "N/A"
+            ),
+            "potential_pp": pot_pp,
+            "potential_acc": overall_acc_lost,
+            "delta_pp": diff_lost,
+            "delta_acc": delta_acc,
+            "weighted_pp_current": total_weight_pp,
+            "weighted_pp_potential": total_weight_pp_new,
+            "lost_scores_total": lost_scores_count,
+            "lost_scores_avg_pp": lost_scores_avg_pp,
+            "avg_pp_lost_diff": avg_pp_lost_diff,
+            "avg_pp_lost_diff_count": diff_count,
+        }
+    )
 
     if gui_log:
         gui_log("Creating summary badge...", update_last=False)
@@ -1075,13 +1146,13 @@ def make_top(
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     analysis_session_dir = os.path.join(ANALYSIS_DIR, timestamp)
     os.makedirs(analysis_session_dir, exist_ok=True)
-    
+
     images_session_dir = os.path.join(IMAGES_DIR, timestamp)
 
     # noinspection PyBroadException
     try:
         os.makedirs(images_session_dir, exist_ok=True)
-        
+
         badge_path = os.path.join(images_session_dir, "summary_badge.png")
         create_summary_badge(badge_data, badge_path, osu_api_client=osu_api_client)
         if gui_log:
@@ -1099,10 +1170,12 @@ def make_top(
         progress_callback(100, 100)
 
     metadata = scan_results["metadata"].copy()
-    metadata.update({
-        "user_identifier": user_identifier,
-        "game_dir": game_dir,
-    })
+    metadata.update(
+        {
+            "user_identifier": user_identifier,
+            "game_dir": game_dir,
+        }
+    )
 
     complete_analysis = create_analysis_json_structure(
         metadata=metadata,
@@ -1110,7 +1183,7 @@ def make_top(
         lost_scores=scan_results["lost_scores"],
         parsed_top=parsed_top_processed,
         top_with_lost=top_with_lost_processed,
-        replay_manifest=scan_results.get("replay_manifest", [])
+        replay_manifest=scan_results.get("replay_manifest", []),
     )
 
     json_path = os.path.join(analysis_session_dir, "analysis_results.json")
@@ -1120,7 +1193,7 @@ def make_top(
     else:
         if gui_log:
             gui_log("Failed to save analysis results", update_last=False)
-    
+
     complete_analysis["session_dir"] = analysis_session_dir
     complete_analysis["images_dir"] = images_session_dir
     return complete_analysis

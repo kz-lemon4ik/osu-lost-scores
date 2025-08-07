@@ -1,4 +1,3 @@
-
 import json
 import logging
 import inspect
@@ -16,9 +15,16 @@ from functools import partial
 import pandas as pd
 from PySide6 import QtCore, QtGui
 from color_constants import (
-    ACCENT_COLOR, TEXT_PRIMARY, TEXT_SECONDARY,
-    ERROR_COLOR, SEPARATOR_COLOR, LINK_COLOR,
-    QCOLOR_PRIMARY_BG, QCOLOR_SECONDARY_BG, QCOLOR_ACCENT, QCOLOR_TEXT_PRIMARY,
+    ACCENT_COLOR,
+    TEXT_PRIMARY,
+    TEXT_SECONDARY,
+    ERROR_COLOR,
+    SEPARATOR_COLOR,
+    LINK_COLOR,
+    QCOLOR_PRIMARY_BG,
+    QCOLOR_SECONDARY_BG,
+    QCOLOR_ACCENT,
+    QCOLOR_TEXT_PRIMARY,
 )
 from PySide6.QtCore import (
     QAbstractTableModel,
@@ -70,10 +76,14 @@ from PySide6.QtWidgets import (
 import generate_image as img_mod
 from analyzer import make_top, scan_replays
 from app_config import (
+    ANALYSIS_DIR,
     API_REQUESTS_PER_MINUTE,
+    AVATAR_DIR,
     CACHE_DIR,
     DB_FILE,
     GUI_THREAD_POOL_SIZE,
+    IMAGES_DIR,
+    LOG_DIR,
     MAPS_DIR,
 )
 from database import db_close, db_init
@@ -86,10 +96,10 @@ from utils import (
     get_delta_color,
     load_analysis_from_json,
     load_summary_stats,
-    load_summary_stats_from_json,
 )
 from auth_manager import AuthManager, AuthMode
 from oauth_browser import BrowserOAuthFlow
+from osu_api import OAuthSessionExpiredException
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +120,7 @@ APP_ICON_PATH = get_standard_dir("assets/images/app_icon/icon.ico")
 CONFIG_PATH = get_standard_dir("data/gui_config.json")
 os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
 
+
 def load_qss():
     style_path = get_standard_dir("assets/styles/style.qss")
     logger.debug(
@@ -124,6 +135,7 @@ def load_qss():
     except Exception as e:
         logger.warning("ERROR loading QSS file: %s", e)
         return ""
+
 
 # noinspection PyTypeChecker
 def show_api_limit_warning():
@@ -165,8 +177,10 @@ def show_api_limit_warning():
             "Please set API_REQUESTS_PER_MINUTE to at least 1 and at most 1200",
         )
 
+
 class ValidationError(Exception):
     pass
+
 
 class WorkerSignals(QObject):
     progress = Signal(int, int)
@@ -174,6 +188,8 @@ class WorkerSignals(QObject):
     finished = Signal()
     error = Signal(str)
     result = Signal(object)
+    oauth_expired = Signal(str)
+
 
 class Worker(QRunnable):
     def __init__(self, fn, *args, **kwargs):
@@ -208,11 +224,17 @@ class Worker(QRunnable):
         except ValidationError as ve:
             logger.info(f"A known validation error occurred: {ve}")
             self.signals.error.emit(str(ve))
+        except OAuthSessionExpiredException as oauth_e:
+            logger.warning(f"OAuth session expired in {self.fn.__name__}: {oauth_e}")
+            self.signals.oauth_expired.emit(str(oauth_e))
         except Exception as e:
             logger.exception(f"Error in worker thread executing {self.fn.__name__}")
             self.signals.error.emit(str(e))
         finally:
-            self.signals.finished.emit()
+            try:
+                self.signals.finished.emit()
+            except RuntimeError:
+                pass
 
     def emit_progress(self, current, total):
         try:
@@ -228,6 +250,7 @@ class Worker(QRunnable):
             self.signals.log.emit(message, bool(update_last))
         except Exception as e:
             logger.warning(f"Error emitting log: {e}")
+
 
 class IconHoverButton(QPushButton):
     def __init__(self, normal_icon=None, hover_icon=None, parent=None):
@@ -266,6 +289,7 @@ class IconHoverButton(QPushButton):
         else:
             self.setIcon(self.normal_icon)
 
+
 class AnimatedProgressBar(QProgressBar):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -279,6 +303,7 @@ class AnimatedProgressBar(QProgressBar):
         self.animation.setStartValue(self.value())
         self.animation.setEndValue(value)
         self.animation.start()
+
 
 class IconToggleButton(QPushButton):
     def __init__(self, icon_path_normal, icon_path_active, tooltip="", parent=None):
@@ -306,6 +331,7 @@ class IconToggleButton(QPushButton):
 
     def sizeHint(self):
         return QSize(40, 40)
+
 
 class UserProfileWidget(QFrame):
     custom_keys_requested = Signal()
@@ -345,7 +371,7 @@ class UserProfileWidget(QFrame):
 
     def set_controls_enabled(self, enabled: bool):
         if self.is_logged_in:
-            if hasattr(self, 'change_user_button'):
+            if hasattr(self, "change_user_button"):
                 self.change_user_button.setEnabled(enabled)
                 self.logout_button.setEnabled(enabled)
                 self.unranked_toggle.setEnabled(enabled)
@@ -356,7 +382,7 @@ class UserProfileWidget(QFrame):
                 self.check_updates_button.setEnabled(enabled)
                 self.nickname_stack.setEnabled(enabled)
         else:
-            if hasattr(self, 'login_button'):
+            if hasattr(self, "login_button"):
                 self.login_button.setEnabled(enabled)
                 self.custom_keys_button.setEnabled(enabled)
 
@@ -401,8 +427,10 @@ class UserProfileWidget(QFrame):
 
         self.login_button = QPushButton("Login with osu!")
         self.login_button.setObjectName("frontendStyledButton")
-        self.login_button.setToolTip("Secure login using your osu! account (Recommended)")
-        if self.main_window and hasattr(self.main_window, '_on_oauth_login_clicked'):
+        self.login_button.setToolTip(
+            "Secure login using your osu! account (Recommended)"
+        )
+        if self.main_window and hasattr(self.main_window, "_on_oauth_login_clicked"):
             self.login_button.clicked.connect(self.main_window._on_oauth_login_clicked)
 
         button_layout.addWidget(self.login_button)
@@ -415,21 +443,29 @@ class UserProfileWidget(QFrame):
         # Smaller API button positioned higher
         self.custom_keys_button = QPushButton("⚙️ Use Custom API Keys")
         self.custom_keys_button.setObjectName("compactApiButton")
-        self.custom_keys_button.setToolTip("For advanced users with their own osu! API credentials")
+        self.custom_keys_button.setToolTip(
+            "For advanced users with their own osu! API credentials"
+        )
         self.custom_keys_button.clicked.connect(self.custom_keys_requested.emit)
 
         # Build center container
         center_layout.addWidget(title_label)
-        center_layout.addSpacing(5)   # Move button even higher
+        center_layout.addSpacing(5)  # Move button even higher
         center_layout.addWidget(button_container, 0, Qt.AlignmentFlag.AlignHCenter)
-        center_layout.addSpacing(6)   # More space from larger button
+        center_layout.addSpacing(6)  # More space from larger button
         center_layout.addWidget(divider_label)
-        center_layout.addSpacing(2)   # Less space to smaller button
-        center_layout.addWidget(self.custom_keys_button, 0, Qt.AlignmentFlag.AlignHCenter)
+        center_layout.addSpacing(2)  # Less space to smaller button
+        center_layout.addWidget(
+            self.custom_keys_button, 0, Qt.AlignmentFlag.AlignHCenter
+        )
 
         # Perfect center alignment in main layout
         self.content_layout.addStretch(1)
-        self.content_layout.addWidget(center_widget, 0, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        self.content_layout.addWidget(
+            center_widget,
+            0,
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
+        )
         self.content_layout.addStretch(1)
         self.is_logged_in = False
 
@@ -465,7 +501,7 @@ class UserProfileWidget(QFrame):
         self.logout_button.setFixedSize(30, 30)
         self.logout_button.clicked.connect(self.logout_requested.emit)
 
-        if self.main_window and hasattr(self.main_window, 'auth_manager'):
+        if self.main_window and hasattr(self.main_window, "auth_manager"):
             current_session = self.main_window.auth_manager.get_current_session()
             if current_session.auth_mode == AuthMode.OAUTH:
                 self.change_user_button.setVisible(False)
@@ -579,6 +615,10 @@ class UserProfileWidget(QFrame):
 
         self.content_layout.addLayout(bottom_controls_layout)
         self.is_logged_in = True
+        
+        # Load avatar from config if available
+        if config.get("avatar_path") and os.path.exists(config["avatar_path"]):
+            self.set_avatar(config["avatar_path"])
 
     def _toggle_edit_mode(self):
         if self.nickname_stack.currentIndex() == 0:
@@ -650,15 +690,11 @@ class UserProfileWidget(QFrame):
                 pp_color_tuple = get_delta_color(pp_diff)
                 acc_color_tuple = get_delta_color(acc_diff)
 
-                pp_color_hex = '#%02x%02x%02x' % pp_color_tuple
-                acc_color_hex = '#%02x%02x%02x' % acc_color_tuple
+                pp_color_hex = "#%02x%02x%02x" % pp_color_tuple
+                acc_color_hex = "#%02x%02x%02x" % acc_color_tuple
 
-                pp_str = (
-                    f"{round(pp):,} → <b style='color:{pp_color_hex};'>{round(potential_pp):,}</b>"
-                )
-                acc_str = (
-                    f"{acc:.2f}% → <b style='color:{acc_color_hex};'>{potential_acc:.2f}%</b>"
-                )
+                pp_str = f"{round(pp):,} → <b style='color:{pp_color_hex};'>{round(potential_pp):,}</b>"
+                acc_str = f"{acc:.2f}% → <b style='color:{acc_color_hex};'>{potential_acc:.2f}%</b>"
                 stats_text = f"{pp_str} <span style='color: {SEPARATOR_COLOR};'>|</span> {acc_str} <span style='color: {SEPARATOR_COLOR};'>|</span> {rank_str}"
             except (ValueError, TypeError) as e:
                 logger.warning(f"Could not parse scan_data for stats display: {e}")
@@ -708,13 +744,14 @@ class UserProfileWidget(QFrame):
         painter.end()
         self.avatar_label.setPixmap(rounded_pixmap)
 
+
 class ApiDialog(QDialog):
     def __init__(
-            self,
-            parent=None,
-            client_id="",
-            client_secret="",
-            username="",
+        self,
+        parent=None,
+        client_id="",
+        client_secret="",
+        username="",
     ):
         super().__init__(parent)
         self.is_secret_visible = False
@@ -882,6 +919,7 @@ class ApiDialog(QDialog):
         if menu.actions():
             menu.exec(widget.mapToGlobal(position))
 
+
 class PandasTableModel(QAbstractTableModel):
     def __init__(self, data):
         super().__init__()
@@ -921,7 +959,9 @@ class PandasTableModel(QAbstractTableModel):
             return str(value)
 
         if role == Qt.ItemDataRole.BackgroundRole:
-            return QCOLOR_PRIMARY_BG() if index.row() % 2 == 0 else QCOLOR_SECONDARY_BG()
+            return (
+                QCOLOR_PRIMARY_BG() if index.row() % 2 == 0 else QCOLOR_SECONDARY_BG()
+            )
 
         if role == Qt.ItemDataRole.TextAlignmentRole:
             if isinstance(value, (int, float)):
@@ -941,25 +981,27 @@ class PandasTableModel(QAbstractTableModel):
 
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
         if (
-                orientation == Qt.Orientation.Horizontal
-                and role == Qt.ItemDataRole.DisplayRole
+            orientation == Qt.Orientation.Horizontal
+            and role == Qt.ItemDataRole.DisplayRole
         ):
             if section < len(self._data.columns):
                 return str(self._data.columns[section])
             return str(section)
         if (
-                orientation == Qt.Orientation.Vertical
-                and role == Qt.ItemDataRole.DisplayRole
+            orientation == Qt.Orientation.Vertical
+            and role == Qt.ItemDataRole.DisplayRole
         ):
             return str(section + 1)
         if (
-                orientation == Qt.Orientation.Vertical
-                and role == Qt.ItemDataRole.SizeHintRole
+            orientation == Qt.Orientation.Vertical
+            and role == Qt.ItemDataRole.SizeHintRole
         ):
             return QSize(25, 25)
         return None
 
-    def sort(self, column: int, order: Qt.SortOrder = Qt.SortOrder.AscendingOrder) -> None:
+    def sort(
+        self, column: int, order: Qt.SortOrder = Qt.SortOrder.AscendingOrder
+    ) -> None:
         try:
             if column >= len(self._data.columns):
                 return
@@ -1059,6 +1101,7 @@ class PandasTableModel(QAbstractTableModel):
 
     def get_dataframe(self):
         return self._data
+
 
 # noinspection PyTypedDict
 class ResultsWindow(QDialog):
@@ -1242,21 +1285,27 @@ class ResultsWindow(QDialog):
 
             latest_session = find_latest_analysis_session()
             analysis_data = None
-            
+
             if latest_session:
                 json_path = os.path.join(latest_session, "analysis_results.json")
                 analysis_data = load_analysis_from_json(json_path)
-            
+
             if analysis_data:
                 self.load_json_data(analysis_data)
             else:
-                empty_df = pd.DataFrame({"No Data": ["No analysis results found. Please run a scan first."]})
-                for table_view in [self.lost_scores_view, self.parsed_top_view, self.top_with_lost_view]:
+                empty_df = pd.DataFrame(
+                    {"No Data": ["No analysis results found. Please run a scan first."]}
+                )
+                for table_view in [
+                    self.lost_scores_view,
+                    self.parsed_top_view,
+                    self.top_with_lost_view,
+                ]:
                     model = PandasTableModel(empty_df)
                     table_view.setModel(model)
 
             self.update_stats_panel(self.tab_widget.currentIndex())
-            
+
         except Exception as e:
             logger.error(f"Error loading data in ResultsWindow: {e}")
             error_df = pd.DataFrame({"Error": [f"Failed to load results data: {e}"]})
@@ -1269,32 +1318,38 @@ class ResultsWindow(QDialog):
         try:
             lost_scores_data = analysis_data.get("lost_scores", [])
             if lost_scores_data:
-                lost_df = self.convert_json_to_dataframe(lost_scores_data, "lost_scores")
+                lost_df = self.convert_json_to_dataframe(
+                    lost_scores_data, "lost_scores"
+                )
                 model = PandasTableModel(lost_df)
                 self.lost_scores_view.setModel(model)
-            
+
             parsed_top_data = analysis_data.get("parsed_top", [])
             if parsed_top_data:
-                parsed_df = self.convert_json_to_dataframe(parsed_top_data, "parsed_top")
+                parsed_df = self.convert_json_to_dataframe(
+                    parsed_top_data, "parsed_top"
+                )
                 model = PandasTableModel(parsed_df)
                 self.parsed_top_view.setModel(model)
-            
+
             top_with_lost_data = analysis_data.get("top_with_lost", [])
             if top_with_lost_data:
-                combined_df = self.convert_json_to_dataframe(top_with_lost_data, "top_with_lost")
+                combined_df = self.convert_json_to_dataframe(
+                    top_with_lost_data, "top_with_lost"
+                )
                 model = PandasTableModel(combined_df)
                 self.top_with_lost_view.setModel(model)
-            
+
             self.analysis_data = analysis_data
             self._load_json_summary_stats(analysis_data)
-            
+
         except Exception as e:
             logger.error(f"Error loading JSON data: {e}")
 
     def convert_json_to_dataframe(self, json_data, data_type):
         if not json_data:
             return pd.DataFrame()
-            
+
         df_data = []
         for item in json_data:
             if data_type == "lost_scores":
@@ -1302,21 +1357,25 @@ class ResultsWindow(QDialog):
                     "PP": item.get("pp", ""),
                     "Beatmap ID": item.get("beatmap_id", ""),
                     "Beatmap": item.get("beatmap", ""),
-                    "Mods": ", ".join(item.get("mods", [])) if item.get("mods") else "NM",
+                    "Mods": ", ".join(item.get("mods", []))
+                    if item.get("mods")
+                    else "NM",
                     "100": item.get("count100", ""),
                     "50": item.get("count50", ""),
                     "Misses": item.get("countMiss", ""),
                     "Accuracy": item.get("accuracy", ""),
                     "Score": item.get("total_score", ""),
                     "Date": item.get("score_time", ""),
-                    "Rank": item.get("rank", "")
+                    "Rank": item.get("rank", ""),
                 }
             elif data_type == "parsed_top":
                 row = {
                     "PP": item.get("pp", ""),
                     "Beatmap ID": item.get("beatmap_id", ""),
                     "Beatmap": item.get("beatmap", ""),
-                    "Mods": ", ".join(item.get("mods", [])) if item.get("mods") else "NM",
+                    "Mods": ", ".join(item.get("mods", []))
+                    if item.get("mods")
+                    else "NM",
                     "100": item.get("count100", ""),
                     "50": item.get("count50", ""),
                     "Misses": item.get("countMiss", ""),
@@ -1326,14 +1385,16 @@ class ResultsWindow(QDialog):
                     "weight_%": item.get("weight_percent", ""),
                     "weight_PP": item.get("weight_pp", ""),
                     "Score ID": item.get("score_id", ""),
-                    "Rank": item.get("rank", "")
+                    "Rank": item.get("rank", ""),
                 }
             elif data_type == "top_with_lost":
                 row = {
                     "PP": item.get("pp", ""),
                     "Beatmap ID": item.get("beatmap_id", ""),
                     "Beatmap": item.get("beatmap", ""),
-                    "Mods": ", ".join(item.get("mods", [])) if item.get("mods") else "NM",
+                    "Mods": ", ".join(item.get("mods", []))
+                    if item.get("mods")
+                    else "NM",
                     "100": item.get("count100", ""),
                     "50": item.get("count50", ""),
                     "Misses": item.get("countMiss", ""),
@@ -1343,13 +1404,13 @@ class ResultsWindow(QDialog):
                     "Rank": item.get("rank", ""),
                     "weight_%": item.get("weight_percent", ""),
                     "weight_PP": item.get("weight_pp", ""),
-                    "Score ID": item.get("score_id", "")
+                    "Score ID": item.get("score_id", ""),
                 }
             else:
                 row = item
-                
+
             df_data.append(row)
-        
+
         return pd.DataFrame(df_data)
 
     def _load_json_summary_stats(self, analysis_data):
@@ -1358,31 +1419,36 @@ class ResultsWindow(QDialog):
             if summary_stats:
                 self.stats_data["lost_scores"] = {
                     "total": int(summary_stats.get("post_filter_count", 0)),
-                    "avg_pp_lost_diff": float(summary_stats.get("avg_pp_lost_diff", 0.0)),
-                    "avg_pp_lost_diff_count": int(summary_stats.get("avg_pp_lost_diff_count", 0))
+                    "avg_pp_lost_diff": float(
+                        summary_stats.get("avg_pp_lost_diff", 0.0)
+                    ),
+                    "avg_pp_lost_diff_count": int(
+                        summary_stats.get("avg_pp_lost_diff_count", 0)
+                    ),
                 }
-                
+
                 self.stats_data["parsed_top"] = {
                     "Overall PP": f"{float(summary_stats.get('current_pp', 0)):.2f}",
                     "Overall Accuracy": f"{float(summary_stats.get('current_acc', 0)):.2f}%",
                 }
-                
+
                 self.stats_data["top_with_lost"] = {
                     "current_pp": float(summary_stats.get("current_pp", 0.0)),
                     "potential_pp": float(summary_stats.get("potential_pp", 0.0)),
-                    "pp_gain": float(summary_stats.get("potential_pp", 0.0)) - float(summary_stats.get("current_pp", 0.0)),
+                    "pp_gain": float(summary_stats.get("potential_pp", 0.0))
+                    - float(summary_stats.get("current_pp", 0.0)),
                     "current_acc": float(summary_stats.get("current_acc", 0.0)),
                     "potential_acc": float(summary_stats.get("potential_acc", 0.0)),
-                    "acc_gain": float(summary_stats.get("potential_acc", 0.0)) - float(summary_stats.get("current_acc", 0.0))
+                    "acc_gain": float(summary_stats.get("potential_acc", 0.0))
+                    - float(summary_stats.get("current_acc", 0.0)),
                 }
         except Exception as e:
             logger.error(f"Error loading JSON summary stats: {e}")
 
-
     def update_scan_time(self):
         try:
             latest_session = find_latest_analysis_session()
-            
+
             if latest_session:
                 json_file_path = os.path.join(latest_session, "analysis_results.json")
                 if os.path.exists(json_file_path):
@@ -1571,19 +1637,27 @@ class ResultsWindow(QDialog):
                     pp_color_tuple = get_delta_color(pp_diff)
                     acc_color_tuple = get_delta_color(acc_diff)
 
-                    pp_color_hex = '#%02x%02x%02x' % pp_color_tuple
-                    acc_color_hex = '#%02x%02x%02x' % acc_color_tuple
+                    pp_color_hex = "#%02x%02x%02x" % pp_color_tuple
+                    acc_color_hex = "#%02x%02x%02x" % acc_color_tuple
 
-                    layout.addWidget(QLabel(f"Current PP: {stats.get('current_pp', 0.0):.2f}"))
-                    layout.addWidget(QLabel(f"Potential PP: {stats.get('potential_pp', 0.0):.2f}"))
+                    layout.addWidget(
+                        QLabel(f"Current PP: {stats.get('current_pp', 0.0):.2f}")
+                    )
+                    layout.addWidget(
+                        QLabel(f"Potential PP: {stats.get('potential_pp', 0.0):.2f}")
+                    )
                     layout.addWidget(
                         QLabel(
                             f"<span style='color:{pp_color_hex}'>Δ PP: <b>{pp_diff:+.2f}</b></span>"
                         )
                     )
                     layout.addSpacing(20)
-                    layout.addWidget(QLabel(f"Current Acc: {stats.get('current_acc', 0.0):.2f}%"))
-                    layout.addWidget(QLabel(f"Potential Acc: {stats.get('potential_acc', 0.0):.2f}%"))
+                    layout.addWidget(
+                        QLabel(f"Current Acc: {stats.get('current_acc', 0.0):.2f}%")
+                    )
+                    layout.addWidget(
+                        QLabel(f"Potential Acc: {stats.get('potential_acc', 0.0):.2f}%")
+                    )
                     layout.addWidget(
                         QLabel(
                             f"<span style='color:{acc_color_hex}'>Δ Acc: <b>{acc_diff:+.2f}%</b></span>"
@@ -1645,8 +1719,8 @@ class ResultsWindow(QDialog):
         if not self.search_results:
             return
         self.current_result_index = (
-                                            self.current_result_index - 1 + len(self.search_results)
-                                    ) % len(self.search_results)
+            self.current_result_index - 1 + len(self.search_results)
+        ) % len(self.search_results)
         self.highlight_current_result()
 
     def show_table_context_menu(self, table_view, position):
@@ -1678,7 +1752,12 @@ class ResultsWindow(QDialog):
         try:
             if pyperclip:
                 pyperclip.copy(clipboard_text)
-        except (ImportError, getattr(pyperclip, 'PyperclipException', Exception) if pyperclip else Exception):
+        except (
+            ImportError,
+            getattr(pyperclip, "PyperclipException", Exception)
+            if pyperclip
+            else Exception,
+        ):
             QApplication.clipboard().setText(clipboard_text)
         QToolTip.showText(
             table_view.mapToGlobal(QPoint(0, 0)),
@@ -1693,6 +1772,7 @@ class ResultsWindow(QDialog):
         menu = create_standard_edit_menu(widget)
         if menu.actions():
             menu.exec(widget.mapToGlobal(position))
+
 
 # noinspection PyTypeChecker
 class MainWindow(QWidget):
@@ -1711,6 +1791,8 @@ class MainWindow(QWidget):
         self.has_error = False
         self.overall_progress = 0
         self.current_task = "Ready to start"
+        self.is_startup_phase = True
+        self.oauth_flow_in_progress = False
         self.threadpool = QThreadPool()
         self.threadpool.setMaxThreadCount(GUI_THREAD_POOL_SIZE)
 
@@ -1733,7 +1815,7 @@ class MainWindow(QWidget):
         self.setWindowTitle("osu! Lost Scores Analyzer")
         self.setFixedSize(650, 800)
         self.setObjectName("mainWindow")
-        
+
         config_dir = get_standard_dir("config")
         self.auth_manager = AuthManager(config_dir)
         self.oauth_flow = BrowserOAuthFlow(self.auth_manager)
@@ -1750,11 +1832,14 @@ class MainWindow(QWidget):
         try:
             latest_session = find_latest_analysis_session()
             has_data = False
-            
+
             if latest_session:
                 json_file_path = os.path.join(latest_session, "analysis_results.json")
-                has_data = os.path.exists(json_file_path) and os.path.getsize(json_file_path) > 0
-            
+                has_data = (
+                    os.path.exists(json_file_path)
+                    and os.path.getsize(json_file_path) > 0
+                )
+
             if self.results_button:
                 self.results_button.setEnabled(has_data)
             logger.debug(
@@ -1764,7 +1849,6 @@ class MainWindow(QWidget):
             logger.error(f"Error checking for results files: {e}")
             if self.results_button:
                 self.results_button.setEnabled(False)
-
 
     def load_config(self):
         self.config = {}
@@ -1781,44 +1865,61 @@ class MainWindow(QWidget):
 
     def save_config(self):
         try:
-            self.config["osu_path"] = self.game_entry.text().strip() if self.game_entry else ""
+            self.config["osu_path"] = (
+                self.game_entry.text().strip() if self.game_entry else ""
+            )
 
-            if (self.current_user_data and self.user_profile_widget and
-                    hasattr(self.user_profile_widget, "unranked_toggle")):
+            if (
+                self.current_user_data
+                and self.user_profile_widget
+                and hasattr(self.user_profile_widget, "unranked_toggle")
+            ):
                 self.config["username"] = self.current_user_data.get("username")
-                
+
                 try:
                     self.config["scores_count"] = (
                         self.user_profile_widget.scores_count_display.text()
-                        if (hasattr(self.user_profile_widget, "scores_count_display") and
-                            self.user_profile_widget.scores_count_display) else ""
+                        if (
+                            hasattr(self.user_profile_widget, "scores_count_display")
+                            and self.user_profile_widget.scores_count_display
+                        )
+                        else ""
                     )
                 except RuntimeError:
                     self.config["scores_count"] = ""
-                
+
                 try:
                     self.config["include_unranked"] = (
                         self.user_profile_widget.unranked_toggle.isChecked()
-                        if (hasattr(self.user_profile_widget, "unranked_toggle") and
-                            self.user_profile_widget.unranked_toggle) else False
+                        if (
+                            hasattr(self.user_profile_widget, "unranked_toggle")
+                            and self.user_profile_widget.unranked_toggle
+                        )
+                        else False
                     )
                 except RuntimeError:
                     self.config["include_unranked"] = False
-                
+
                 try:
                     self.config["check_missing_ids"] = (
                         self.user_profile_widget.missing_id_toggle.isChecked()
-                        if (hasattr(self.user_profile_widget, "missing_id_toggle") and
-                            self.user_profile_widget.missing_id_toggle) else False
+                        if (
+                            hasattr(self.user_profile_widget, "missing_id_toggle")
+                            and self.user_profile_widget.missing_id_toggle
+                        )
+                        else False
                     )
                 except RuntimeError:
                     self.config["check_missing_ids"] = False
-                
+
                 try:
                     self.config["show_lost"] = (
                         self.user_profile_widget.show_lost_toggle.isChecked()
-                        if (hasattr(self.user_profile_widget, "show_lost_toggle") and
-                            self.user_profile_widget.show_lost_toggle) else False
+                        if (
+                            hasattr(self.user_profile_widget, "show_lost_toggle")
+                            and self.user_profile_widget.show_lost_toggle
+                        )
+                        else False
                     )
                 except RuntimeError:
                     self.config["show_lost"] = False
@@ -2062,7 +2163,9 @@ class MainWindow(QWidget):
     @Slot(str)
     def task_error(self, error_message):
         self.append_log(f"Task execution error: {error_message}", False)
-        QMessageBox.warning(self, "Validation Error", f"An error occurred:\n{error_message}")
+        QMessageBox.warning(
+            self, "Validation Error", f"An error occurred:\n{error_message}"
+        )
 
         if self.progress_bar:
             self.progress_bar.setValue(0)
@@ -2078,9 +2181,41 @@ class MainWindow(QWidget):
 
         self.set_ui_busy(False)
 
+    @Slot(str)
+    def on_oauth_expired(self, error_message):
+        logger.info(f"OAuth session expired: {error_message}")
+
+        self.set_ui_busy(False)
+        self.has_error = True
+        self.current_task = "Authentication required"
+        if self.status_label:
+            self.status_label.setText(self.current_task)
+
+        self.scan_completed.set()
+        self.top_completed.set()
+        self.img_completed.set()
+
+        if self.is_startup_phase:
+            self.append_log("Previous OAuth session expired, please log in", False)
+        elif not self.oauth_flow_in_progress:
+            self.append_log(
+                "OAuth session expired. Authentication required to continue.", False
+            )
+
+            QMessageBox.information(
+                self,
+                "Authentication Required",
+                "OAuth session has expired. Please log in again to continue.",
+                QMessageBox.Ok,
+            )
+
+            self._on_oauth_login_clicked()
+
     def browse_directory(self):
         folder = QFileDialog.getExistingDirectory(
-            self, "Select osu! Game Directory", self.game_entry.text() if self.game_entry else ""
+            self,
+            "Select osu! Game Directory",
+            self.game_entry.text() if self.game_entry else "",
         )
         if folder and self.game_entry:
             self.game_entry.setText(folder.replace("/", os.sep))
@@ -2088,6 +2223,7 @@ class MainWindow(QWidget):
             self.save_config()
 
     def start_all_processes(self):
+        self.is_startup_phase = False
         game_dir = self.game_entry.text().strip() if self.game_entry else ""
         if not self.current_user_data:
             QMessageBox.warning(
@@ -2157,8 +2293,9 @@ class MainWindow(QWidget):
 
                 # Give Qt event loop time to process any QTimer.singleShot calls
                 import time as time_module
+
                 time_module.sleep(0.1)
-                
+
                 event_was_set = event.wait(timeout)
                 if self.has_error:
                     logger.error(
@@ -2203,16 +2340,22 @@ class MainWindow(QWidget):
     def all_completed_successfully(self, total_time):
         new_summary_data = load_summary_stats()
         if self.current_user_data:
-            if self.user_profile_widget and hasattr(self.user_profile_widget, 'update_stats_display'):
+            if self.user_profile_widget and hasattr(
+                self.user_profile_widget, "update_stats_display"
+            ):
                 self.user_profile_widget.update_stats_display(
                     self.current_user_data, scan_data=new_summary_data
                 )
         self.append_log("All operations completed successfully!", False)
 
         metadata = self.scan_results.get("metadata", {}) if self.scan_results else {}
-        summary_stats = self.scan_results.get("summary_stats", {}) if self.scan_results else {}
-        lost_scores = self.scan_results.get("lost_scores", []) if self.scan_results else []
-        
+        summary_stats = (
+            self.scan_results.get("summary_stats", {}) if self.scan_results else {}
+        )
+        lost_scores = (
+            self.scan_results.get("lost_scores", []) if self.scan_results else []
+        )
+
         summary_lines = [
             "Analysis Summary:",
             f"- Time elapsed: {metadata.get('total_time_seconds', total_time):.2f} seconds",
@@ -2237,26 +2380,28 @@ class MainWindow(QWidget):
         self.set_ui_busy(False)
 
     def _show_completion_dialog(self):
-        
         try:
             self.show()
             self.raise_()
             self.activateWindow()
-            
+
             QMessageBox.information(
                 self,
                 "Done",
-                "Analysis completed! You can find images in the timestamped folder. Click 'See Full Results' to view detailed data.\n\nThe images folder will now be opened"
+                "Analysis completed! You can find images in the timestamped folder. Click 'See Full Results' to view detailed data.\n\nThe images folder will now be opened",
             )
-            
-            images_dir = self.scan_results.get("images_dir") if self.scan_results else None
+
+            images_dir = (
+                self.scan_results.get("images_dir") if self.scan_results else None
+            )
             logger.debug(f"scan_results.images_dir: {images_dir}")
-            
+
             if not images_dir:
                 from utils import find_latest_images_session
+
                 images_dir = find_latest_images_session()
                 logger.debug(f"Found latest images session: {images_dir}")
-            
+
             if images_dir and os.path.exists(images_dir) and os.path.isdir(images_dir):
                 self.append_log(
                     f"Opening images folder: {mask_path_for_log(images_dir)}", False
@@ -2266,10 +2411,11 @@ class MainWindow(QWidget):
                 images_base_dir = get_standard_dir("data/images")
                 if os.path.exists(images_base_dir) and os.path.isdir(images_base_dir):
                     self.append_log(
-                        f"Opening images folder: {mask_path_for_log(images_base_dir)}", False
+                        f"Opening images folder: {mask_path_for_log(images_base_dir)}",
+                        False,
                     )
                     self.open_folder(images_base_dir)
-                
+
         except Exception as e:
             logger.error(f"Error showing completion dialog: {e}")
             self.append_log(f"Error showing completion dialog: {e}", False)
@@ -2299,12 +2445,20 @@ class MainWindow(QWidget):
 
         if self.progress_bar:
             self.progress_bar.setValue(0)
-        include_unranked = (self.user_profile_widget.unranked_toggle.isChecked()
-                            if self.user_profile_widget and hasattr(self.user_profile_widget, 'unranked_toggle')
-                               and self.user_profile_widget.unranked_toggle else False)
-        check_missing_ids = (self.user_profile_widget.missing_id_toggle.isChecked()
-                             if self.user_profile_widget and hasattr(self.user_profile_widget, 'missing_id_toggle')
-                                and self.user_profile_widget.missing_id_toggle else False)
+        include_unranked = (
+            self.user_profile_widget.unranked_toggle.isChecked()
+            if self.user_profile_widget
+            and hasattr(self.user_profile_widget, "unranked_toggle")
+            and self.user_profile_widget.unranked_toggle
+            else False
+        )
+        check_missing_ids = (
+            self.user_profile_widget.missing_id_toggle.isChecked()
+            if self.user_profile_widget
+            and hasattr(self.user_profile_widget, "missing_id_toggle")
+            and self.user_profile_widget.missing_id_toggle
+            else False
+        )
 
         worker = Worker(
             scan_replays,
@@ -2320,6 +2474,7 @@ class MainWindow(QWidget):
         worker.signals.result.connect(self.on_task_result)
         worker.signals.finished.connect(self.task_finished)
         worker.signals.error.connect(self.task_error)
+        worker.signals.oauth_expired.connect(self.on_oauth_expired)
         self.threadpool.start(worker)
 
     def start_top(self):
@@ -2342,14 +2497,19 @@ class MainWindow(QWidget):
             lookup_key,
             scan_results=self.scan_results,
             osu_api_client=self.osu_api_client,
-            include_unranked=(self.user_profile_widget.unranked_toggle.isChecked()
-                              if self.user_profile_widget and hasattr(self.user_profile_widget, 'unranked_toggle')
-                                 and self.user_profile_widget.unranked_toggle else False),
+            include_unranked=(
+                self.user_profile_widget.unranked_toggle.isChecked()
+                if self.user_profile_widget
+                and hasattr(self.user_profile_widget, "unranked_toggle")
+                and self.user_profile_widget.unranked_toggle
+                else False
+            ),
         )
         worker.signals.log.connect(self.append_log)
         worker.signals.progress.connect(self.update_progress_bar)
         worker.signals.finished.connect(self.top_finished)
         worker.signals.error.connect(self.top_error)
+        worker.signals.oauth_expired.connect(self.on_oauth_expired)
         self.threadpool.start(worker)
 
     @Slot()
@@ -2390,17 +2550,24 @@ class MainWindow(QWidget):
             return
 
         try:
-            scores_count_str = (self.user_profile_widget.scores_count_display.text()
-                                if self.user_profile_widget and
-                                   hasattr(self.user_profile_widget, 'scores_count_display') and
-                                   self.user_profile_widget.scores_count_display else "10")
+            scores_count_str = (
+                self.user_profile_widget.scores_count_display.text()
+                if self.user_profile_widget
+                and hasattr(self.user_profile_widget, "scores_count_display")
+                and self.user_profile_widget.scores_count_display
+                else "10"
+            )
             scores_count = int(scores_count_str)
         except (ValueError, AttributeError):
             scores_count = 10
 
-        show_lost = (self.user_profile_widget.show_lost_toggle.isChecked()
-                     if self.user_profile_widget and hasattr(self.user_profile_widget, 'show_lost_toggle')
-                        and self.user_profile_widget.show_lost_toggle else True)
+        show_lost = (
+            self.user_profile_widget.show_lost_toggle.isChecked()
+            if self.user_profile_widget
+            and hasattr(self.user_profile_widget, "show_lost_toggle")
+            and self.user_profile_widget.show_lost_toggle
+            else True
+        )
         self.append_log("Generating images...", True)
 
         def task():
@@ -2425,7 +2592,11 @@ class MainWindow(QWidget):
                     )
 
                 gui_log("Getting user data...", True)
-                user_data = self.osu_api_client.user_osu(identifier, lookup_key) if self.osu_api_client else None
+                user_data = (
+                    self.osu_api_client.user_osu(identifier, lookup_key)
+                    if self.osu_api_client
+                    else None
+                )
                 if not user_data:
                     raise ValidationError(f"Failed to get user data for '{identifier}'")
 
@@ -2434,7 +2605,9 @@ class MainWindow(QWidget):
                 update_progress(1, 4)
 
                 gui_log("Creating lost scores image...", True)
-                session_dir = self.scan_results.get("session_dir") if self.scan_results else None
+                session_dir = (
+                    self.scan_results.get("session_dir") if self.scan_results else None
+                )
                 img_mod.make_img_lost(
                     user_id=uid,
                     user_name=uname,
@@ -2479,7 +2652,7 @@ class MainWindow(QWidget):
         logger.info("Image creation stage completed")
         images_dir = self.scan_results.get("images_dir") if self.scan_results else None
         if images_dir:
-            timestamp = os.path.basename(images_dir)  
+            timestamp = os.path.basename(images_dir)
             self.append_log(f"Images created in data/images/{timestamp}/", False)
         else:
             self.append_log("Images created", False)
@@ -2489,7 +2662,6 @@ class MainWindow(QWidget):
         if self.status_label:
             self.status_label.setText(self.current_task)
         self.img_completed.set()
-
 
     @Slot(str)
     def img_error(self, error_message):
@@ -2535,16 +2707,16 @@ class MainWindow(QWidget):
             if self.results_window_instance is not None:
                 self.results_window_instance.close()
                 self.results_window_instance = None
-            
+
             self.results_window_instance = ResultsWindow(self)
             self.results_window_instance.finished.connect(
                 self._on_results_window_closed
             )
-            
+
             self.results_window_instance.show()
             self.results_window_instance.activateWindow()
             self.results_window_instance.raise_()
-            
+
         except Exception as e:
             logger.error(f"Error showing results window: {e}")
             QMessageBox.critical(self, "Error", f"Failed to open results window: {e}")
@@ -2590,10 +2762,13 @@ class MainWindow(QWidget):
 
             self.append_log(f"Validating user '{username}' and API keys...", True)
 
-            worker = Worker(self._validate_and_login, client_id, client_secret, username)
+            worker = Worker(
+                self._validate_and_login, client_id, client_secret, username
+            )
 
             worker.signals.result.connect(self._on_login_success)
             worker.signals.error.connect(self.task_error)
+            worker.signals.oauth_expired.connect(self.on_oauth_expired)
             worker.signals.log.connect(self.append_log)
 
             self.threadpool.start(worker)
@@ -2620,7 +2795,11 @@ class MainWindow(QWidget):
 
         gui_log(f"Fetching profile for '{username}'...", True)
         user_identifier, lookup_key = self._parse_user_input(username)
-        user_data = self.osu_api_client.user_osu(user_identifier, lookup_key) if self.osu_api_client else None
+        user_data = (
+            self.osu_api_client.user_osu(user_identifier, lookup_key)
+            if self.osu_api_client
+            else None
+        )
 
         if not user_data:
             raise ValidationError("User not found or API keys are invalid")
@@ -2643,19 +2822,21 @@ class MainWindow(QWidget):
             return
 
         current_session = self.auth_manager.get_current_session()
-        
+
         if current_session.auth_mode == AuthMode.OAUTH:
             self.auth_manager.clear_oauth_session_only()
             # Force invalidate cache to ensure clean state
             self.auth_manager._cached_session = None
             self.auth_manager._session_cache_valid = False
             # Reset OAuth browser state for clean logout/login cycle
-            if hasattr(self, 'oauth_flow'):
+            if hasattr(self, "oauth_flow"):
                 self.oauth_flow.reset_state()
             self.append_log("OAuth session successfully cleared", False)
         elif current_session.auth_mode == AuthMode.CUSTOM_KEYS:
             if OsuApiClient.delete_keys_from_keyring():
-                self.append_log("API keys successfully removed from system keyring", False)
+                self.append_log(
+                    "API keys successfully removed from system keyring", False
+                )
             else:
                 self.append_log(
                     "Could not remove API keys from keyring (they might not have been saved)",
@@ -2674,28 +2855,34 @@ class MainWindow(QWidget):
             del self.config["avatar_path"]
         self.save_config()
 
-        if self.user_profile_widget and hasattr(self.user_profile_widget, 'set_to_logged_out_state'):
+        if self.user_profile_widget and hasattr(
+            self.user_profile_widget, "set_to_logged_out_state"
+        ):
             self.user_profile_widget.set_to_logged_out_state()
         self.append_log("Successfully logged out", False)
 
     @Slot(object)
     def _on_login_success(self, user_data):
         self.current_user_data = user_data
-        avatar_cache_path = os.path.join(
-            get_standard_dir("cache/avatars"), f"avatar_{user_data['id']}.png"
-        )
+        avatar_cache_path = os.path.join(AVATAR_DIR, f"avatar_{user_data['id']}.png")
 
         self.config["avatar_path"] = avatar_cache_path
         self.config["username"] = user_data["username"]
         self.save_config()
 
         self.append_log(f"Successfully logged in as {user_data['username']}", False)
-        if self.user_profile_widget and hasattr(self.user_profile_widget, 'update_state'):
-            self.user_profile_widget.update_state(user_data, self.osu_api_client, self.config)
+        if self.user_profile_widget and hasattr(
+            self.user_profile_widget, "update_state"
+        ):
+            self.user_profile_widget.update_state(
+                user_data, self.osu_api_client, self.config
+            )
         self._download_avatar(user_data.get("avatar_url"), avatar_cache_path)
 
         potential_stats = load_summary_stats()
-        if self.user_profile_widget and hasattr(self.user_profile_widget, 'update_stats_display'):
+        if self.user_profile_widget and hasattr(
+            self.user_profile_widget, "update_stats_display"
+        ):
             self.user_profile_widget.update_stats_display(
                 user_data, scan_data=potential_stats
             )
@@ -2704,7 +2891,8 @@ class MainWindow(QWidget):
 
     def change_user(self, new_username):
         if not new_username or new_username == (
-        self.current_user_data.get("username") if self.current_user_data else None):
+            self.current_user_data.get("username") if self.current_user_data else None
+        ):
             return
 
         client_id, client_secret = OsuApiClient.get_keys_from_keyring()
@@ -2719,27 +2907,30 @@ class MainWindow(QWidget):
 
     def _try_auto_login(self):
         session = self.auth_manager.get_current_session()
-        self.append_log(f"Auto-login check: Found {session.auth_mode.value} session", True)
-        
+        self.append_log(
+            f"Auto-login check: Found {session.auth_mode.value} session", True
+        )
+
         if session.auth_mode == AuthMode.OAUTH and session.jwt_token:
             self.append_log(
                 f"Found OAuth session for '{session.username}'. Attempting auto-login via backend...",
                 False,
             )
             self.set_ui_busy(True)
-            
+
             if not self.osu_api_client:
                 self.osu_api_client = OsuApiClient.get_instance()
             self.osu_api_client.configure_for_oauth(session.jwt_token)
             self.osu_api_client = OsuApiClient.get_instance()
-            
+
             worker = Worker(self._get_oauth_user_data)
             worker.signals.result.connect(self._on_oauth_login_success)
             worker.signals.error.connect(self._on_oauth_auto_login_error)
+            worker.signals.oauth_expired.connect(self.on_oauth_expired)
             worker.signals.log.connect(self.append_log)
             self.threadpool.start(worker)
             return
-            
+
         elif session.auth_mode == AuthMode.CUSTOM_KEYS:
             client_id, client_secret = self.auth_manager.get_custom_keys()
             username = self.config.get("username")
@@ -2757,6 +2948,7 @@ class MainWindow(QWidget):
 
                 worker.signals.result.connect(self._on_login_success)
                 worker.signals.error.connect(self.task_error)
+                worker.signals.oauth_expired.connect(self.on_oauth_expired)
                 worker.signals.log.connect(self.append_log)
 
                 self.threadpool.start(worker)
@@ -2781,16 +2973,16 @@ class MainWindow(QWidget):
 
         os.makedirs(os.path.dirname(avatar_path), exist_ok=True)
         worker = Worker(self.osu_api_client.download_image, url, avatar_path)
-        if self.user_profile_widget and hasattr(self.user_profile_widget, 'set_avatar'):
+        if self.user_profile_widget and hasattr(self.user_profile_widget, "set_avatar"):
             worker.signals.result.connect(self.user_profile_widget.set_avatar)
         self.threadpool.start(worker)
 
     def clear_app_cache(self):
         title = "Clear Application Cache"
         text = (
-            "Are you sure you want to clear the cache and all generated reports?\n\n"
-            "This is recommended for a full re-scan from scratch.\n\n"
-            "Your main osu! 'Songs' folder and replays will NOT be affected"
+            "Are you sure you want to clear all application data?\n\n"
+            "This will remove cached data, logs, analysis results and temporary beatmap files. "
+            "Your settings and main osu! folder will not be affected."
         )
 
         reply = QMessageBox.question(
@@ -2805,60 +2997,62 @@ class MainWindow(QWidget):
             self.append_log("Cache clearing cancelled by user", False)
             return
 
-        self.append_log("Starting cache and data cleanup...", False)
+        self.append_log("Starting data cleanup...", False)
         self.append_log("Closing database connection before cleanup...", False)
         db_close()
 
-        folders_to_clean = [CACHE_DIR, MAPS_DIR]
-        removed_folders = []
-        failed_folders = []
+        folders_to_clean = [CACHE_DIR, LOG_DIR, ANALYSIS_DIR, IMAGES_DIR, MAPS_DIR]
+
+        config_backup = None
+        if os.path.exists(CONFIG_PATH):
+            try:
+                with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+                    config_backup = f.read()
+            except (IOError, OSError):
+                pass
 
         for folder in folders_to_clean:
             if os.path.exists(folder):
                 try:
-                    shutil.rmtree(folder)
-                    removed_folders.append(os.path.basename(folder))
-                except (IOError, OSError):
-                    logger.exception("Failed to remove cache directory: %s", folder)
-                    failed_folders.append(os.path.basename(folder))
-
-        if removed_folders:
-            self.append_log(
-                f"Successfully cleaned directories: {', '.join(removed_folders)}", False
-            )
+                    shutil.rmtree(folder, ignore_errors=True)
+                    self.append_log(
+                        f"Cleaned directory: {os.path.basename(folder)}", False
+                    )
+                except Exception:
+                    pass
 
         for folder in folders_to_clean:
             try:
                 os.makedirs(folder, exist_ok=True)
             except (IOError, OSError):
-                logger.exception("Failed to re-create directory: %s", folder)
-                failed_folders.append(os.path.basename(folder))
+                pass
+
+        if config_backup and not os.path.exists(CONFIG_PATH):
+            try:
+                with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+                    f.write(config_backup)
+            except (IOError, OSError):
+                pass
 
         if os.path.exists(DB_FILE):
             try:
                 os.remove(DB_FILE)
                 self.append_log("Removed database file", False)
             except (IOError, OSError):
-                logger.exception("Failed to remove database file: %s", DB_FILE)
-                failed_folders.append(os.path.basename(DB_FILE))
+                pass
 
         db_init()
         file_parser.reset_in_memory_caches()
         if self.osu_api_client:
             self.osu_api_client.reset_caches()
-        self.append_log("In-memory caches have been reset", False)
+        self.append_log("Application data has been cleared", False)
 
-        if failed_folders:
-            QMessageBox.warning(
-                self,
-                "Cleanup Error",
-                f"Could not clean some items: {', '.join(failed_folders)}. See log for details",
-            )
-        else:
-            QMessageBox.information(self, "Success", "All caches have been cleared")
+        QMessageBox.information(self, "Success", "Cache cleared successfully")
 
         if self.current_user_data:
-            if self.user_profile_widget and hasattr(self.user_profile_widget, 'update_stats_display'):
+            if self.user_profile_widget and hasattr(
+                self.user_profile_widget, "update_stats_display"
+            ):
                 self.user_profile_widget.update_stats_display(
                     self.current_user_data, scan_data=None
                 )
@@ -2876,21 +3070,27 @@ class MainWindow(QWidget):
     def _on_oauth_login_clicked(self):
         self.append_log("Starting OAuth authorization...", False)
         self.set_ui_busy(True)
-        
+        self.oauth_flow_in_progress = True
+
         if not self.oauth_flow.start_login():
             self.append_log("Failed to open browser for OAuth", False)
             self.set_ui_busy(False)
+            self.oauth_flow_in_progress = False
             return
-        
+
         worker = Worker(self.oauth_flow.wait_for_session, 60)
         worker.signals.result.connect(self._on_oauth_complete)
-        worker.signals.error.connect(lambda error_tuple: self._on_oauth_error(str(error_tuple)))
+        worker.signals.error.connect(
+            lambda error_tuple: self._on_oauth_error(str(error_tuple))
+        )
         self.threadpool.start(worker)
 
     def _on_oauth_complete(self, session):
         if session and session.auth_mode == AuthMode.OAUTH:
-            self.append_log(f"OAuth authorization successful for user '{session.username}'", False)
-            
+            self.append_log(
+                f"OAuth authorization successful for user '{session.username}'", False
+            )
+
             # Automatically bring application window back to focus after OAuth
             try:
                 self.activateWindow()
@@ -2900,15 +3100,16 @@ class MainWindow(QWidget):
                 self.activateWindow()
             except Exception as e:
                 logger.debug(f"Could not restore window focus after OAuth: {e}")
-            
+
             if not self.osu_api_client:
                 self.osu_api_client = OsuApiClient.get_instance()
             self.osu_api_client.configure_for_oauth(session.jwt_token)
             self.osu_api_client = OsuApiClient.get_instance()
-            
+
             worker = Worker(self._get_oauth_user_data)
             worker.signals.result.connect(self._on_oauth_login_success)
             worker.signals.error.connect(self.task_error)
+            worker.signals.oauth_expired.connect(self.on_oauth_expired)
             self.threadpool.start(worker)
         else:
             self._on_oauth_error("OAuth authorization failed or timeout")
@@ -2916,19 +3117,27 @@ class MainWindow(QWidget):
     def _on_oauth_error(self, error_message):
         self.append_log(f"OAuth error: {error_message}", False)
         self.set_ui_busy(False)
+        self.oauth_flow_in_progress = False
 
     def _on_oauth_auto_login_error(self, error_message):
         self.append_log(f"OAuth auto-login failed: {error_message}", False)
-        self.append_log("Backend server may be unavailable. Performing cleanup...", True)
-        self.append_log("Clearing corrupted OAuth session and resetting API client...", True)
-        
+        self.append_log(
+            "Backend server may be unavailable. Performing cleanup...", True
+        )
+        self.append_log(
+            "Clearing corrupted OAuth session and resetting API client...", True
+        )
+
         OsuApiClient.reset_instance()
         self.osu_api_client = None
-        
+
         self.auth_manager.clear_oauth_session_only()
-        
+
         self.set_ui_busy(False)
-        self.append_log("System reset complete. You can now use custom API keys or try OAuth again when backend is available.", False)
+        self.append_log(
+            "System reset complete. You can now use custom API keys or try OAuth again when backend is available.",
+            False,
+        )
 
     def _get_oauth_user_data(self):
         try:
@@ -2945,33 +3154,46 @@ class MainWindow(QWidget):
     def _on_oauth_login_success(self, user_data):
         try:
             self.current_user_data = user_data
-            
+
             avatar_cache_path = os.path.join(
-                get_standard_dir("cache/avatars"), f"avatar_{user_data['id']}.png"
+                AVATAR_DIR, f"avatar_{user_data['id']}.png"
             )
-            
+
             self.config["avatar_path"] = avatar_cache_path
             self.config["username"] = user_data["username"]
-            
+
             if self.user_profile_widget:
                 self.user_profile_widget._setup_logged_in_ui(user_data, self.config)
-                
+
                 potential_stats = load_summary_stats()
-                self.user_profile_widget.update_stats_display(user_data, scan_data=potential_stats)
-            
+                self.user_profile_widget.update_stats_display(
+                    user_data, scan_data=potential_stats
+                )
+
             self.save_config()
-            
-            self.append_log(f"Successfully logged in as '{user_data['username']}' via OAuth", False)
-            
+
+            self.append_log(
+                f"Successfully logged in as '{user_data['username']}' via OAuth", False
+            )
+
             if user_data.get("avatar_url"):
                 self._download_avatar(user_data.get("avatar_url"), avatar_cache_path)
-            
+
+            self.has_error = False
+            self.current_task = "Ready to start"
+            if self.status_label:
+                self.status_label.setText(self.current_task)
+
+            self.is_startup_phase = False
+            self.oauth_flow_in_progress = False
             self.set_ui_busy(False)
-            
+
         except Exception as e:
             logger.error(f"Error in OAuth login success handler: {e}")
             self.append_log(f"Error setting up OAuth login: {str(e)}", False)
+            self.oauth_flow_in_progress = False
             self.set_ui_busy(False)
+
 
 def create_gui(osu_api_client=None):
     app = QApplication.instance() or QApplication(sys.argv)
@@ -2989,7 +3211,7 @@ def create_gui(osu_api_client=None):
 
     qss = load_qss()
     if qss:
-        if hasattr(app, 'setStyleSheet'):
+        if hasattr(app, "setStyleSheet"):
             app.setStyleSheet(qss)  # type: ignore
         logger.debug("QSS styles successfully applied to QApplication")
     else:
@@ -2997,6 +3219,7 @@ def create_gui(osu_api_client=None):
 
     window = MainWindow(osu_api_client)
     return window, app
+
 
 if __name__ == "__main__":
     db_init()
