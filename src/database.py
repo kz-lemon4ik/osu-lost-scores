@@ -1,4 +1,3 @@
-
 import logging
 import os
 import sqlite3
@@ -9,15 +8,14 @@ from path_utils import mask_path_for_log
 
 logger = logging.getLogger(__name__)
 
+
 class DatabaseManager:
-    
     _instance = None
     _lock = threading.Lock()
     _conn = None
     _initialized = False
 
     def __new__(cls):
-        
         with cls._lock:
             if cls._instance is None:
                 cls._instance = super(DatabaseManager, cls).__new__(cls)
@@ -25,7 +23,6 @@ class DatabaseManager:
 
     # noinspection SqlNoDataSourceInspection
     def initialize(self):
-        
         with self._lock:
             if not self._initialized:
                 try:
@@ -67,13 +64,11 @@ class DatabaseManager:
                     raise
 
     def get_connection(self):
-        
         if not self._initialized:
             self.initialize()
         return self._conn
 
     def close(self):
-        
         with self._lock:
             if self._conn:
                 try:
@@ -84,20 +79,21 @@ class DatabaseManager:
                 except sqlite3.Error:
                     logger.exception("Error closing database connection:")
 
+
 db_manager = DatabaseManager()
 db_read_lock = threading.RLock()  # Reentrant lock for read operations
 db_write_lock = threading.Lock()  # Exclusive lock for write operations
 
+
 def db_init():
-    
     db_manager.initialize()
 
+
 def db_close():
-    
     db_manager.close()
 
+
 def db_get_map(identifier, by="md5"):
-    
     if not identifier:
         return None
     try:
@@ -132,8 +128,8 @@ def db_get_map(identifier, by="md5"):
         logger.error("Invalid identifier type: %s", e)
         return None
 
+
 def db_update_from_api(beatmap_id, data_dict):
-    
     if not beatmap_id:
         return
 
@@ -169,9 +165,9 @@ def db_update_from_api(beatmap_id, data_dict):
     except sqlite3.Error as e:
         logger.exception("Error updating data by beatmap_id %s: %s", beatmap_id, e)
 
+
 # noinspection SqlNoDataSourceInspection
 def db_upsert_from_scan(md5_hash, data_dict):
-    
     if not md5_hash:
         return
 
@@ -189,12 +185,22 @@ def db_upsert_from_scan(md5_hash, data_dict):
                 row = cursor.fetchone()
 
                 valid_keys = [
-                    "file_path", "last_modified", "beatmap_id", "beatmapset_id",
-                    "lookup_status", "api_status", "artist", "title", "creator",
-                    "version", "hit_objects",
+                    "file_path",
+                    "last_modified",
+                    "beatmap_id",
+                    "beatmapset_id",
+                    "lookup_status",
+                    "api_status",
+                    "artist",
+                    "title",
+                    "creator",
+                    "version",
+                    "hit_objects",
                 ]
                 filtered_data = {
-                    k: v for k, v in data_dict.items() if k in valid_keys and v is not None
+                    k: v
+                    for k, v in data_dict.items()
+                    if k in valid_keys and v is not None
                 }
                 if not filtered_data:
                     cursor.close()

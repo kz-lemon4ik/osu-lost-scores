@@ -12,7 +12,6 @@ CUTOFF_DATE=1730114220
 
 # Logging Configuration
 LOG_LEVEL=DEBUG
-LOG_DIR=cache/log
 
 # Database Configuration
 DB_FILE=beatmap_info.db
@@ -20,8 +19,8 @@ DB_FILE=beatmap_info.db
 # Path Settings
 CACHE_DIR=cache
 DATA_DIR=data
-MAPS_DIR=cache/maps
-LOG_DIR=cache/log
+MAPS_DIR=data/maps
+LOG_DIR=data/logs
 ANALYSIS_DIR=data/analysis
 IMAGES_DIR=data/images
 
@@ -67,7 +66,8 @@ if not dotenv_path.exists():
         )
     except (IOError, OSError):
         logger.exception(
-            "Failed to create default .env file at %s", mask_path_for_log(str(dotenv_path))
+            "Failed to create default .env file at %s",
+            mask_path_for_log(str(dotenv_path)),
         )
 if dotenv_path.exists():
     logger.info("Loading .env from: %s", mask_path_for_log(str(dotenv_path)))
@@ -79,8 +79,8 @@ else:
     )
 _cache_dir_name = os.environ.get("CACHE_DIR", "cache")
 _data_dir_name = os.environ.get("DATA_DIR", "data")
-_maps_dir_name = os.environ.get("MAPS_DIR", "cache/maps")
-_log_dir_name = os.environ.get("LOG_DIR", "cache/log")
+_maps_dir_name = os.environ.get("MAPS_DIR", "data/maps")
+_log_dir_name = os.environ.get("LOG_DIR", "data/logs")
 _analysis_dir_name = os.environ.get("ANALYSIS_DIR", "data/analysis")
 _images_dir_name = os.environ.get("IMAGES_DIR", "data/images")
 _log_level_name = os.environ.get("LOG_LEVEL", "INFO")

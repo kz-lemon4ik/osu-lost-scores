@@ -1,4 +1,3 @@
-
 import datetime
 import hashlib
 import logging
@@ -19,8 +18,8 @@ replay_processing_details_logger = logging.getLogger("replay_processing_details"
 
 os.makedirs(CACHE_DIR, exist_ok=True)
 
+
 class FileParser:
-    
     def __init__(self):
         self.osu_base_path = None
         self.beatmap_id_to_path_map = {}
@@ -94,7 +93,7 @@ class FileParser:
                 if not (byte & 0x80):
                     break
                 shift += 7
-            s = data[offset: offset + length].decode("utf-8", errors="ignore")
+            s = data[offset : offset + length].decode("utf-8", errors="ignore")
             return s, offset + length
         else:
             raise ValueError("Invalid string in .osr")
@@ -132,8 +131,15 @@ class FileParser:
         if not mod_list:
             return []
         priority = {
-            "EZ": 1, "HD": 2, "DT": 3, "NC": 3, "HT": 3,
-            "HR": 4, "FL": 5, "NF": 6, "SO": 7,
+            "EZ": 1,
+            "HD": 2,
+            "DT": 3,
+            "NC": 3,
+            "HT": 3,
+            "HR": 4,
+            "FL": 5,
+            "NF": 6,
+            "SO": 7,
         }
         return sorted(mod_list, key=lambda m: (priority.get(m, 9999), m))
 
@@ -207,7 +213,9 @@ class FileParser:
                 h.update(chunk)
         return h.hexdigest()
 
-    def find_osu(self, songs_folder, progress_callback=None, gui_log=None, progress_logger=None):
+    def find_osu(
+        self, songs_folder, progress_callback=None, gui_log=None, progress_logger=None
+    ):
         if gui_log:
             gui_log("Building list of .osu files...", update_last=True)
 
@@ -234,8 +242,8 @@ class FileParser:
                 current_mtime = int(os.path.getmtime(file_path))
 
                 if (
-                        existing_record
-                        and existing_record.get("last_modified") == current_mtime
+                    existing_record
+                    and existing_record.get("last_modified") == current_mtime
                 ):
                     return
 
@@ -348,9 +356,13 @@ class FileParser:
                                 beatmap_id = int(val)
                         break
         except IOError as e:
-            logger.warning("Failed to read beatmap file %s: %s", mask_path_for_log(osu_path), e)
+            logger.warning(
+                "Failed to read beatmap file %s: %s", mask_path_for_log(osu_path), e
+            )
         except (IndexError, ValueError) as e:
-            logger.debug("Error parsing beatmap ID from %s: %s", mask_path_for_log(osu_path), e)
+            logger.debug(
+                "Error parsing beatmap ID from %s: %s", mask_path_for_log(osu_path), e
+            )
         return beatmap_id
 
     @staticmethod
@@ -427,8 +439,8 @@ class FileParser:
                 final_score["beatmap_id"] = self.parse_beatmap_id(osu_path)
 
             if not all(
-                    k in final_score and final_score[k]
-                    for k in ["artist", "title", "creator", "version"]
+                k in final_score and final_score[k]
+                for k in ["artist", "title", "creator", "version"]
             ):
                 file_meta = self.parse_osu_metadata(osu_path)
                 if not final_score.get("artist"):
@@ -473,7 +485,7 @@ class FileParser:
 
             hit_objects_pos = content.find("[HitObjects]")
             if hit_objects_pos != -1:
-                section_text = content[hit_objects_pos + len("[HitObjects]"):]
+                section_text = content[hit_objects_pos + len("[HitObjects]") :]
                 next_section_pos = section_text.find("\n[")
                 if next_section_pos != -1:
                     section_text = section_text[:next_section_pos]
@@ -617,5 +629,6 @@ class FileParser:
 
     def get_calc_acc(self):
         return self.calc_acc
+
 
 file_parser = FileParser()

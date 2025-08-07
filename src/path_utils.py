@@ -1,30 +1,29 @@
-
 import os
 import sys
 
+
 def _bundle_root() -> str | None:
-    
     return getattr(sys, "_MEIPASS", None)
 
+
 def _exe_root() -> str | None:
-    
     return os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else None
 
+
 def get_project_root() -> str:
-    
     return _exe_root() or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+
 def get_env_path():
-    
     return os.path.join(get_project_root(), ".env")
 
+
 def get_standard_dir(dir_name):
-    
     root_dir = get_project_root()
     return os.path.normpath(os.path.join(root_dir, dir_name))
 
+
 def mask_path_for_log(path):
-    
     if not path:
         return path
     try:

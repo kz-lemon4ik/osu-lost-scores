@@ -1,4 +1,3 @@
-
 import functools
 import logging
 import os
@@ -23,24 +22,30 @@ api_logger = logging.getLogger("api_logger")
 KEYRING_SERVICE = "osu_lost_scores_analyzer"
 CLIENT_ID_KEY = "client_id"
 CLIENT_SECRET_KEY = "client_secret"
+
+
+class OAuthSessionExpiredException(Exception):
+    pass
+
+
 ACCESS_TOKEN_KEY = "access_token"
 
 ENV_PATH = os.environ.get("DOTENV_PATH")
 if not ENV_PATH or not os.path.exists(ENV_PATH):
     ENV_PATH = get_env_path()
 
+
 class OsuApiClient:
-    
     _instance = None
 
     def __init__(
-            self,
-            client_id=None,
-            client_secret=None,
-            token_cache_path=None,
-            api_rate_limit=1.0,
-            api_retry_count=3,
-            api_retry_delay=0.5,
+        self,
+        client_id=None,
+        client_secret=None,
+        token_cache_path=None,
+        api_rate_limit=1.0,
+        api_retry_count=3,
+        api_retry_delay=0.5,
     ):
         self.client_id = client_id
         self.client_secret = client_secret
@@ -61,11 +66,11 @@ class OsuApiClient:
         self.in_progress_lookups = {}
         self.in_progress_lock = threading.Lock()
         self.public_rate_limiter = RateLimiter(PUBLIC_REQUESTS_PER_MINUTE)
-        
+
         self.auth_mode = AuthMode.LOGGED_OUT
         self.state_lock = threading.Lock()
         self.base_url = "https://osu.ppy.sh/api/v2"
-        
+
         if client_id and client_secret:
             self.configure_for_custom_keys(client_id, client_secret)
         else:
@@ -73,18 +78,18 @@ class OsuApiClient:
 
     @classmethod
     def get_instance(
-            cls,
-            client_id=None,
-            client_secret=None,
-            token_cache_path=None,
-            api_rate_limit=1.0,
-            api_retry_count=3,
-            api_retry_delay=0.5,
+        cls,
+        client_id=None,
+        client_secret=None,
+        token_cache_path=None,
+        api_rate_limit=1.0,
+        api_retry_count=3,
+        api_retry_delay=0.5,
     ):
-        if cls._instance is not None and hasattr(cls._instance, 'auth_mode'):
+        if cls._instance is not None and hasattr(cls._instance, "auth_mode"):
             if cls._instance.auth_mode == AuthMode.OAUTH:
                 return cls._instance
-        
+
         if cls._instance is None:
             if not client_id or not client_secret:
                 client_id, client_secret = cls.get_keys_from_keyring()
@@ -112,7 +117,9 @@ class OsuApiClient:
 
             try:
                 keyring.delete_password(KEYRING_SERVICE, ACCESS_TOKEN_KEY)
-                api_logger.info("Deleted stale access token from keyring due to new keys being provided")
+                api_logger.info(
+                    "Deleted stale access token from keyring due to new keys being provided"
+                )
             except PasswordDeleteError:
                 pass
 
@@ -131,7 +138,9 @@ class OsuApiClient:
             self.session.headers.clear()
             self.session.headers.update({"Authorization": f"Bearer {jwt_token}"})
             OsuApiClient._instance = self
-            api_logger.info(f"OsuApiClient configured for OAuth mode with backend: {self.base_url}")
+            api_logger.info(
+                f"OsuApiClient configured for OAuth mode with backend: {self.base_url}"
+            )
 
     def configure_for_custom_keys(self, client_id: str, client_secret: str):
         with self.state_lock:
@@ -141,7 +150,7 @@ class OsuApiClient:
             self.client_id = client_id
             self.client_secret = client_secret
             api_logger.info("OsuApiClient configured for Custom Keys mode")
-        
+
         self._load_token_from_keyring()
 
     def deconfigure(self):
@@ -152,6 +161,27 @@ class OsuApiClient:
             with self.token_cache_lock:
                 self.token_cache = None
             api_logger.info("OsuApiClient deconfigured, state set to LOGGED_OUT")
+
+    def _handle_oauth_401_error(self):
+        api_logger.warning(
+            "OAuth session expired, clearing session and switching to LOGGED_OUT mode"
+        )
+
+        try:
+            from auth_manager import AuthManager
+
+            auth_manager = AuthManager()
+            auth_manager.clear_oauth_session_only()
+            api_logger.info("OAuth session cleared from keyring")
+        except Exception as e:
+            api_logger.error(f"Failed to clear OAuth session: {e}")
+
+        with self.state_lock:
+            self.auth_mode = AuthMode.LOGGED_OUT
+            self.session.headers.clear()
+            api_logger.info(
+                "API client switched to LOGGED_OUT mode due to OAuth session expiry"
+            )
 
     def _request(self, method, endpoint, params=None, json_data=None):
         with self.state_lock:
@@ -175,36 +205,68 @@ class OsuApiClient:
                     raise Exception(f"Unknown auth mode: {current_auth_mode}")
 
                 self._wait_for_api_slot()
-                
-                
-                api_logger.debug(f"API Client: Sending {method.upper()} request to {url}")
-                response = self.session.request(
-                    method, url, params=params, json=json_data, headers=headers, timeout=30
-                )
-                api_logger.debug(f"API Client: Received response with status {response.status_code}")
 
+                api_logger.debug(
+                    f"API Client: Sending {method.upper()} request to {url}"
+                )
+                response = self.session.request(
+                    method,
+                    url,
+                    params=params,
+                    json=json_data,
+                    headers=headers,
+                    timeout=30,
+                )
+                api_logger.debug(
+                    f"API Client: Received response with status {response.status_code}"
+                )
 
                 if response.status_code == 404:
                     return None
 
                 response.raise_for_status()
-                return response.json() if response.status_code != 204 else None
+
+                if response.status_code != 204:
+                    json_data = response.json()
+                    if (
+                        isinstance(json_data, dict)
+                        and json_data.get("authentication") == "basic"
+                    ):
+                        if current_auth_mode == AuthMode.OAUTH:
+                            self._handle_oauth_401_error()
+                            raise OAuthSessionExpiredException(
+                                "OAuth session has expired. Please re-authenticate."
+                            )
+                    return json_data
+                else:
+                    return None
 
             except requests.HTTPError as e:
                 status = e.response.status_code
-                api_logger.warning(f"HTTP Error {status} on {url} (Attempt {attempt + 1})")
-                if status == 401 and current_auth_mode == AuthMode.CUSTOM_KEYS and attempt < self.api_retry_count:
-                    with self.token_cache_lock:
-                        self.token_cache = None
-                    continue
+                api_logger.warning(
+                    f"HTTP Error {status} on {url} (Attempt {attempt + 1})"
+                )
+                if status == 401:
+                    if current_auth_mode == AuthMode.OAUTH:
+                        self._handle_oauth_401_error()
+                        raise OAuthSessionExpiredException(
+                            "OAuth session has expired. Please re-authenticate."
+                        )
+                    elif (
+                        current_auth_mode == AuthMode.CUSTOM_KEYS
+                        and attempt < self.api_retry_count
+                    ):
+                        with self.token_cache_lock:
+                            self.token_cache = None
+                        continue
                 if attempt >= self.api_retry_count or status in [404, 403]:
                     raise
             except requests.RequestException as e:
                 api_logger.warning(f"Request failed: {e} (Attempt {attempt + 1})")
                 if attempt >= self.api_retry_count:
                     raise
-            time.sleep(self.api_retry_delay * (2 ** attempt))
-        
+            time.sleep(self.api_retry_delay * (2**attempt))
+
         raise Exception(f"Request to {url} failed after all retries")
 
     def get_user_data(self, identifier, lookup_key="id"):
@@ -221,7 +283,12 @@ class OsuApiClient:
         page_size = 50
         for offset in range(0, limit, page_size):
             endpoint = f"/users/{user_id}/scores/best"
-            params = {"limit": min(page_size, limit - offset), "offset": offset, "mode": "osu", "include": "beatmap"}
+            params = {
+                "limit": min(page_size, limit - offset),
+                "offset": offset,
+                "mode": "osu",
+                "include": "beatmap",
+            }
             page_scores = self._request("get", endpoint, params=params)
             if not page_scores:
                 break
@@ -229,13 +296,12 @@ class OsuApiClient:
         return all_scores
 
     def get_beatmap_data(self, beatmap_id):
-
         if not beatmap_id:
             api_logger.warning("get_beatmap_data called with empty beatmap_id")
             return None
 
         endpoint = f"/beatmaps/{beatmap_id}"
-        
+
         try:
             data = self._request("get", endpoint)
         except Exception as e:
@@ -264,13 +330,12 @@ class OsuApiClient:
         }
 
     def lookup_beatmap(self, checksum):
-
         if not checksum:
             return None
-            
+
         endpoint = "/beatmaps/lookup"
         params = {"checksum": checksum}
-        
+
         try:
             data = self._request("get", endpoint, params=params)
             beatmap_id = data.get("id") if data else None
@@ -344,28 +409,28 @@ class OsuApiClient:
                         )
                         raise
                     elif status_code == 429:
-                        wait_time = self.api_retry_delay * (4 ** retries)
+                        wait_time = self.api_retry_delay * (4**retries)
                         api_logger.warning(
                             f"Rate limit exceeded (429) in {func_name}. Waiting {wait_time}s before retry"
                         )
                         time.sleep(wait_time)
                         retries += 1
                         continue
-                    wait_time = self.api_retry_delay * (2 ** retries)
+                    wait_time = self.api_retry_delay * (2**retries)
                     api_logger.warning(
                         f"HTTP error in {func_name} (status={status_code}): {e}. Retry {retries + 1}/{self.api_retry_count} after {wait_time}s"
                     )
                     time.sleep(wait_time)
                     retries += 1
                 except requests.exceptions.ConnectionError as e:
-                    wait_time = self.api_retry_delay * (3 ** retries)
+                    wait_time = self.api_retry_delay * (3**retries)
                     api_logger.warning(
                         f"Connection error in {func_name}: {e}. Retry {retries + 1}/{self.api_retry_count} after {wait_time}s"
                     )
                     time.sleep(wait_time)
                     retries += 1
                 except requests.exceptions.RequestException as e:
-                    wait_time = self.api_retry_delay * (2 ** retries)
+                    wait_time = self.api_retry_delay * (2**retries)
                     api_logger.warning(
                         f"Request error in {func_name}: {e}. Retry {retries + 1}/{self.api_retry_count} after {wait_time}s"
                     )
@@ -382,7 +447,6 @@ class OsuApiClient:
         return wrapper
 
     def token_osu(self):
-        
         api_logger.debug("token_osu() called - checking cache")
         with self.token_cache_lock:
             if self.token_cache is not None:
@@ -430,6 +494,8 @@ class OsuApiClient:
     def user_osu(self, identifier, lookup_key):
         try:
             return self.get_user_data(identifier, lookup_key)
+        except OAuthSessionExpiredException:
+            raise
         except Exception as e:
             api_logger.error(f"Error in user_osu: {e}")
             return None
@@ -470,7 +536,7 @@ class OsuApiClient:
     def top_osu(self, user_id, limit=200):
         if self.auth_mode == AuthMode.OAUTH:
             return self.get_user_scores(user_id, limit=limit)
-        
+
         token = self.token_osu()
         if not token:
             return []
@@ -535,7 +601,6 @@ class OsuApiClient:
         return all_scores
 
     def maps_osu(self, beatmap_ids, gui_log=None, logger=None, progress_callback=None):
-        
         if self.auth_mode == AuthMode.OAUTH:
             token = None
         else:
@@ -553,7 +618,7 @@ class OsuApiClient:
         get_maps_batch_with_retry = self._retry_request(self._get_maps_batch)
 
         for i in range(0, len(unique_ids), batch_size):
-            batch_ids = unique_ids[i: i + batch_size]
+            batch_ids = unique_ids[i : i + batch_size]
             api_logger.info(
                 f"Requesting batch of {len(batch_ids)} beatmaps from API (total processed: {i})"
             )
@@ -585,16 +650,15 @@ class OsuApiClient:
         )
         return all_beatmaps_data
 
-
     def _get_maps_batch(self, beatmap_ids, token=None):
         if not beatmap_ids:
             return []
-        
+
         if self.auth_mode == AuthMode.OAUTH:
             endpoint = "/beatmaps"
             params = [("ids[]", bid) for bid in beatmap_ids]
             params_dict = {}
-            
+
             for key, value in params:
                 if key in params_dict:
                     if not isinstance(params_dict[key], list):
@@ -602,19 +666,19 @@ class OsuApiClient:
                     params_dict[key].append(value)
                 else:
                     params_dict[key] = value
-            
+
             try:
                 response = self._request("get", endpoint, params=params_dict)
-                
+
                 if response and "beatmaps" in response:
                     beatmaps = response["beatmaps"]
                     return beatmaps
-                    
+
                 return []
             except Exception as e:
                 api_logger.error(f"OAuth batch request failed: {e}")
                 return []
-        
+
         self._wait_for_api_slot()
         url = "https://osu.ppy.sh/api/v2/beatmaps"
 
@@ -695,7 +759,6 @@ class OsuApiClient:
             raise
 
     def lookup_osu(self, checksum):
-        
         if not checksum:
             api_logger.error("Empty checksum provided to lookup_osu")
             return None
@@ -746,8 +809,8 @@ class OsuApiClient:
         finally:
             with self.in_progress_lock:
                 if (
-                        checksum in self.in_progress_lookups
-                        and self.in_progress_lookups[checksum]["waiters"] == 0
+                    checksum in self.in_progress_lookups
+                    and self.in_progress_lookups[checksum]["waiters"] == 0
                 ):
                     del self.in_progress_lookups[checksum]
 
@@ -756,19 +819,24 @@ class OsuApiClient:
             if self.auth_mode == AuthMode.OAUTH:
                 endpoint = "/beatmaps/lookup"
                 params = {"checksum": checksum}
-                
+
                 try:
                     response_data = self._request("get", endpoint, params=params)
-                    
+
                     if not response_data:
-                        api_logger.warning("Beatmap with checksum %s not found via OAuth", checksum)
+                        api_logger.warning(
+                            "Beatmap with checksum %s not found via OAuth", checksum
+                        )
                         db_upsert_from_scan(checksum, {"lookup_status": "not_found"})
                         return self._set_in_progress_result_and_return(checksum, None)
-                    
+
                     api_data = response_data
                 except Exception as e:
                     if "404" in str(e) or "not found" in str(e).lower():
-                        api_logger.warning("Beatmap with checksum %s not found via OAuth (404)", checksum)
+                        api_logger.warning(
+                            "Beatmap with checksum %s not found via OAuth (404)",
+                            checksum,
+                        )
                         db_upsert_from_scan(checksum, {"lookup_status": "not_found"})
                         return self._set_in_progress_result_and_return(checksum, None)
                     raise
@@ -779,17 +847,19 @@ class OsuApiClient:
                 if not token:
                     api_logger.error("Failed to get token for lookup_osu")
                     return self._set_in_progress_result_and_return(checksum, None)
-                
+
                 headers = {"Authorization": f"Bearer {token}"}
                 params = {"checksum": checksum}
-                
+
                 response = self.session.get(url, headers=headers, params=params)
-                
+
                 if response.status_code == 404:
-                    api_logger.warning("Beatmap with checksum %s not found (404)", checksum)
+                    api_logger.warning(
+                        "Beatmap with checksum %s not found (404)", checksum
+                    )
                     db_upsert_from_scan(checksum, {"lookup_status": "not_found"})
                     return self._set_in_progress_result_and_return(checksum, None)
-                
+
                 response.raise_for_status()
                 api_data = response.json()
 
@@ -799,9 +869,9 @@ class OsuApiClient:
 
             bset = api_data.get("beatmapset", {})
             hobj = (
-                    api_data.get("count_circles", 0)
-                    + api_data.get("count_sliders", 0)
-                    + api_data.get("count_spinners", 0)
+                api_data.get("count_circles", 0)
+                + api_data.get("count_sliders", 0)
+                + api_data.get("count_spinners", 0)
             )
 
             result_data = {
@@ -870,7 +940,9 @@ class OsuApiClient:
                 f.write(content)
 
             api_logger.debug(f"File saved to {mask_path_for_log(target_path)}")
-            api_logger.info(f"Successfully downloaded and cached .osu file for beatmap_id {beatmap_id}")
+            api_logger.info(
+                f"Successfully downloaded and cached .osu file for beatmap_id {beatmap_id}"
+            )
 
             return target_path
 
@@ -929,7 +1001,9 @@ class OsuApiClient:
                     self.in_progress_lookups[checksum]["result"] = result
                     self.in_progress_lookups[checksum]["event"].set()
         except Exception:
-            api_logger.exception("Error setting in-progress result for checksum %s", checksum)
+            api_logger.exception(
+                "Error setting in-progress result for checksum %s", checksum
+            )
         return result
 
     @staticmethod
