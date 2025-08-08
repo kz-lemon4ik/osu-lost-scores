@@ -44,11 +44,8 @@ API_REQUESTS_PER_MINUTE=60
 # More than 1200 requests per minute will not work (upper limit)
 
 # OAuth Configuration
-BACKEND_BASE_URL=http://127.0.0.1:8000
-FRONTEND_BASE_URL=http://localhost:5174
-# For production, set:
-# BACKEND_BASE_URL=https://your-backend-domain.com
-# FRONTEND_BASE_URL=https://lost.lemon4ik.kz
+BACKEND_BASE_URL=https://api.lemon4ik.kz
+FRONTEND_BASE_URL=https://lost.lemon4ik.kz
 """
 PUBLIC_REQUESTS_PER_MINUTE = 1200
 dotenv_path_str_from_env_var = os.environ.get("DOTENV_PATH")
@@ -204,8 +201,8 @@ except ValueError:
     API_RETRY_DELAY = 0.5
 OSU_API_LOG_LEVEL = os.environ.get("OSU_API_LOG_LEVEL", "INFO")
 
-BACKEND_BASE_URL = os.environ.get("BACKEND_BASE_URL", "http://127.0.0.1:8000")
-FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "http://localhost:5174")
+BACKEND_BASE_URL = os.environ.get("BACKEND_BASE_URL", "https://api.lemon4ik.kz")
+FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "https://lost.lemon4ik.kz")
 OAUTH_CALLBACK_URL = f"{BACKEND_BASE_URL}/api/auth/callback"
 API_PROXY_BASE = f"{BACKEND_BASE_URL}/api/proxy"
 
