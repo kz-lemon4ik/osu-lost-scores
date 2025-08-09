@@ -1,5 +1,6 @@
 import logging
 import os
+import shutil
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -18,11 +19,9 @@ DB_FILE=beatmap_info.db
 
 # Path Settings
 CACHE_DIR=cache
-DATA_DIR=data
-MAPS_DIR=data/maps
-LOG_DIR=data/logs
-ANALYSIS_DIR=data/analysis
-IMAGES_DIR=data/images
+MAPS_DIR=cache/maps
+LOG_DIR=cache/logs
+RESULTS_DIR=results
 
 # Performance Configuration
 GUI_THREAD_POOL_SIZE=24   # For QThreadPool in GUI module
@@ -75,19 +74,15 @@ else:
         mask_path_for_log(str(dotenv_path)),
     )
 _cache_dir_name = os.environ.get("CACHE_DIR", "cache")
-_data_dir_name = os.environ.get("DATA_DIR", "data")
-_maps_dir_name = os.environ.get("MAPS_DIR", "data/maps")
-_log_dir_name = os.environ.get("LOG_DIR", "data/logs")
-_analysis_dir_name = os.environ.get("ANALYSIS_DIR", "data/analysis")
-_images_dir_name = os.environ.get("IMAGES_DIR", "data/images")
+_maps_dir_name = os.environ.get("MAPS_DIR", os.path.join(_cache_dir_name, "maps"))
+_log_dir_name = os.environ.get("LOG_DIR", os.path.join(_cache_dir_name, "logs"))
+_results_dir_name = os.environ.get("RESULTS_DIR", "results")
 _log_level_name = os.environ.get("LOG_LEVEL", "INFO")
 
 CACHE_DIR = get_standard_dir(_cache_dir_name)
-DATA_DIR = get_standard_dir(_data_dir_name)
 MAPS_DIR = get_standard_dir(_maps_dir_name)
 LOG_DIR = get_standard_dir(_log_dir_name)
-ANALYSIS_DIR = get_standard_dir(_analysis_dir_name)
-IMAGES_DIR = get_standard_dir(_images_dir_name)
+RESULTS_DIR = get_standard_dir(_results_dir_name)
 
 AVATAR_DIR = os.path.join(CACHE_DIR, "avatars")
 COVER_DIR = os.path.join(CACHE_DIR, "covers")
@@ -95,13 +90,84 @@ COVER_DIR = os.path.join(CACHE_DIR, "covers")
 LOG_LEVEL = _log_level_name
 
 os.makedirs(CACHE_DIR, exist_ok=True)
-os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(MAPS_DIR, exist_ok=True)
 os.makedirs(LOG_DIR, exist_ok=True)
-os.makedirs(ANALYSIS_DIR, exist_ok=True)
-os.makedirs(IMAGES_DIR, exist_ok=True)
+os.makedirs(RESULTS_DIR, exist_ok=True)
 os.makedirs(AVATAR_DIR, exist_ok=True)
 os.makedirs(COVER_DIR, exist_ok=True)
+
+
+def _migrate_legacy_storage():
+    def _move_dir_contents(src_dir, dst_dir):
+        if not os.path.isdir(src_dir):
+            return
+        try:
+            os.makedirs(dst_dir, exist_ok=True)
+            for entry in os.listdir(src_dir):
+                src_path = os.path.join(src_dir, entry)
+                dst_path = os.path.join(dst_dir, entry)
+                if os.path.exists(dst_path):
+                    continue
+                shutil.move(src_path, dst_path)
+            shutil.rmtree(src_dir, ignore_errors=True)
+        except Exception:
+            logger.exception(
+                "Failed to migrate legacy directory from %s to %s",
+                mask_path_for_log(src_dir),
+                mask_path_for_log(dst_dir),
+            )
+
+    legacy_analysis_dir = get_standard_dir("data/analysis")
+    legacy_images_dir = get_standard_dir("data/images")
+    legacy_logs_dir = get_standard_dir("data/logs")
+    legacy_maps_dir = get_standard_dir("data/maps")
+
+    if os.path.isdir(legacy_analysis_dir):
+        for entry in os.listdir(legacy_analysis_dir):
+            src = os.path.join(legacy_analysis_dir, entry)
+            dst = os.path.join(RESULTS_DIR, entry)
+            if os.path.exists(dst):
+                continue
+            try:
+                shutil.move(src, dst)
+            except Exception:
+                logger.exception(
+                    "Failed to move legacy analysis session %s to %s",
+                    mask_path_for_log(src),
+                    mask_path_for_log(dst),
+                )
+        shutil.rmtree(legacy_analysis_dir, ignore_errors=True)
+
+    if os.path.isdir(legacy_images_dir):
+        for entry in os.listdir(legacy_images_dir):
+            src = os.path.join(legacy_images_dir, entry)
+            dst = os.path.join(RESULTS_DIR, entry)
+            try:
+                if os.path.isdir(src):
+                    os.makedirs(dst, exist_ok=True)
+                    for image_name in os.listdir(src):
+                        image_src = os.path.join(src, image_name)
+                        image_dst = os.path.join(dst, image_name)
+                        if os.path.exists(image_dst):
+                            continue
+                        shutil.move(image_src, image_dst)
+                else:
+                    if not os.path.exists(dst):
+                        shutil.move(src, dst)
+            except Exception:
+                logger.exception(
+                    "Failed to migrate legacy images from %s to %s",
+                    mask_path_for_log(src),
+                    mask_path_for_log(dst),
+                )
+        shutil.rmtree(legacy_images_dir, ignore_errors=True)
+
+    _move_dir_contents(legacy_logs_dir, LOG_DIR)
+    _move_dir_contents(legacy_maps_dir, MAPS_DIR)
+
+
+
+_migrate_legacy_storage()
 
 _db_filename = os.environ.get("DB_FILE", "beatmap_info.db")
 DB_FILE = os.path.join(CACHE_DIR, _db_filename)

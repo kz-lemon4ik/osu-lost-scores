@@ -20,6 +20,7 @@ from database import db_close, db_init
 from gui import create_gui, show_api_limit_warning
 from osu_api import OsuApiClient
 from path_utils import get_env_path, get_standard_dir, mask_path_for_log
+from auth_manager import AuthMode
 
 
 def cleanup_old_app_logs(base_log_directory_str: str, days_to_keep: int = 7):
@@ -169,9 +170,7 @@ logging.info(
 
 def setup_api():
     try:
-        token_cache_path = get_standard_dir("cache/token_cache.json")
         api_client = OsuApiClient.get_instance(
-            token_cache_path=token_cache_path,
             api_rate_limit=API_RATE_LIMIT,
             api_retry_count=API_RETRY_COUNT,
             api_retry_delay=API_RETRY_DELAY,
@@ -216,7 +215,12 @@ def main():
 
     main_window.show()
 
-    show_api_limit_warning()
+    auth_mode = (
+        current_api_client.auth_mode
+        if current_api_client and hasattr(current_api_client, "auth_mode")
+        else AuthMode.LOGGED_OUT
+    )
+    show_api_limit_warning(auth_mode)
 
     exit_code = app.exec()
     db_close()

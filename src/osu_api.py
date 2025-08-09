@@ -10,7 +10,12 @@ from keyring.backends.Windows import WinVaultKeyring
 from keyring.errors import PasswordDeleteError
 from requests.adapters import HTTPAdapter
 
-from app_config import PUBLIC_REQUESTS_PER_MINUTE, MAP_DOWNLOAD_TIMEOUT, API_PROXY_BASE
+from app_config import (
+    PUBLIC_REQUESTS_PER_MINUTE,
+    MAP_DOWNLOAD_TIMEOUT,
+    API_PROXY_BASE,
+    API_RATE_LIMIT,
+)
 from database import db_get_map, db_upsert_from_scan
 from path_utils import get_env_path, mask_path_for_log
 from utils import RateLimiter
@@ -42,7 +47,6 @@ class OsuApiClient:
         self,
         client_id=None,
         client_secret=None,
-        token_cache_path=None,
         api_rate_limit=1.0,
         api_retry_count=3,
         api_retry_delay=0.5,
@@ -52,7 +56,6 @@ class OsuApiClient:
         self.api_rate_limit = api_rate_limit
         self.api_retry_count = api_retry_count
         self.api_retry_delay = api_retry_delay
-        self.token_cache_path = token_cache_path
         self.session = requests.Session()
         adapter = HTTPAdapter(pool_connections=20, pool_maxsize=20)
         self.session.mount("https://", adapter)
@@ -81,7 +84,6 @@ class OsuApiClient:
         cls,
         client_id=None,
         client_secret=None,
-        token_cache_path=None,
         api_rate_limit=1.0,
         api_retry_count=3,
         api_retry_delay=0.5,
@@ -97,14 +99,12 @@ class OsuApiClient:
                 cls._instance = cls(
                     client_id=client_id,
                     client_secret=client_secret,
-                    token_cache_path=token_cache_path,
                     api_rate_limit=api_rate_limit,
                     api_retry_count=api_retry_count,
                     api_retry_delay=api_retry_delay,
                 )
             else:
                 cls._instance = cls(
-                    token_cache_path=token_cache_path,
                     api_rate_limit=api_rate_limit,
                     api_retry_count=api_retry_count,
                     api_retry_delay=api_retry_delay,
@@ -135,6 +135,7 @@ class OsuApiClient:
         with self.state_lock:
             self.auth_mode = AuthMode.OAUTH
             self.base_url = API_PROXY_BASE
+            self.api_rate_limit = 0.0
             self.session.headers.clear()
             self.session.headers.update({"Authorization": f"Bearer {jwt_token}"})
             OsuApiClient._instance = self
@@ -149,6 +150,7 @@ class OsuApiClient:
             self.session.headers.clear()
             self.client_id = client_id
             self.client_secret = client_secret
+            self.api_rate_limit = API_RATE_LIMIT
             api_logger.info("OsuApiClient configured for Custom Keys mode")
 
         self._load_token_from_keyring()
@@ -957,12 +959,6 @@ class OsuApiClient:
             self.token_cache = None
             self._logged_cached_token_usage = False
         api_logger.info("All osu_api caches have been reset")
-        try:
-            if self.token_cache_path and os.path.exists(self.token_cache_path):
-                os.remove(self.token_cache_path)
-                api_logger.info(f"Token cache file removed: {self.token_cache_path}")
-        except (FileNotFoundError, PermissionError) as e:
-            api_logger.warning(f"Failed to remove cache files: {e}")
 
     def download_image(self, url, path):
         try:

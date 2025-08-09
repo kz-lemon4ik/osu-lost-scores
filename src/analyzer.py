@@ -6,13 +6,7 @@ import time
 import requests
 from concurrent.futures import ThreadPoolExecutor
 
-from app_config import (
-    ANALYSIS_DIR,
-    CUTOFF_DATE,
-    IO_THREAD_POOL_SIZE,
-    MAPS_DIR,
-    IMAGES_DIR,
-)
+from app_config import CUTOFF_DATE, IO_THREAD_POOL_SIZE, MAPS_DIR, RESULTS_DIR
 from database import db_get_map, db_init, db_update_from_api, db_upsert_from_scan
 from file_parser import file_parser
 from generate_image import create_summary_badge
@@ -1144,16 +1138,12 @@ def make_top(
     }
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    analysis_session_dir = os.path.join(ANALYSIS_DIR, timestamp)
+    analysis_session_dir = os.path.join(RESULTS_DIR, timestamp)
     os.makedirs(analysis_session_dir, exist_ok=True)
-
-    images_session_dir = os.path.join(IMAGES_DIR, timestamp)
 
     # noinspection PyBroadException
     try:
-        os.makedirs(images_session_dir, exist_ok=True)
-
-        badge_path = os.path.join(images_session_dir, "summary_badge.png")
+        badge_path = os.path.join(analysis_session_dir, "summary_badge.png")
         create_summary_badge(badge_data, badge_path, osu_api_client=osu_api_client)
         if gui_log:
             gui_log("Summary badge created successfully", update_last=False)
@@ -1195,5 +1185,5 @@ def make_top(
             gui_log("Failed to save analysis results", update_last=False)
 
     complete_analysis["session_dir"] = analysis_session_dir
-    complete_analysis["images_dir"] = images_session_dir
+    complete_analysis["images_dir"] = analysis_session_dir
     return complete_analysis

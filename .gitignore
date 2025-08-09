@@ -20,9 +20,9 @@ dist/
 *.bak
 
 cache/
-data/
+results/
+config/
 scripts/
-log/
 
 build.py
 bootstrap.py

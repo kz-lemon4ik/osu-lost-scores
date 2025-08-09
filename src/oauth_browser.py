@@ -63,8 +63,12 @@ class BrowserOAuthFlow:
                         )
                         flow.received_token = jwt_token
 
-                        # Redirect to frontend success page
-                        frontend_url = f"{FRONTEND_BASE_URL}/oauth/success?username={username}&user_id={user_id}&source=desktop"
+                        # Redirect to frontend success page with JWT token
+                        frontend_url = (
+                            f"{FRONTEND_BASE_URL}/oauth/success"
+                            f"?jwt_token={jwt_token}&username={username}"
+                            f"&user_id={user_id}&source=desktop"
+                        )
 
                         self.send_response(302)
                         self.send_header("Location", frontend_url)

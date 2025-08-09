@@ -28,7 +28,7 @@ def mask_path_for_log(path):
         return path
     try:
         path = path.replace("\\", "/") if isinstance(path, str) else path
-        base_dirs = ["cache", "maps", "data", "log"]
+        base_dirs = ["cache", "results", "config"]
         project_root = get_project_root().replace("\\", "/")
 
         for base_name in base_dirs:

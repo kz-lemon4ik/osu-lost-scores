@@ -76,15 +76,14 @@ from PySide6.QtWidgets import (
 import generate_image as img_mod
 from analyzer import make_top, scan_replays
 from app_config import (
-    ANALYSIS_DIR,
     API_REQUESTS_PER_MINUTE,
     AVATAR_DIR,
     CACHE_DIR,
     DB_FILE,
     GUI_THREAD_POOL_SIZE,
-    IMAGES_DIR,
     LOG_DIR,
     MAPS_DIR,
+    RESULTS_DIR,
 )
 from database import db_close, db_init
 from file_parser import file_parser
@@ -117,7 +116,18 @@ FONT_PATH = get_standard_dir("assets/fonts")
 BACKGROUND_FOLDER_PATH = get_standard_dir("assets/images/background")
 BACKGROUND_IMAGE_PATH = get_standard_dir("assets/images/background/bg.png")
 APP_ICON_PATH = get_standard_dir("assets/images/app_icon/icon.ico")
-CONFIG_PATH = get_standard_dir("data/gui_config.json")
+CONFIG_PATH = get_standard_dir("config/gui_config.json")
+LEGACY_CONFIG_PATH = get_standard_dir("data/gui_config.json")
+if os.path.exists(LEGACY_CONFIG_PATH) and not os.path.exists(CONFIG_PATH):
+    os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
+    try:
+        shutil.move(LEGACY_CONFIG_PATH, CONFIG_PATH)
+    except Exception:
+        logger.exception(
+            "Failed to migrate legacy GUI config from %s to %s",
+            mask_path_for_log(os.path.normpath(LEGACY_CONFIG_PATH)),
+            mask_path_for_log(os.path.normpath(CONFIG_PATH)),
+        )
 os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
 
 
@@ -138,7 +148,10 @@ def load_qss():
 
 
 # noinspection PyTypeChecker
-def show_api_limit_warning():
+def show_api_limit_warning(auth_mode: AuthMode):
+    if auth_mode is not AuthMode.CUSTOM_KEYS:
+        return
+
     if 60 < API_REQUESTS_PER_MINUTE <= 1200:
         QMessageBox.warning(
             None,  # type: ignore
@@ -2388,33 +2401,30 @@ class MainWindow(QWidget):
             QMessageBox.information(
                 self,
                 "Done",
-                "Analysis completed! You can find images in the timestamped folder. Click 'See Full Results' to view detailed data.\n\nThe images folder will now be opened",
+                "Analysis completed! Results are stored in the timestamped folder. Click 'See Full Results' to inspect the JSON and summary image.\n\nThe latest results folder will now be opened.",
             )
 
-            images_dir = (
+            results_dir = (
                 self.scan_results.get("images_dir") if self.scan_results else None
             )
-            logger.debug(f"scan_results.images_dir: {images_dir}")
+            logger.debug(f"scan_results.images_dir: {results_dir}")
 
-            if not images_dir:
+            if not results_dir:
                 from utils import find_latest_images_session
 
-                images_dir = find_latest_images_session()
-                logger.debug(f"Found latest images session: {images_dir}")
+                results_dir = find_latest_images_session()
+                logger.debug(f"Found latest results session: {results_dir}")
 
-            if images_dir and os.path.exists(images_dir) and os.path.isdir(images_dir):
+            if results_dir and os.path.exists(results_dir) and os.path.isdir(results_dir):
                 self.append_log(
-                    f"Opening images folder: {mask_path_for_log(images_dir)}", False
+                    f"Opening results folder: {mask_path_for_log(results_dir)}", False
                 )
-                self.open_folder(images_dir)
-            else:
-                images_base_dir = get_standard_dir("data/images")
-                if os.path.exists(images_base_dir) and os.path.isdir(images_base_dir):
-                    self.append_log(
-                        f"Opening images folder: {mask_path_for_log(images_base_dir)}",
-                        False,
-                    )
-                    self.open_folder(images_base_dir)
+                self.open_folder(results_dir)
+            elif os.path.exists(RESULTS_DIR) and os.path.isdir(RESULTS_DIR):
+                self.append_log(
+                    f"Opening results folder: {mask_path_for_log(RESULTS_DIR)}", False
+                )
+                self.open_folder(RESULTS_DIR)
 
         except Exception as e:
             logger.error(f"Error showing completion dialog: {e}")
@@ -2653,9 +2663,9 @@ class MainWindow(QWidget):
         images_dir = self.scan_results.get("images_dir") if self.scan_results else None
         if images_dir:
             timestamp = os.path.basename(images_dir)
-            self.append_log(f"Images created in data/images/{timestamp}/", False)
+            self.append_log(f"Results stored in results/{timestamp}/", False)
         else:
-            self.append_log("Images created", False)
+            self.append_log("Results stored", False)
         if self.progress_bar:
             self.progress_bar.setValue(100)
         self.current_task = "Image creation stage completed"
@@ -2887,6 +2897,9 @@ class MainWindow(QWidget):
                 user_data, scan_data=potential_stats
             )
 
+        if self.osu_api_client and self.osu_api_client.auth_mode == AuthMode.CUSTOM_KEYS:
+            show_api_limit_warning(AuthMode.CUSTOM_KEYS)
+
         self.set_ui_busy(False)
 
     def change_user(self, new_username):
@@ -3001,7 +3014,7 @@ class MainWindow(QWidget):
         self.append_log("Closing database connection before cleanup...", False)
         db_close()
 
-        folders_to_clean = [CACHE_DIR, LOG_DIR, ANALYSIS_DIR, IMAGES_DIR, MAPS_DIR]
+        folders_to_clean = [CACHE_DIR, LOG_DIR, MAPS_DIR]
 
         config_backup = None
         if os.path.exists(CONFIG_PATH):
@@ -3227,7 +3240,8 @@ if __name__ == "__main__":
     main_window, main_app = create_gui()
     main_window.show()
 
-    show_api_limit_warning()
+    session = main_window.auth_manager.get_current_session()
+    show_api_limit_warning(session.auth_mode)
 
     exit_code = main_app.exec()
     db_close()

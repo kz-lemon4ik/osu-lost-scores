@@ -285,58 +285,28 @@ def load_summary_stats_from_json(json_data):
 
 
 def find_latest_analysis_session():
-    try:
-        analysis_dir = get_standard_dir("data/analysis")
-        if not os.path.exists(analysis_dir):
-            return None
-
-        sessions = []
-        for item in os.listdir(analysis_dir):
-            item_path = os.path.join(analysis_dir, item)
-            if os.path.isdir(item_path) and len(item) == 19:  # YYYY-MM-DD_HH-MM-SS
-                try:
-                    datetime.strptime(item, "%Y-%m-%d_%H-%M-%S")
-                    sessions.append(item)
-                except ValueError:
-                    continue
-
-        if not sessions:
-            return None
-
-        sessions.sort(reverse=True)
-        latest_session = sessions[0]
-
-        return os.path.join(analysis_dir, latest_session)
-
-    except Exception as e:
-        logger.exception("Error finding latest analysis session: %s", e)
+    results_dir = get_standard_dir("results")
+    if not os.path.exists(results_dir):
         return None
+
+    sessions = []
+    for item in os.listdir(results_dir):
+        item_path = os.path.join(results_dir, item)
+        if os.path.isdir(item_path) and len(item) == 19:
+            try:
+                datetime.strptime(item, "%Y-%m-%d_%H-%M-%S")
+                sessions.append(item)
+            except ValueError:
+                continue
+
+    if not sessions:
+        return None
+
+    sessions.sort(reverse=True)
+    latest_session = sessions[0]
+
+    return os.path.join(results_dir, latest_session)
 
 
 def find_latest_images_session():
-    try:
-        images_dir = get_standard_dir("data/images")
-        if not os.path.exists(images_dir):
-            return None
-
-        sessions = []
-        for item in os.listdir(images_dir):
-            item_path = os.path.join(images_dir, item)
-            if os.path.isdir(item_path) and len(item) == 19:  # YYYY-MM-DD_HH-MM-SS
-                try:
-                    datetime.strptime(item, "%Y-%m-%d_%H-%M-%S")
-                    sessions.append(item)
-                except ValueError:
-                    continue
-
-        if not sessions:
-            return None
-
-        sessions.sort(reverse=True)
-        latest_session = sessions[0]
-
-        return os.path.join(images_dir, latest_session)
-
-    except Exception as e:
-        logger.exception("Error finding latest images session: %s", e)
-        return None
+    return find_latest_analysis_session()

@@ -7,7 +7,7 @@ import requests
 from PIL import Image, ImageDraw, ImageFont, UnidentifiedImageError
 from requests.exceptions import RequestException
 
-from app_config import AVATAR_DIR, COVER_DIR, IMAGES_DIR
+from app_config import AVATAR_DIR, COVER_DIR, RESULTS_DIR
 from database import db_get_map
 from file_parser import file_parser
 from path_utils import get_standard_dir, mask_path_for_log
@@ -796,7 +796,7 @@ def _prepare_image_data(
             )
     if session_dir:
         timestamp = os.path.basename(session_dir)
-        images_session_dir = os.path.join(IMAGES_DIR, timestamp)
+        images_session_dir = session_dir
         os.makedirs(images_session_dir, exist_ok=True)
 
         json_path = os.path.join(session_dir, "analysis_results.json")
@@ -807,14 +807,14 @@ def _prepare_image_data(
         latest_session = find_latest_analysis_session()
         if latest_session:
             timestamp = os.path.basename(latest_session)
-            images_session_dir = os.path.join(IMAGES_DIR, timestamp)
+            images_session_dir = latest_session
             os.makedirs(images_session_dir, exist_ok=True)
 
             json_path = os.path.join(latest_session, "analysis_results.json")
             analysis_data = load_analysis_from_json(json_path)
         else:
             analysis_data = None
-            images_session_dir = IMAGES_DIR
+            images_session_dir = RESULTS_DIR
 
     if analysis_data:
         if mode == "lost":

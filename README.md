@@ -45,9 +45,9 @@ src/
   file_parser.py
   oauth_browser.py
 assets/              # icons, fonts, styles
-cache/               # avatars and beatmap metadata cached by the app
-data/                # JSON reports and generated screenshots
-log/                 # application logs
+cache/               # avatars, beatmap DB, token cache, API logs, temporary maps
+results/             # timestamped folders with analysis_results.json + summary_badge.png
+config/              # persisted GUI settings (gui_config.json)
 ```
 
 Issues and feature requests are welcome. Please reference related tasks when opening issues so desktop and backend changes stay aligned.
