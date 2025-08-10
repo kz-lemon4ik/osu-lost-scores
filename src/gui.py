@@ -1,4 +1,4 @@
-import json
+import configparser
 import logging
 import inspect
 import os
@@ -84,6 +84,7 @@ from app_config import (
     LOG_DIR,
     MAPS_DIR,
     RESULTS_DIR,
+    SETTINGS_PATH,
 )
 from database import db_close, db_init
 from file_parser import file_parser
@@ -116,19 +117,7 @@ FONT_PATH = get_standard_dir("assets/fonts")
 BACKGROUND_FOLDER_PATH = get_standard_dir("assets/images/background")
 BACKGROUND_IMAGE_PATH = get_standard_dir("assets/images/background/bg.png")
 APP_ICON_PATH = get_standard_dir("assets/images/app_icon/icon.ico")
-CONFIG_PATH = get_standard_dir("config/gui_config.json")
-LEGACY_CONFIG_PATH = get_standard_dir("data/gui_config.json")
-if os.path.exists(LEGACY_CONFIG_PATH) and not os.path.exists(CONFIG_PATH):
-    os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
-    try:
-        shutil.move(LEGACY_CONFIG_PATH, CONFIG_PATH)
-    except Exception:
-        logger.exception(
-            "Failed to migrate legacy GUI config from %s to %s",
-            mask_path_for_log(os.path.normpath(LEGACY_CONFIG_PATH)),
-            mask_path_for_log(os.path.normpath(CONFIG_PATH)),
-        )
-os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
+GUI_SECTION = "gui"
 
 
 def load_qss():
@@ -1829,8 +1818,9 @@ class MainWindow(QWidget):
         self.setFixedSize(650, 800)
         self.setObjectName("mainWindow")
 
-        config_dir = get_standard_dir("config")
-        self.auth_manager = AuthManager(config_dir)
+        auth_cache_dir = os.path.join(CACHE_DIR, "auth")
+        os.makedirs(auth_cache_dir, exist_ok=True)
+        self.auth_manager = AuthManager(auth_cache_dir)
         self.oauth_flow = BrowserOAuthFlow(self.auth_manager)
 
         self.load_config()
@@ -1865,12 +1855,28 @@ class MainWindow(QWidget):
 
     def load_config(self):
         self.config = {}
+        parser = configparser.ConfigParser()
+        parser.optionxform = str
         try:
-            if os.path.exists(CONFIG_PATH):
-                with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                    self.config = json.load(f)
+            if os.path.exists(SETTINGS_PATH):
+                parser.read(SETTINGS_PATH, encoding="utf-8")
+            if parser.has_section(GUI_SECTION):
+                section = parser[GUI_SECTION]
+                self.config["osu_path"] = section.get("osu_path", "")
+                self.config["username"] = section.get("username", "")
+                self.config["scores_count"] = section.get("scores_count", "")
+                self.config["avatar_path"] = section.get("avatar_path", "")
+                self.config["include_unranked"] = section.getboolean(
+                    "include_unranked", fallback=False
+                )
+                self.config["check_missing_ids"] = section.getboolean(
+                    "check_missing_ids", fallback=False
+                )
+                self.config["show_lost"] = section.getboolean(
+                    "show_lost", fallback=False
+                )
                 logger.info(
-                    "Configuration loaded from %s", mask_path_for_log(CONFIG_PATH)
+                    "Configuration loaded from %s", mask_path_for_log(str(SETTINGS_PATH))
                 )
         except Exception as e:
             logger.error(f"Error loading configuration: {e}")
@@ -1937,11 +1943,24 @@ class MainWindow(QWidget):
                 except RuntimeError:
                     self.config["show_lost"] = False
 
-            with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-                json.dump(self.config, f, indent=4)
+            parser = configparser.ConfigParser()
+            parser.optionxform = str
+            if os.path.exists(SETTINGS_PATH):
+                parser.read(SETTINGS_PATH, encoding="utf-8")
+            if not parser.has_section(GUI_SECTION):
+                parser.add_section(GUI_SECTION)
+
+            for key, value in self.config.items():
+                if isinstance(value, bool):
+                    parser.set(GUI_SECTION, key, "true" if value else "false")
+                else:
+                    parser.set(GUI_SECTION, key, str(value))
+
+            with open(SETTINGS_PATH, "w", encoding="utf-8") as fp:
+                parser.write(fp)
             logger.info(
                 "Configuration saved to %s",
-                mask_path_for_log(os.path.normpath(CONFIG_PATH)),
+                mask_path_for_log(os.path.normpath(str(SETTINGS_PATH))),
             )
         except Exception as e:
             logger.error("Error saving configuration: %s", e)
@@ -3016,14 +3035,6 @@ class MainWindow(QWidget):
 
         folders_to_clean = [CACHE_DIR, LOG_DIR, MAPS_DIR]
 
-        config_backup = None
-        if os.path.exists(CONFIG_PATH):
-            try:
-                with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                    config_backup = f.read()
-            except (IOError, OSError):
-                pass
-
         for folder in folders_to_clean:
             if os.path.exists(folder):
                 try:
@@ -3037,13 +3048,6 @@ class MainWindow(QWidget):
         for folder in folders_to_clean:
             try:
                 os.makedirs(folder, exist_ok=True)
-            except (IOError, OSError):
-                pass
-
-        if config_backup and not os.path.exists(CONFIG_PATH):
-            try:
-                with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-                    f.write(config_backup)
             except (IOError, OSError):
                 pass
 

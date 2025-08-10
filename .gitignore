@@ -7,10 +7,6 @@ __pycache__/
 .venv/
 venv/
 
-.env
-.env.*
-!.env.example
-
 .vscode/
 .idea/
 
@@ -21,7 +17,8 @@ dist/
 
 cache/
 results/
-config/
+settings.local
+settings.prod
 scripts/
 
 build.py

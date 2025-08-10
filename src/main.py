@@ -19,7 +19,7 @@ from app_config import (
 from database import db_close, db_init
 from gui import create_gui, show_api_limit_warning
 from osu_api import OsuApiClient
-from path_utils import get_env_path, get_standard_dir, mask_path_for_log
+from path_utils import get_standard_dir, mask_path_for_log
 from auth_manager import AuthMode
 
 
@@ -86,8 +86,6 @@ def setup_file_logger(logger_name, file_path, level=logging.DEBUG, formatter=Non
     return logger
 
 
-env_path = get_env_path()
-os.environ["DOTENV_PATH"] = env_path
 if not os.path.exists(LOG_DIR):
     try:
         os.makedirs(LOG_DIR, exist_ok=True)

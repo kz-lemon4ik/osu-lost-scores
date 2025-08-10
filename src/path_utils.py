@@ -14,8 +14,8 @@ def get_project_root() -> str:
     return _exe_root() or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-def get_env_path():
-    return os.path.join(get_project_root(), ".env")
+def get_settings_path():
+    return os.path.join(get_project_root(), "settings.ini")
 
 
 def get_standard_dir(dir_name):
@@ -28,7 +28,7 @@ def mask_path_for_log(path):
         return path
     try:
         path = path.replace("\\", "/") if isinstance(path, str) else path
-        base_dirs = ["cache", "results", "config"]
+        base_dirs = ["cache", "results"]
         project_root = get_project_root().replace("\\", "/")
 
         for base_name in base_dirs:

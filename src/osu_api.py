@@ -17,7 +17,7 @@ from app_config import (
     API_RATE_LIMIT,
 )
 from database import db_get_map, db_upsert_from_scan
-from path_utils import get_env_path, mask_path_for_log
+from path_utils import mask_path_for_log
 from utils import RateLimiter
 from auth_manager import AuthMode
 
@@ -34,11 +34,6 @@ class OAuthSessionExpiredException(Exception):
 
 
 ACCESS_TOKEN_KEY = "access_token"
-
-ENV_PATH = os.environ.get("DOTENV_PATH")
-if not ENV_PATH or not os.path.exists(ENV_PATH):
-    ENV_PATH = get_env_path()
-
 
 class OsuApiClient:
     _instance = None

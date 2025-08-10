@@ -28,7 +28,7 @@ pip install -r requirements.txt
 python src/main.py
 ```
 
-At first launch the app will generate a `.env` file with default settings (no secrets). Values can be edited manually if you need to adjust paths or API limits.
+At first launch the app will generate a `settings.ini` with default values (no secrets). Tweak the `[paths]`, `[api]`, or `[oauth]` sections there to match your environment; the GUI preferences live under `[gui]` in the same file so everything stays in one place.
 
 ## Repository layout (today)
 
@@ -37,7 +37,7 @@ src/
   analyzer.py        # main scanning pipeline (still monolithic)
   generate_image.py  # image generation helpers
   gui.py             # PySide6 windows and widgets
-  app_config.py      # loads `.env` and default paths
+  app_config.py      # loads settings.ini and exposes resolved paths
   osu_api.py         # direct osu! API helpers
   database.py        # legacy SQLite helpers
   utils.py
@@ -47,7 +47,7 @@ src/
 assets/              # icons, fonts, styles
 cache/               # avatars, beatmap DB, token cache, API logs, temporary maps
 results/             # timestamped folders with analysis_results.json + summary_badge.png
-config/              # persisted GUI settings (gui_config.json)
+settings.template.ini
 ```
 
 Issues and feature requests are welcome. Please reference related tasks when opening issues so desktop and backend changes stay aligned.
