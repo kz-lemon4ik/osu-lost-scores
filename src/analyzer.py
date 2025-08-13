@@ -3,15 +3,18 @@ from datetime import datetime
 import logging
 import os
 import time
+from typing import Optional
 import requests
 from concurrent.futures import ThreadPoolExecutor
 
 from app_config import CUTOFF_DATE, IO_THREAD_POOL_SIZE, MAPS_DIR, RESULTS_DIR
-from database import db_get_map, db_init, db_update_from_api, db_upsert_from_scan
+from data_provider import BaseDataProvider, LocalCacheDataProvider
+from database import db_init
 from file_parser import file_parser
 from generate_image import create_summary_badge
 from osu_api import OAuthSessionExpiredException
 from path_utils import mask_path_for_log
+from scan_session import ScanSession
 from utils import (
     create_analysis_json_structure,
     process_in_batches,
@@ -142,7 +145,7 @@ def find_lost_scores(scores, cutoff_date):
     return final_lost_results, total_candidates_found
 
 
-def parse_top(raw):
+def parse_top(raw, data_provider: Optional[BaseDataProvider] = None):
     calc_acc = file_parser.get_calc_acc()
 
     def format_date(iso_str):
@@ -161,7 +164,9 @@ def parse_top(raw):
             if beatmap_id is None:
                 return None
 
-            map_db_data = db_get_map(beatmap_id, by="id")
+            map_db_data = None
+            if data_provider:
+                map_db_data = data_provider.get_map(beatmap_id, by="id")
 
             final_map_data = {}
             if map_db_data:
@@ -241,6 +246,8 @@ def scan_replays(
     include_unranked=False,
     check_missing_ids=False,
     osu_api_client=None,
+    session: Optional[ScanSession] = None,
+    data_provider: Optional[BaseDataProvider] = None,
 ):
     if not osu_api_client:
         raise ValueError("API client not provided")
@@ -251,6 +258,7 @@ def scan_replays(
         "maps_downloaded": 0,
         "maps_not_found_resolve": 0,
     }
+    session.summary_stats = summary_stats
     phase_definitions = {
         "init": {
             "name": "Initialization",
@@ -315,6 +323,9 @@ def scan_replays(
     if progress_callback:
         progress_callback(0, 100)
 
+    session = session or ScanSession()
+    provider: BaseDataProvider = data_provider or LocalCacheDataProvider(session)
+
     announce_phase_start("init", phase_definitions, gui_log, phase_logger=logger)
 
     songs = os.path.join(game_dir, "Songs")
@@ -333,6 +344,15 @@ def scan_replays(
         if not user_json:
             raise ValueError(f"User not found: {user_identifier}")
         username, user_id = user_json["username"], user_json["id"]
+        session.username = username
+        session.user_id = user_id
+        session.metadata.update(
+            {
+                "user_identifier": user_identifier,
+                "lookup_key": lookup_key,
+                "game_dir": game_dir,
+            }
+        )
         if gui_log:
             gui_log(
                 f"User found: {username} (https://osu.ppy.sh/users/{user_id})", False
@@ -412,9 +432,8 @@ def scan_replays(
     summary_stats["parsed_replays"] = len(all_replay_data)
     replays_with_osu, replays_missing_osu = [], []
     for r_data in all_replay_data:
-        if r_data.get("beatmap_md5") and db_get_map(
-            r_data.get("beatmap_md5"), by="md5"
-        ):
+        md5 = r_data.get("beatmap_md5")
+        if md5 and provider.get_map(md5, by="md5"):
             replays_with_osu.append(r_data)
         else:
             replays_missing_osu.append(r_data)
@@ -481,7 +500,7 @@ def scan_replays(
                             "api_status": lookup_result.get("api_status"),
                             "lookup_status": "found",
                         }
-                        db_upsert_from_scan(md5, update_data)
+                        provider.save_scan_result(md5, update_data)
                         for r_data in md5_to_replays_map[md5]:
                             replays_for_pp_calc.append((r_data, lookup_result))
                 else:
@@ -508,6 +527,7 @@ def scan_replays(
     )
     try:
         top_scores = osu_api_client.top_osu(user_id, limit=200)
+        session.top_scores = top_scores or []
         if top_scores:
             unique_maps_to_cache = {
                 (s["beatmap"]["id"], s["beatmapset"]["id"]): (
@@ -522,7 +542,7 @@ def scan_replays(
                 if not beatmap_id:
                     continue
 
-                map_data_from_db = db_get_map(beatmap_id, by="id")
+                map_data_from_db = provider.get_map(beatmap_id, by="id")
                 if not map_data_from_db or not map_data_from_db.get("md5_hash"):
                     continue
 
@@ -541,7 +561,7 @@ def scan_replays(
                     "hit_objects": hit_objects,
                     "beatmapset_id": beatmapset.get("id"),
                 }
-                db_update_from_api(beatmap_id, update_data)
+                provider.update_map_from_api(beatmap_id, update_data)
 
             summary_stats["precached_maps"] = len(unique_maps_to_cache)
             logger.info(f"Pre-caching complete for {len(unique_maps_to_cache)} maps")
@@ -637,7 +657,7 @@ def scan_replays(
         for score in lost:
             md5 = score.get("beatmap_md5")
             if md5:
-                fresh_map_data = db_get_map(md5, by="md5")
+                fresh_map_data = provider.get_map(md5, by="md5")
                 if fresh_map_data:
                     updated_score = score.copy()
                     updated_score.update(fresh_map_data)
@@ -665,7 +685,7 @@ def scan_replays(
     if not include_unranked:
         md5s_to_check = {rec["beatmap_md5"] for rec in lost if rec.get("beatmap_md5")}
         for md5 in md5s_to_check:
-            map_data = db_get_map(md5, by="md5")
+            map_data = provider.get_map(md5, by="md5")
             if (
                 map_data
                 and map_data.get("beatmap_id")
@@ -698,12 +718,12 @@ def scan_replays(
                 "creator": beatmap_data.get("beatmapset", {}).get("creator"),
                 "version": beatmap_data.get("version"),
             }
-            db_update_from_api(beatmap_id, update_data)
+            provider.update_map_from_api(beatmap_id, update_data)
 
         found_ids = set(api_results.keys())
         deleted_ids = [bid for bid in unique_ids if bid not in found_ids]
         for beatmap_id in deleted_ids:
-            db_update_from_api(beatmap_id, {"api_status": "deleted"})
+            provider.update_map_from_api(beatmap_id, {"api_status": "deleted"})
 
         summary_stats["maps_validated"] = len(found_ids)
         summary_stats["maps_deleted_on_validate"] = len(deleted_ids)
@@ -726,7 +746,7 @@ def scan_replays(
         if not md5 or md5 in processed_md5s:
             continue
 
-        final_map_data = db_get_map(md5, by="md5")
+        final_map_data = provider.get_map(md5, by="md5")
         if not final_map_data:
             continue
 
@@ -744,6 +764,7 @@ def scan_replays(
     summary_stats["lost_scores_found"] = len(final_lost_list)
 
     final_lost_count = len(final_lost_list)
+    session.lost_scores = final_lost_list
 
     announce_phase_start("saving", phase_definitions, gui_log, phase_logger=logger)
 
@@ -825,6 +846,8 @@ def make_top(
     progress_callback=None,
     osu_api_client=None,
     include_unranked=False,
+    session: Optional[ScanSession] = None,
+    data_provider: Optional[BaseDataProvider] = None,
 ):
     if not osu_api_client:
         raise ValueError("API client not provided")
@@ -848,6 +871,9 @@ def make_top(
     start = time.time()
     if gui_log:
         gui_log("Creating potential top...", update_last=False)
+    session = session or ScanSession()
+    provider: BaseDataProvider = data_provider or LocalCacheDataProvider(session)
+
     db_init()
     if progress_callback:
         progress_callback(10, 100)
@@ -883,7 +909,7 @@ def make_top(
         progress_callback(50, 100)
 
     raw_top = osu_api_client.top_osu(user_id, limit=200)
-    top_data = parse_top(raw_top)
+    top_data = parse_top(raw_top, provider)
     top_data = calc_weight(top_data)
     total_weight_pp = sum(item["weight_PP"] for item in top_data)
     diff = overall_pp - total_weight_pp
@@ -944,7 +970,7 @@ def make_top(
     for entry in top_data:
         try:
             bid = int(entry["Beatmap ID"])
-            map_data = db_get_map(bid, by="id")
+            map_data = provider.get_map(bid, by="id")
             if map_data:
                 entry["artist"] = map_data.get("artist", "")
                 entry["title"] = map_data.get("title", "")
@@ -1186,4 +1212,6 @@ def make_top(
 
     complete_analysis["session_dir"] = analysis_session_dir
     complete_analysis["images_dir"] = analysis_session_dir
+    session.metadata["analysis_dir"] = analysis_session_dir
+    session.replay_manifest = complete_analysis.get("replay_manifest", [])
     return complete_analysis

@@ -75,6 +75,7 @@ from PySide6.QtWidgets import (
 
 import generate_image as img_mod
 from analyzer import make_top, scan_replays
+from data_provider import LocalCacheDataProvider, ServerDataProvider
 from app_config import (
     API_REQUESTS_PER_MINUTE,
     AVATAR_DIR,
@@ -98,6 +99,7 @@ from utils import (
     load_summary_stats,
 )
 from auth_manager import AuthManager, AuthMode
+from scan_session import ScanSession
 from oauth_browser import BrowserOAuthFlow
 from osu_api import OAuthSessionExpiredException
 
@@ -1798,6 +1800,9 @@ class MainWindow(QWidget):
         self.threadpool = QThreadPool()
         self.threadpool.setMaxThreadCount(GUI_THREAD_POOL_SIZE)
 
+        self.active_scan_session: ScanSession | None = None
+        self.active_data_provider = None
+
         self.background_pixmap = None
         self.scaled_background_pixmap = None
         self.title_label = None
@@ -1881,6 +1886,11 @@ class MainWindow(QWidget):
         except Exception as e:
             logger.error(f"Error loading configuration: {e}")
             self.config = {}
+
+    def _build_data_provider(self, session: ScanSession):
+        # Server-backed provider will be plugged in once the OAuth flow stops relying on
+        # local cache. For now both modes use the legacy cache to keep scans functional.
+        return LocalCacheDataProvider(session)
 
     def save_config(self):
         try:
@@ -2489,6 +2499,11 @@ class MainWindow(QWidget):
             else False
         )
 
+        session = ScanSession()
+        provider = self._build_data_provider(session)
+        self.active_scan_session = session
+        self.active_data_provider = provider
+
         worker = Worker(
             scan_replays,
             game_dir,
@@ -2497,6 +2512,8 @@ class MainWindow(QWidget):
             include_unranked=include_unranked,
             check_missing_ids=check_missing_ids,
             osu_api_client=self.osu_api_client,
+            session=session,
+            data_provider=provider,
         )
         worker.signals.progress.connect(self.update_progress_bar)
         worker.signals.log.connect(self.append_log)
@@ -2518,6 +2535,11 @@ class MainWindow(QWidget):
             self.top_completed.set()
             return
 
+        session = self.active_scan_session or ScanSession()
+        provider = self.active_data_provider or self._build_data_provider(session)
+        self.active_scan_session = session
+        self.active_data_provider = provider
+
         self.append_log("Generating potential top...", True)
         worker = Worker(
             make_top,
@@ -2533,6 +2555,8 @@ class MainWindow(QWidget):
                 and self.user_profile_widget.unranked_toggle
                 else False
             ),
+            session=session,
+            data_provider=provider,
         )
         worker.signals.log.connect(self.append_log)
         worker.signals.progress.connect(self.update_progress_bar)
@@ -3062,6 +3086,8 @@ class MainWindow(QWidget):
         file_parser.reset_in_memory_caches()
         if self.osu_api_client:
             self.osu_api_client.reset_caches()
+        self.active_scan_session = None
+        self.active_data_provider = None
         self.append_log("Application data has been cleared", False)
 
         QMessageBox.information(self, "Success", "Cache cleared successfully")
