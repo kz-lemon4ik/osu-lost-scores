@@ -228,6 +228,11 @@ fn frames_text(stream: &[u8]) -> Option<Vec<u8>> {
 }
 
 fn whole_stream(stream: &[u8], unpacked_size: UnpackedSize) -> Option<Vec<u8>> {
+    // lzma-rs skips the first byte of the range coder; a whole LZMA stream has
+    // a zero there, as the decoder this replaced demanded.
+    if stream.get(13).copied() != Some(0) {
+        return None;
+    }
     let mut input = io::Cursor::new(stream);
     let mut output = Capped(Vec::new());
     let options = Options {
@@ -476,6 +481,19 @@ mod tests {
             assert_eq!(
                 ReplayHeader::check(&with_frames(frames)),
                 Err(ReplayError::Frames)
+            );
+        }
+    }
+
+    #[test]
+    fn a_nonzero_range_coder_lead_byte_is_refused() {
+        for bit in 0..8 {
+            let mut frames = FRAMES.to_vec();
+            frames[13] ^= 1 << bit;
+            assert_eq!(
+                ReplayHeader::check(&with_frames(&frames)),
+                Err(ReplayError::Frames),
+                "{bit}"
             );
         }
     }

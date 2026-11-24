@@ -13,6 +13,13 @@ const RANKED_IN_STANDARD: GameModsLegacy = GameModsLegacy::NoFail
     .union(GameModsLegacy::SpunOut)
     .union(GameModsLegacy::Perfect);
 
+const NIGHTCORE_ONLY: u32 = GameModsLegacy::Nightcore
+    .difference(GameModsLegacy::DoubleTime)
+    .bits();
+const PERFECT_ONLY: u32 = GameModsLegacy::Perfect
+    .difference(GameModsLegacy::SuddenDeath)
+    .bits();
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Mods(u32);
 
@@ -32,7 +39,16 @@ impl Mods {
     }
 
     pub fn acronyms(self) -> String {
-        let mods = GameModsLegacy::from_bits_retain(self.0);
+        // Only the ranked mods belong in the saved string, and rosu-mods names
+        // Nightcore and Perfect only when their implied bits are present.
+        let mut bits = self.0 & RANKED_IN_STANDARD.bits();
+        if bits & NIGHTCORE_ONLY != 0 {
+            bits |= GameModsLegacy::DoubleTime.bits();
+        }
+        if bits & PERFECT_ONLY != 0 {
+            bits |= GameModsLegacy::SuddenDeath.bits();
+        }
+        let mods = GameModsLegacy::from_bits_retain(bits);
         if mods.is_empty() {
             String::new()
         } else {
@@ -52,6 +68,10 @@ mod tests {
             (HD | DT, "HDDT"),
             (HD | DT | NC, "HDNC"),
             (SD | PF, "PF"),
+            (NC, "NC"),
+            (PF, "PF"),
+            (RX, ""),
+            (TARGET, ""),
             (EZ | HD | HT | FL, "EZHDHTFL"),
             (NF | TD | SO, "NFTDSO"),
         ] {
